@@ -1,8 +1,8 @@
 'use strict';
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.groq;
-const GROQ_MODEL   = 'llama-3.1-8b-instant';
-const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
+const OPENAI_API_KEY = process.env.chatgpt;
+const OPENAI_MODEL   = 'gpt-4o-mini';
+const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
 
 async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -20,14 +20,14 @@ ${events.map(e => `{"id":"${e.id}","title":"${e.title}","country":"${e.country}"
 
 Return ONLY a valid JSON array, no explanation.`;
 
-  const resp = await fetch(GROQ_URL, {
+  const resp = await fetch(OPENAI_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${GROQ_API_KEY}`
+      'Authorization': `Bearer ${OPENAI_API_KEY}`
     },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model: OPENAI_MODEL,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.1,
       max_tokens: 4000
@@ -71,7 +71,7 @@ Return ONLY a valid JSON array, no explanation.`;
 
 // ── Enrichissement complet par batches de 20 ─────────────────────────────
 async function enrichEvents(events) {
-  if (!GROQ_API_KEY || !events.length) return events;
+  if (!OPENAI_API_KEY || !events.length) return events;
 
   const BATCH_SIZE = 20;
   const enriched   = [];
@@ -97,7 +97,7 @@ async function enrichEvents(events) {
     }
 
     if (i + BATCH_SIZE < events.length) {
-      await sleep(8000);
+      await sleep(1000); // OpenAI a des rate limits bien plus généreux
     }
   }
 
