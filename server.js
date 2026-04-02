@@ -79,6 +79,13 @@ app.get('/health', (req, res) => {
   });
 });
 
+// ── Endpoint refresh manuel ───────────────────────────────────────────────
+app.post('/refresh', (req, res) => {
+  res.json({ ok: true, message: 'refresh triggered' });
+  cache.lastUpdate = null; // force skip du cache
+  refresh().catch(err => console.error('[manual-refresh] failed:', err.message));
+});
+
 // ── Cron 15 min ───────────────────────────────────────────────────────────
 cron.schedule('*/15 * * * *', () => {
   console.log('[cron] triggered');
