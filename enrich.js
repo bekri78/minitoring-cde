@@ -71,6 +71,7 @@ Return ONLY a valid JSON array, no explanation.`;
 
 // ── Enrichissement complet par batches de 20 ─────────────────────────────
 async function enrichEvents(events) {
+  console.log(`[enrich] API key present: ${!!OPENAI_API_KEY}`);
   if (!OPENAI_API_KEY || !events.length) return events;
 
   const BATCH_SIZE = 20;
