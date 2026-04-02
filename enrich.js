@@ -4,9 +4,12 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.groq;
 const GROQ_MODEL   = 'llama-3.1-8b-instant';
 const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
 
+// ── Retry avec backoff exponentiel ───────────────────────────────────────
+async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 // ── Appel Groq pour un batch d'événements ────────────────────────────────
 // On traite par batch de 20 pour minimiser les appels API
-async function enrichBatch(events) {
+async function enrichBatch(events, attempt = 0) {
   if (!GROQ_API_KEY) {
     console.warn('[enrich] no GROQ_API_KEY — skipping enrichment');
     return events;
@@ -38,6 +41,17 @@ Return ONLY a valid JSON array, no explanation.`;
         max_tokens: 4000
       })
     });
+
+    if (resp.status === 429) {
+      if (attempt < 4) {
+        const wait = (attempt + 1) * 15000; // 15s, 30s, 45s, 60s
+        console.warn(`[enrich] 429 rate limit — retry in ${wait/1000}s (attempt ${attempt+1}/4)`);
+        await sleep(wait);
+        return enrichBatch(events, attempt + 1);
+      }
+      console.warn('[enrich] 429 — max retries reached, skipping batch');
+      return events;
+    }
 
     if (!resp.ok) {
       console.warn(`[enrich] Groq API error ${resp.status}`);
@@ -91,9 +105,9 @@ async function enrichEvents(events) {
     kept     += result.length;
     rejected += batch.length - result.length;
 
-    // Petite pause pour respecter les rate limits Groq (30 req/min free tier)
+    // Pause pour respecter les rate limits Groq (tokens/min est le facteur limitant)
     if (i + BATCH_SIZE < events.length) {
-      await new Promise(r => setTimeout(r, 2100));
+      await sleep(5000); // 5s → ~12 req/min, bien sous la limite de 30 req/min
     }
   }
 
