@@ -210,9 +210,6 @@ const MILITARY_CRISIS_KEYWORDS = [
   'paramilitary'
 ];
 
-// ── Config SharePoint ─────────────────────────────────────────────────────
-const SP_BASE = '';
-const SP_FOLDER = '/Shared Documents/gdelt/';
 
 // ── Config Railway (serveur GDELT) ────────────────────────────────────────
 const RAILWAY_URL = 'https://minitoring-cde-production.up.railway.app';
@@ -372,9 +369,6 @@ function getSeverityKey(tone) {
   return 'low';
 }
 
-function getSeverityKeyFromTone(tone) {
-  return getSeverityKey(tone);
-}
 
 function getRegionKey(lat, lon) {
   if (lat > 34 && lat < 72 && lon > -25 && lon < 45) return 'europe';
@@ -473,28 +467,16 @@ function scoreEvent(event) {
   const text = `${event.title || ''} ${event.url || ''} ${event.domain || ''}`;
   const normalized = normalizeText(text);
 
+  const SCORE_BONUSES = {
+    missile: 25, war: 25, airstrike: 24, bombing: 24, terrorist: 24,
+    attack: 22, military: 20, strike: 20, drone: 20, hostage: 20,
+    protest: 18, riot: 18, explosion: 18, troops: 16, crisis: 15, incident: 12
+  };
   for (const keyword of MILITARY_CRISIS_KEYWORDS) {
     if (normalized.includes(normalizeText(keyword))) {
-      score += 20;
+      score += SCORE_BONUSES[keyword] ?? 20;
     }
   }
-
-  if (normalized.includes('military')) score += 20;
-  if (normalized.includes('missile')) score += 25;
-  if (normalized.includes('strike')) score += 20;
-  if (normalized.includes('drone')) score += 20;
-  if (normalized.includes('protest')) score += 18;
-  if (normalized.includes('riot')) score += 18;
-  if (normalized.includes('crisis')) score += 15;
-  if (normalized.includes('incident')) score += 12;
-  if (normalized.includes('war')) score += 25;
-  if (normalized.includes('attack')) score += 22;
-  if (normalized.includes('explosion')) score += 18;
-  if (normalized.includes('hostage')) score += 20;
-  if (normalized.includes('airstrike')) score += 24;
-  if (normalized.includes('bombing')) score += 24;
-  if (normalized.includes('terrorist')) score += 24;
-  if (normalized.includes('troops')) score += 16;
 
   return score;
 }
@@ -504,14 +486,14 @@ const CATEGORY_RULES = [
   {
     key: 'terrorism',
     label: 'TERRORISM',
-    color: '#ff0044',
+    color: '#ff0044',   // rouge vif
     keywords: ['terrorist', 'terrorism', 'suicide bomb', 'isis', 'al-qaeda', 'al qaeda',
                'jihad', 'ied', 'car bomb', 'beheading', 'kidnap', 'hostage', 'extremist']
   },
   {
     key: 'military',
     label: 'MILITARY',
-    color: '#ff6600',
+    color: '#ff6600',   // orange
     keywords: ['airstrike', 'air strike', 'missile', 'artillery', 'shelling', 'bombardment',
                'navy', 'air force', 'fighter jet', 'warplane', 'tank', 'drone strike',
                'mobilization', 'paramilitary', 'armed forces', 'military operation',
@@ -520,7 +502,7 @@ const CATEGORY_RULES = [
   {
     key: 'conflict',
     label: 'CONFLICT',
-    color: '#ff8800',
+    color: '#ffaa00',   // ambre — plus distinct de military
     keywords: ['war', 'battle', 'combat', 'fighting', 'clashes', 'gunfire', 'killed',
                'wounded', 'rebels', 'insurgent', 'insurgency', 'border clash', 'shootout',
                'armed clash', 'militia', 'raid', 'bombing', 'blast', 'explosion']
@@ -528,7 +510,7 @@ const CATEGORY_RULES = [
   {
     key: 'protest',
     label: 'PROTEST',
-    color: '#ffcc00',
+    color: '#ffee00',   // jaune vif
     keywords: ['protest', 'riot', 'demonstration', 'unrest', 'march', 'rally',
                'uprising', 'civil unrest', 'dissent', 'blockade', 'occupy',
                'strike action', 'walkout', 'coup']
@@ -536,7 +518,7 @@ const CATEGORY_RULES = [
   {
     key: 'crisis',
     label: 'CRISIS',
-    color: '#cc44ff',
+    color: '#cc44ff',   // violet
     keywords: ['crisis', 'emergency', 'martial law', 'sanction', 'evacuation',
                'displaced', 'refugee', 'humanitarian', 'famine', 'epidemic',
                'disaster', 'state of emergency', 'crackdown', 'detained', 'arrested']
@@ -589,72 +571,6 @@ function applyJitterToEvent(event) {
   };
 }
 
-// ── SharePoint ────────────────────────────────────────────────────────────
-async function saveToSharePoint(dateStr, data) {
-  if (!SP_BASE) return;
-
-  try {
-    const digestResp = await fetch(`${SP_BASE}/_api/contextinfo`, {
-      method: 'POST',
-      headers: { Accept: 'application/json;odata=verbose' },
-      credentials: 'include'
-    });
-
-    if (!digestResp.ok) {
-      throw new Error(`contextinfo failed (${digestResp.status})`);
-    }
-
-    const digestData = await digestResp.json();
-    const digest = digestData?.d?.GetContextWebInformation?.FormDigestValue;
-
-    if (!digest) {
-      throw new Error('Missing SharePoint digest');
-    }
-
-    const filename = `gdelt_${dateStr}.json`;
-
-    const saveResp = await fetch(
-      `${SP_BASE}/_api/web/GetFolderByServerRelativeUrl('${SP_FOLDER}')/Files/add(url='${filename}',overwrite=true)`,
-      {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json;odata=verbose',
-          'X-RequestDigest': digest,
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify(data)
-      }
-    );
-
-    if (!saveResp.ok) {
-      throw new Error(`SharePoint save failed (${saveResp.status})`);
-    }
-
-    console.log(`✅ SharePoint: ${filename} (${data.length} events)`);
-  } catch (e) {
-    console.warn('SharePoint save failed:', e);
-    throw e;
-  }
-}
-
-async function loadFromSharePoint(dateStr) {
-  if (!SP_BASE) return null;
-
-  try {
-    const url = `${SP_BASE}/_api/web/GetFileByServerRelativeUrl('${SP_FOLDER}gdelt_${dateStr}.json')/$value`;
-    const resp = await fetch(url, { credentials: 'include' });
-
-    if (!resp.ok) return null;
-
-    const data = await resp.json();
-    console.log(`📂 SharePoint cache: ${Array.isArray(data) ? data.length : 0} events`);
-    return Array.isArray(data) ? data : null;
-  } catch (e) {
-    console.warn('SharePoint cache load failed:', e);
-    return null;
-  }
-}
 
 // ── Parser une ligne CSV GDELT ────────────────────────────────────────────
 function parseLine(line) {
@@ -905,11 +821,6 @@ function lsLoad(dateStr, maxAgeMs = CACHE_MAX_AGE_MS) {
   }
 }
 
-function lsClear() {
-  for (const key of Object.keys(localStorage)) {
-    if (key.startsWith(LS_KEY_PREFIX)) localStorage.removeItem(key);
-  }
-}
 
 // ── Load principal ────────────────────────────────────────────────────────
 async function loadGdelt(forceRefresh = false) {
@@ -947,13 +858,6 @@ async function loadGdelt(forceRefresh = false) {
     console.log(`[RAILWAY] ${freshEvents.length} events (server updated: ${data.lastUpdate})`);
 
     lsSave(today, freshEvents);
-
-    try {
-      await saveToSharePoint(today, freshEvents);
-    } catch (spErr) {
-      console.warn('SharePoint save skipped:', spErr);
-    }
-
     renderEvents(freshEvents);
     setStatus('LIVE');
     return;
@@ -974,19 +878,6 @@ async function loadGdelt(forceRefresh = false) {
     console.warn('GDELT direct fetch failed:', err);
   }
 
-  try {
-    updateLoadingMsg('NO INTERNET OR FETCH ERROR — LOADING CACHE...', '#ffaa00');
-    setStatus('CACHED');
-
-    const cached = await loadFromSharePoint(today);
-    if (cached?.length) {
-      renderEvents(cached);
-      return;
-    }
-  } catch (cacheErr) {
-    console.warn('SharePoint cache load failed:', cacheErr);
-  }
-
   setStatus('OFFLINE');
 
   if (loadingEl) {
@@ -994,7 +885,7 @@ async function loadGdelt(forceRefresh = false) {
       <div class="loading-text" style="color:#ff4444">
         NO DATA AVAILABLE<br>
         <span style="font-size:10px;color:#4a6a7a">
-          GDELT FETCH FAILED AND NO SHAREPOINT CACHE FOUND
+          SERVER UNREACHABLE AND NO LOCAL CACHE FOUND
         </span>
       </div>
     `;
@@ -1010,6 +901,7 @@ function renderEvents(events) {
   allEvents.forEach(e => {
     if (typeof e._visible === 'undefined') e._visible = true;
     if (!e.color) e.color = getColor(e.tone);
+    if (!e.categoryColor) e.categoryColor = getCategoryColor(e.category || 'incident');
     // Jitter si pas encore appliqué (événements venant de Railway)
     if (e.rawLat === undefined) {
       e.rawLat = e.lat;
@@ -1150,8 +1042,8 @@ function renderMap() {
     type: 'geojson',
     data: geojson,
     cluster: true,
-    clusterMaxZoom: 9,
-    clusterRadius: 40
+    clusterMaxZoom: 7,
+    clusterRadius: 25
   });
 
   map.addLayer({
@@ -1233,7 +1125,7 @@ function renderMap() {
     source: 'events',
     filter: ['!', ['has', 'point_count']],
     paint: {
-      'circle-color': ['get', 'color'],
+      'circle-color': ['get', 'categoryColor'],
       'circle-radius': ['*', ['get', 'size'], 2],
       'circle-opacity': 0.12,
       'circle-stroke-width': 0
@@ -1246,7 +1138,7 @@ function renderMap() {
     source: 'events',
     filter: ['!', ['has', 'point_count']],
     paint: {
-      'circle-color': ['get', 'color'],
+      'circle-color': ['get', 'categoryColor'],
       'circle-radius': ['get', 'size'],
       'circle-opacity': 0.92,
       'circle-stroke-width': 0
@@ -1333,7 +1225,7 @@ function bindMapEvents() {
       if (err) return;
       map.easeTo({
         center: features[0].geometry.coordinates,
-        zoom,
+        zoom: Math.max(zoom, 8),
         duration: 400
       });
     });
@@ -1374,7 +1266,7 @@ function applyFilters() {
   const catOk = new Set(getChecked('cat'));
 
   allEvents.forEach(e => {
-    const sevMatch = sevOk.has(getSeverityKeyFromTone(Number(e.tone)));
+    const sevMatch = sevOk.has(getSeverityKey(Number(e.tone)));
     const regionMatch = regionOk.has(getRegionKey(Number(e.lat), Number(e.lon)));
     const catMatch = catOk.has(e.category || 'incident');
     e._visible = sevMatch && regionMatch && catMatch;
