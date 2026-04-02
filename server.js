@@ -75,6 +75,7 @@ async function refresh(force = false) {
       cache.lastUpdate = disk.lastUpdate;
       cache.date       = today;
       cache.status     = 'ok';
+      isRefreshing     = false;
       console.log(`[refresh] restored from disk — ${disk.events.length} events`);
       return;
     }
