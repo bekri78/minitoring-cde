@@ -20,19 +20,28 @@ ${events.map(e => `{"id":"${e.id}","title":"${e.title}","country":"${e.country}"
 
 Return ONLY a valid JSON array, no explanation.`;
 
-  const resp = await fetch(OPENAI_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,
-      max_tokens: 4000
-    })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
+  let resp;
+  try {
+    resp = await fetch(OPENAI_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 4000
+      }),
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (resp.status === 429) {
     if (attempt < 2) {
@@ -80,6 +89,7 @@ async function enrichEvents(events) {
 
   for (let i = 0; i < events.length; i += BATCH_SIZE) {
     const batch = events.slice(i, i + BATCH_SIZE);
+    console.log(`[enrich] batch ${Math.floor(i/BATCH_SIZE)+1} — calling OpenAI...`);
     try {
       const result = await enrichBatch(batch);
       enriched.push(...result);
