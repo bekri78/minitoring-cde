@@ -1,0 +1,92 @@
+ <!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WORLD MONITOR</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+ <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="logo">WORLD<span>//</span>MONITOR</div>
+  <div class="stat">
+    <span class="live-dot"></span>
+    <span class="stat-value" id="status-text">CONNECTING</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">EVENTS</span>
+    <span class="stat-value" id="event-count">—</span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">NEXT</span>
+    <span class="stat-value next-refresh" id="next-refresh">—</span>
+  </div>
+  <button class="refresh-btn" onclick="loadGdelt(true)">⟳ REFRESH</button>
+  <button class="refresh-btn" onclick="toggleFilterPanel()" id="filter-btn">⚙ FILTERS</button>
+</header>
+
+<div id="map"></div>
+
+
+<div id="loading">
+  <div class="loading-text">LOADING INTEL FEED...</div>
+</div>
+
+  
+
+
+<!-- FILTER PANEL -->
+<div id="filter-overlay" onclick="toggleFilterPanel()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;"></div>
+<div id="filter-panel" style="display:none;position:fixed;top:44px;right:0;width:300px;height:calc(100vh - 44px);background:#0a0f16;border-left:1px solid #1a2a3a;z-index:201;overflow-y:auto;font-family:'Share Tech Mono',monospace;">
+  <div style="padding:16px;border-bottom:1px solid #1a2a3a;display:flex;justify-content:space-between;align-items:center;">
+    <span style="color:#00d4ff;font-size:11px;letter-spacing:2px;">// FILTERS</span>
+    <button onclick="resetFilters()" style="font-family:inherit;font-size:10px;background:transparent;border:1px solid #1a2a3a;color:#4a6a7a;padding:3px 10px;cursor:pointer;">RESET</button>
+  </div>
+
+  <!-- SEVERITY -->
+  <div style="padding:14px 16px;border-bottom:1px solid #1a2a3a;">
+    <div style="font-size:10px;color:#4a6a7a;letter-spacing:1px;margin-bottom:10px;">SEVERITY</div>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <label class="f-check"><input type="checkbox" data-filter="sev" value="critical" checked onchange="applyFilters()"><span style="color:#ff2244">CRITICAL</span><span style="color:#4a6a7a;font-size:9px;margin-left:auto;">≤ -7</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="sev" value="severe" checked onchange="applyFilters()"><span style="color:#ff5533">SEVERE</span><span style="color:#4a6a7a;font-size:9px;margin-left:auto;">-7 to -5</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="sev" value="high" checked onchange="applyFilters()"><span style="color:#ffaa00">HIGH</span><span style="color:#4a6a7a;font-size:9px;margin-left:auto;">-5 to -2</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="sev" value="moderate" checked onchange="applyFilters()"><span style="color:#ffdd55">MODERATE</span><span style="color:#4a6a7a;font-size:9px;margin-left:auto;">-2 to 0</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="sev" value="low" checked onchange="applyFilters()"><span style="color:#00d4ff">LOW</span><span style="color:#4a6a7a;font-size:9px;margin-left:auto;">> 0</span></label>
+    </div>
+  </div>
+
+  <!-- TYPE -->
+  <div style="padding:14px 16px;border-bottom:1px solid #1a2a3a;">
+    <div style="font-size:10px;color:#4a6a7a;letter-spacing:1px;margin-bottom:10px;">TYPE</div>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <label class="f-check"><input type="checkbox" data-filter="cat" value="terrorism" checked onchange="applyFilters()"><span style="color:#ff0044">TERRORISM</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="cat" value="military" checked onchange="applyFilters()"><span style="color:#ff6600">MILITARY</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="cat" value="conflict" checked onchange="applyFilters()"><span style="color:#ff8800">CONFLICT</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="cat" value="protest" checked onchange="applyFilters()"><span style="color:#ffcc00">PROTEST</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="cat" value="crisis" checked onchange="applyFilters()"><span style="color:#cc44ff">CRISIS</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="cat" value="incident" checked onchange="applyFilters()"><span style="color:#4a6a7a">INCIDENT</span></label>
+    </div>
+  </div>
+
+  <!-- REGION -->
+  <div style="padding:14px 16px;border-bottom:1px solid #1a2a3a;">
+    <div style="font-size:10px;color:#4a6a7a;letter-spacing:1px;margin-bottom:10px;">REGION</div>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <label class="f-check"><input type="checkbox" data-filter="region" value="europe" checked onchange="applyFilters()"><span style="color:#c8d8e8">EUROPE</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="region" value="middleeast" checked onchange="applyFilters()"><span style="color:#c8d8e8">MIDDLE EAST</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="region" value="asia" checked onchange="applyFilters()"><span style="color:#c8d8e8">ASIA</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="region" value="africa" checked onchange="applyFilters()"><span style="color:#c8d8e8">AFRICA</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="region" value="americas" checked onchange="applyFilters()"><span style="color:#c8d8e8">AMERICAS</span></label>
+      <label class="f-check"><input type="checkbox" data-filter="region" value="oceania" checked onchange="applyFilters()"><span style="color:#c8d8e8">OCEANIA</span></label>
+    </div>
+  </div>
+
+  </div>
+<script type="text/javascript" src="index.js"></script>
+</body>
+</html>
