@@ -3,7 +3,27 @@
 const JSZip = require('jszip');
 
 // ── Codes CAMEO retenus ───────────────────────────────────────────────────
-const RELEVANT_CODES = new Set(['14', '15', '17', '18', '19', '20']);
+// QuadClass 4 (Material Conflict) — tous ces codes sont retenus
+const MATERIAL_CONFLICT_CODES = new Set([
+  '13', // THREATEN — menaces militaires, ultimatums, WMD
+  '14', // PROTEST  — émeutes, manifestations violentes
+  '15', // EXHIBIT FORCE POSTURE — mobilisation, alerte militaire
+  '16', // REDUCE RELATIONS — sanctions, ruptures, expulsions
+  '17', // COERCE — arrestations, état d'urgence, répression violente
+  '18', // ASSAULT — attentats, prises d'otages, assassinats
+  '19', // FIGHT — combats, frappes, occupation de territoire
+  '20'  // UNCONVENTIONAL MASS VIOLENCE — massacres, armes de destruction massive
+]);
+
+// QuadClass 3 (Verbal Conflict) — seulement les codes à fort impact opérationnel
+const VERBAL_CONFLICT_CODES = new Set([
+  '13', // Menaces militaires directes
+  '15', // Démonstration de force
+  '17', // Coercition
+  '18', // Assault (verbal reporting)
+  '19', // Combat (verbal reporting)
+  '20'  // Violence de masse
+]);
 
 // ── Bruit à exclure ───────────────────────────────────────────────────────
 const NOISE_KEYWORDS = [
@@ -33,7 +53,17 @@ const NOISE_KEYWORDS = [
   'looks back', 'in retrospect', 'remembering', 'commemorat',
   'memorial service', 'tribute to', 'in memory of',
   'explainer', 'fact check', 'what to know', 'opinion:', 'op-ed',
-  'health tips', 'weight loss', 'diet', 'fitness', 'wellness'
+  'health tips', 'weight loss', 'diet', 'fitness', 'wellness',
+
+  // ── Violences civiles non-opérationnelles (crime ordinaire) ───────────────
+  'stroller', 'baby killed', 'child killed in shooting', 'teen shot',
+  'man shot', 'woman shot', 'killed in shooting', 'shooting in brooklyn',
+  'shooting in chicago', 'shooting in los angeles', 'shooting in philadelphia',
+  'drive by', 'drive-by', 'gang shooting', 'neighborhood shooting',
+  'stabbing', 'carjacking', 'robbery', 'burglar', 'domestic violence',
+  'drunk driver', 'hit and run', 'car accident', 'road accident', 'plane crash',
+  'train derail', 'building collapse', 'fire kills', 'earthquake kills',
+  'flood kills', 'storm kills', 'weather kills'
 ];
 
 const NOISE_DOMAINS = new Set([
@@ -62,37 +92,51 @@ const MILITARY_CRISIS_KEYWORDS = [
 const CATEGORY_RULES = [
   {
     key: 'terrorism',
-    keywords: ['terrorist', 'terrorism', 'suicide bomb', 'isis', 'al-qaeda',
-               'al qaeda', 'jihad', 'ied', 'car bomb', 'beheading', 'kidnap',
-               'hostage', 'extremist']
+    cameo: ['181', '182', '183', '1831', '1832', '1833', '185', '186', '200', '201', '202', '203', '204'],
+    keywords: ['terrorist', 'terrorism', 'suicide bomb', 'isis', 'isil', 'daesh',
+               'al-qaeda', 'al qaeda', 'jihad', 'ied', 'car bomb', 'beheading',
+               'kidnap', 'hostage', 'extremist', 'mass shooting', 'gunman',
+               'massacre', 'ethnic cleansing', 'wmd', 'chemical weapon']
   },
   {
     key: 'military',
+    cameo: ['150', '151', '152', '153', '154', '190', '191', '192', '193', '194', '195', '196'],
     keywords: ['airstrike', 'air strike', 'missile', 'artillery', 'shelling',
                'bombardment', 'navy', 'air force', 'fighter jet', 'warplane',
-               'tank', 'drone strike', 'mobilization', 'paramilitary',
-               'armed forces', 'military operation', 'offensive', 'siege',
-               'ceasefire', 'air raid', 'rocket attack', 'troops deployed']
+               'tank', 'drone strike', 'mobilization', 'armed forces',
+               'military operation', 'offensive', 'siege', 'air raid',
+               'rocket attack', 'troops deployed', 'naval', 'ground assault',
+               'military advance', 'frontline', 'ceasefire violation']
   },
   {
     key: 'conflict',
+    cameo: ['180', '184', '186', '193', '194', '195'],
     keywords: ['war', 'battle', 'combat', 'fighting', 'clashes', 'gunfire',
-               'killed', 'wounded', 'rebels', 'insurgent', 'insurgency',
-               'border clash', 'shootout', 'armed clash', 'militia', 'raid',
-               'bombing', 'blast', 'explosion']
+               'killed', 'wounded', 'dead', 'casualties', 'rebels', 'insurgent',
+               'insurgency', 'border clash', 'shootout', 'armed clash', 'militia',
+               'raid', 'bombing', 'blast', 'explosion', 'ambush', 'convoy attack']
   },
   {
     key: 'protest',
+    cameo: ['140', '141', '142', '143', '144', '145'],
     keywords: ['protest', 'riot', 'demonstration', 'unrest', 'march', 'rally',
                'uprising', 'civil unrest', 'dissent', 'blockade', 'occupy',
-               'walkout', 'coup']
+               'walkout', 'coup', 'stormed', 'clashed with police']
+  },
+  {
+    key: 'threat',
+    cameo: ['130', '131', '132', '133', '137', '138', '139'],
+    keywords: ['ultimatum', 'threatened', 'threatens', 'warned', 'warning',
+               'nuclear threat', 'military threat', 'sanctions threat',
+               'blockade threat', 'invasion threat', 'attack threat']
   },
   {
     key: 'crisis',
+    cameo: ['160', '161', '162', '163', '170', '172', '173', '174', '175'],
     keywords: ['crisis', 'emergency', 'martial law', 'sanction', 'evacuation',
-               'displaced', 'refugee', 'humanitarian', 'famine', 'epidemic',
-               'disaster', 'state of emergency', 'crackdown', 'detained',
-               'arrested']
+               'displaced', 'refugee', 'state of emergency', 'crackdown',
+               'detained', 'arrested', 'expelled', 'deported', 'coup',
+               'sanctions imposed', 'diplomatic expulsion']
   }
 ];
 
@@ -137,7 +181,14 @@ function safeDomainFromUrl(url) {
   catch { return ''; }
 }
 
-function classifyEvent(text) {
+function classifyEvent(text, eventCode = '') {
+  // Priorité 1 : classification par code CAMEO exact
+  for (const cat of CATEGORY_RULES) {
+    if (cat.cameo && cat.cameo.some(c => eventCode.startsWith(c))) {
+      return cat.key;
+    }
+  }
+  // Priorité 2 : classification par mots-clés
   const normalized = normalizeText(text);
   for (const cat of CATEGORY_RULES) {
     if (cat.keywords.some(k => normalized.includes(normalizeText(k)))) {
@@ -198,16 +249,34 @@ function parseLine(line) {
     const c = line.split('\t');
     if (c.length < 61) return null;
 
-    const rootCode  = (c[28] || '').substring(0, 2);
+    const eventCode = (c[26] || '').trim();  // EventCode complet (col 26)
+    const rootCode  = (c[28] || '').trim();  // EventRootCode (col 28)
+    const quadClass = (c[29] || '').trim();  // QuadClass (col 29)
     const goldstein = parseFloat(c[30]);
-    const geoType   = c[35];
-    const latRaw    = parseFloat(c[40]);
-    const lonRaw    = parseFloat(c[41]);
+    // ActionGeo = où l'événement s'est produit (pas Actor1Geo qui est le pays d'origine)
+    const geoType   = c[51];               // ActionGeo_Type
+    const geoName   = c[52] || '';         // ActionGeo_FullName
+    const latRaw    = parseFloat(c[56]);   // ActionGeo_Lat
+    const lonRaw    = parseFloat(c[57]);   // ActionGeo_Long
     const url       = (c[60] || '').trim();
 
-    if (!RELEVANT_CODES.has(rootCode)) return null;
-    if (isNaN(goldstein) || goldstein > -2) return null;
-    if (geoType === '2' || geoType === '3') return null;
+    // ── Filtre QuadClass : uniquement conflits verbaux et matériels ──────
+    if (quadClass !== '3' && quadClass !== '4') return null;
+
+    // ── Filtre codes CAMEO selon le type de conflit ──────────────────────
+    if (quadClass === '4' && !MATERIAL_CONFLICT_CODES.has(rootCode)) return null;
+    if (quadClass === '3' && !VERBAL_CONFLICT_CODES.has(rootCode)) return null;
+
+    // ── Filtre Goldstein différencié ─────────────────────────────────────
+    // Material Conflict : seuil -1 (événements violents réels)
+    // Verbal Conflict   : seuil -5 (seulement les menaces très sérieuses)
+    const goldsteinThreshold = quadClass === '4' ? -1 : -5;
+    if (isNaN(goldstein) || goldstein > goldsteinThreshold) return null;
+
+    // Garder uniquement les géolocalisations précises
+    // 1=Country (centroïde imprécis), 2=US State, 3=US City, 4=World City, 5=World State
+    // On accepte 3 (US City), 4 (World City), 5 (World State) — on rejette 1 et 2
+    if (geoType !== '3' && geoType !== '4' && geoType !== '5') return null;
     if (!url) return null;
 
     let lat = latRaw;
@@ -222,7 +291,7 @@ function parseLine(line) {
     if (isNoiseEvent(title, url, domain)) return null;
     if (!isOperationalEvent(title, url)) return null;
 
-    const category = classifyEvent(text);
+    const category = classifyEvent(text, eventCode);
     const score    = scoreEvent(text, goldstein);
 
     return {
@@ -231,7 +300,7 @@ function parseLine(line) {
       url,
       domain,
       date:          c[1] || '',
-      country:       c[36] || c[37] || '',
+      country:       geoName || c[36] || '',
       rootCode,
       lat,
       lon,

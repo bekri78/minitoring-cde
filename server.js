@@ -4,6 +4,7 @@ const express = require('express');
 const cors    = require('cors');
 const cron    = require('node-cron');
 const { fetchTodayEvents } = require('./gdelt');
+const { enrichEvents }    = require('./enrich');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -36,12 +37,14 @@ async function refresh() {
   cache.status = 'refreshing';
 
   try {
-    const events    = await fetchTodayEvents();
+    const raw       = await fetchTodayEvents();
+    console.log(`[refresh] ${raw.length} raw events — enriching with AI...`);
+    const events    = await enrichEvents(raw);
     cache.events    = events;
     cache.lastUpdate = new Date().toISOString();
     cache.date      = today;
     cache.status    = 'ok';
-    console.log(`[refresh] done — ${events.length} events`);
+    console.log(`[refresh] done — ${events.length} events after AI enrichment`);
   } catch (err) {
     cache.status = 'error';
     console.error('[refresh] failed:', err.message);
@@ -77,7 +80,8 @@ cron.schedule('*/15 * * * *', () => {
 });
 
 // ── Démarrage ─────────────────────────────────────────────────────────────
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
-  await refresh();
+  // Lancer le refresh en arrière-plan — ne pas bloquer le démarrage
+  refresh().catch(err => console.error('[startup] refresh failed:', err.message));
 });
