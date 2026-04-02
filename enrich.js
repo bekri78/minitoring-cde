@@ -107,7 +107,7 @@ async function enrichEvents(events) {
 
     // Pause pour respecter les rate limits Groq (tokens/min est le facteur limitant)
     if (i + BATCH_SIZE < events.length) {
-      await sleep(5000); // 5s → ~12 req/min, bien sous la limite de 30 req/min
+      await sleep(8000); // 8s → ~7 req/min, ~9000 tokens/min, sous les limites free tier
     }
   }
 

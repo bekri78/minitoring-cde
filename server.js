@@ -38,8 +38,14 @@ async function refresh() {
 
   try {
     const raw       = await fetchTodayEvents();
-    console.log(`[refresh] ${raw.length} raw events — enriching with AI...`);
-    const events    = await enrichEvents(raw);
+    // Limiter Groq aux 200 événements les plus sévères pour rester dans les rate limits
+    const MAX_ENRICH = 200;
+    const sorted     = [...raw].sort((a, b) => (a.goldstein || 0) - (b.goldstein || 0));
+    const toEnrich   = sorted.slice(0, MAX_ENRICH);
+    const rest       = sorted.slice(MAX_ENRICH);
+    console.log(`[refresh] ${raw.length} raw events — enriching top ${toEnrich.length} with AI...`);
+    const enriched   = await enrichEvents(toEnrich);
+    const events     = [...enriched, ...rest];
     cache.events    = events;
     cache.lastUpdate = new Date().toISOString();
     cache.date      = today;
