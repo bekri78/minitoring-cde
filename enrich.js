@@ -1,6 +1,6 @@
 'use strict';
 
-const OPENAI_API_KEY = process.env.chatgpt;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
 const OPENAI_MODEL   = 'gpt-4o-mini';
 const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
 
