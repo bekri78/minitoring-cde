@@ -7,21 +7,47 @@ const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
 async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── Appel Groq pour un batch d'événements ────────────────────────────────
+const SYSTEM_PROMPT = `You are a strict intelligence analyst filtering news events for a geopolitical security monitoring dashboard.
+
+Your task: classify each event as KEEP or REJECT based on direct operational relevance to national security and geopolitical intelligence.
+
+KEEP events ONLY if they involve:
+- Military operations, deployments, exercises, strikes, airstrikes, bombardments, frontline movements
+- Armed conflicts, combat, clashes between armed groups
+- Terrorism, counterterrorism, IED attacks, suicide bombings, mass hostage situations, beheadings
+- Coups, attempted coups, seizure of power, armed uprisings, mutinies
+- Cyberattacks, electronic warfare, sabotage of critical infrastructure (power grid, pipelines, government systems)
+- Interstate border tensions, military standoffs, naval incidents, coercive state actions
+- Sanctions with direct security or military implications (arms embargo, asset freeze on military entities)
+- Nuclear weapons, ballistic missiles, WMD, hypersonic weapons, space defense activities
+- Major geopolitical crises: state of emergency, martial law, diplomatic ruptures with military escalation
+- Attacks on critical infrastructure (dams, ports, refineries, hospitals in war zones)
+
+REJECT events that involve:
+- Local or street crime (shootings, stabbings, robberies, carjacking, domestic violence, gang activity)
+- Individual accidents (traffic, aviation, industrial, construction, workplace)
+- Natural disasters, unless they trigger a military response or major political instability
+- Court cases, trials, legal verdicts, indictments, sentencing, bail hearings
+- Business, economy, markets, company earnings, trade deals, IPOs (unless a direct security sanction)
+- Culture, arts, sports, entertainment, celebrity news
+- Generic political speeches, press conferences, elections, routine diplomacy
+- Opinion pieces, editorials, analysis articles, retrospectives, anniversaries
+- Health, lifestyle, science discoveries, technology without security relevance
+- Human interest stories, community events, social issues
+
+STRICT RULE: When in doubt → REJECT. Only keep events an intelligence officer on watch duty would actively monitor. False positives are worse than false negatives. A relevance below 65 should mean keep=false.`;
+
 async function enrichBatch(events, attempt = 0) {
-  const prompt = `You are an intelligence analyst assistant. For each event below, return a JSON array with one object per event containing:
-- "id": the original event id
-- "keep": true/false — keep only if genuinely relevant for military/security/intelligence monitoring (reject: civil crime, accidents, natural disasters, court cases, business news)
-- "title_fr": a concise French title (max 12 words) describing what happened
-- "location": the real place where the event occurred (city, country) — infer from the title text, ignore the provided country if it seems wrong
-- "category": one of: military, conflict, terrorism, protest, threat, crisis, incident
+  const userContent = `Classify these events. Return ONLY a valid JSON array, no markdown, no explanation.
 
 Events:
-${events.map(e => `{"id":"${e.id}","title":"${e.title}","country":"${e.country}","category":"${e.category}"}`).join('\n')}
+${events.map(e => `{"id":"${e.id}","title":"${e.title}","country":"${e.country}"}`).join('\n')}
 
-Return ONLY a valid JSON array, no explanation.`;
+Required output format for each event:
+{"id":"...","keep":true/false,"relevance":0-100,"title_fr":"titre français ≤12 mots","location":"Ville, Pays","category":"military|conflict|terrorism|protest|cyber|strategic|crisis|critical_incident|discard"}`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
   let resp;
   try {
@@ -33,9 +59,12 @@ Return ONLY a valid JSON array, no explanation.`;
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: 4000
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user',   content: userContent }
+        ],
+        temperature: 0,
+        max_tokens: 5000
       }),
       signal: controller.signal
     });
@@ -64,16 +93,22 @@ Return ONLY a valid JSON array, no explanation.`;
   const results = JSON.parse(match[0]);
   const byId    = Object.fromEntries(results.map(r => [r.id, r]));
 
+  const RELEVANCE_THRESHOLD = 65;
+
   return events
-    .filter(e => byId[e.id]?.keep !== false)
+    .filter(e => {
+      const r = byId[e.id];
+      // Strict opt-in: must be explicitly kept AND meet relevance threshold
+      return r && r.keep === true && (r.relevance || 0) >= RELEVANCE_THRESHOLD;
+    })
     .map(e => {
       const r = byId[e.id];
-      if (!r) return e;
       return {
         ...e,
-        title:    r.title_fr || e.title,
-        country:  r.location  || e.country,
-        category: r.category  || e.category
+        title:     r.title_fr  || e.title,
+        country:   r.location  || e.country,
+        category:  r.category  || e.category,
+        relevance: r.relevance || 0
       };
     });
 }
@@ -99,12 +134,12 @@ async function enrichEvents(events) {
     } catch (err) {
       if (err.message === 'QUOTA_EXHAUSTED') {
         console.warn(`[enrich] quota épuisé après ${batchesDone} batches — abandon des batches restants`);
-        // Garder les événements restants sans enrichissement
-        enriched.push(...events.slice(i));
+        // Ne pas injecter les événements bruts non filtrés dans le cache
+        rejected += events.slice(i).length;
         break;
       }
-      console.warn(`[enrich] batch ${batchesDone + 1} failed: ${err.message} — keeping raw`);
-      enriched.push(...batch);
+      console.warn(`[enrich] batch ${batchesDone + 1} failed: ${err.message} — dropping (no raw passthrough)`);
+      rejected += batch.length;
     }
 
     if (i + BATCH_SIZE < events.length) {

@@ -22,6 +22,7 @@ let cache = {
   date:       null,
   status:     'initializing'
 };
+let isRefreshing = false;
 
 // ── Persistance disque ────────────────────────────────────────────────────
 function diskCachePath(date) {
@@ -51,6 +52,11 @@ function loadFromDisk(date) {
 
 // ── Refresh GDELT ─────────────────────────────────────────────────────────
 async function refresh(force = false) {
+  if (isRefreshing) {
+    console.log('[refresh] skipped — already in progress');
+    return;
+  }
+
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
   // Si déjà enrichi aujourd'hui → skip jusqu'au lendemain
@@ -58,6 +64,8 @@ async function refresh(force = false) {
     console.log('[refresh] skipped — already enriched today');
     return;
   }
+
+  isRefreshing = true;
 
   // Charger depuis le disque si disponible (évite l'enrichissement IA au restart)
   if (!force) {
@@ -78,12 +86,10 @@ async function refresh(force = false) {
   try {
     const raw       = await fetchTodayEvents();
     const MAX_ENRICH = 200;
-    const sorted     = [...raw].sort((a, b) => (a.goldstein || 0) - (b.goldstein || 0));
-    const toEnrich   = sorted.slice(0, MAX_ENRICH);
-    const rest       = sorted.slice(MAX_ENRICH);
-    console.log(`[refresh] ${raw.length} raw events — enriching top ${toEnrich.length} with AI...`);
-    const enriched   = await enrichEvents(toEnrich);
-    const events     = [...enriched, ...rest];
+    // Sort by most negative Goldstein (highest conflict intensity) — enrich only these
+    const toEnrich   = [...raw].sort((a, b) => (a.goldstein || 0) - (b.goldstein || 0)).slice(0, MAX_ENRICH);
+    console.log(`[refresh] ${raw.length} raw events — enriching top ${toEnrich.length} with AI (rest discarded)...`);
+    const events     = await enrichEvents(toEnrich);
     cache.events     = events;
     cache.lastUpdate = new Date().toISOString();
     cache.date       = today;
@@ -93,6 +99,8 @@ async function refresh(force = false) {
   } catch (err) {
     cache.status = 'error';
     console.error('[refresh] failed:', err.message);
+  } finally {
+    isRefreshing = false;
   }
 }
 
