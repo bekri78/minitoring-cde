@@ -53,13 +53,10 @@ function loadFromDisk(date) {
 async function refresh(force = false) {
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
-  // Si déjà à jour et même jour → skip
-  if (!force && cache.date === today && cache.status === 'ok' && cache.lastUpdate) {
-    const age = Date.now() - new Date(cache.lastUpdate).getTime();
-    if (age < 14 * 60 * 1000) {
-      console.log('[refresh] skipped — cache fresh');
-      return;
-    }
+  // Si déjà enrichi aujourd'hui → skip jusqu'au lendemain
+  if (!force && cache.date === today && cache.status === 'ok') {
+    console.log('[refresh] skipped — already enriched today');
+    return;
   }
 
   // Charger depuis le disque si disponible (évite l'enrichissement IA au restart)
