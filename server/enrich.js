@@ -73,7 +73,7 @@ Required output format for each event:
 {"id":"...","keep":true/false,"relevance":0-100,"title_fr":"titre français ≤12 mots","location":"Ville ou Pays réel de l'événement (inféré du titre uniquement)","category":"military|conflict|terrorism|protest|cyber|strategic|crisis|critical_incident|discard"}`;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), 60000);
 
   let resp;
   try {
