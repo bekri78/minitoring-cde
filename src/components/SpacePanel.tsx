@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Launch, SpaceEvent, LaunchData } from '../types/launch';
+import type { DecayObject, DecayData } from '../types/decay';
 
 interface Props {
-  data:    LaunchData | undefined;
-  loading: boolean;
+  data:      LaunchData | undefined;
+  decay:     DecayData  | undefined;
+  loading:   boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -126,6 +128,34 @@ function EventRow({ event }: { event: SpaceEvent }) {
   );
 }
 
+function DecayRow({ obj }: { obj: DecayObject }) {
+  const daysLabel = obj.daysLeft != null
+    ? obj.daysLeft < 1 ? '< 24H' : `${obj.daysLeft.toFixed(1)}J`
+    : '—';
+  return (
+    <div style={{ padding: '8px 12px', borderTop: '1px solid #0e1a24' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+        <span style={{
+          padding: '1px 6px', fontSize: '9px',
+          background: `${obj.color}18`, color: obj.color,
+          border: `1px solid ${obj.color}44`, letterSpacing: '1px',
+        }}>
+          {daysLabel}
+        </span>
+        <span style={{ color: '#c8d8e8', fontSize: '10px', flex: 1, minWidth: 0 }}>
+          {truncate(obj.name, 30)}
+        </span>
+        <span style={{ color: '#4a6a7a', fontSize: '9px' }}>{obj.country}</span>
+      </div>
+      <div style={{ color: '#4a6a7a', fontSize: '9px', paddingLeft: '2px', display: 'flex', gap: '8px' }}>
+        <span>inc {obj.inclination}°</span>
+        <span>apo {obj.apogee} km</span>
+        <span style={{ marginLeft: 'auto' }}>{formatDate(obj.decayEpoch)}</span>
+      </div>
+    </div>
+  );
+}
+
 function SectionHeader({ title, count }: { title: string; count: number }) {
   return (
     <div style={{
@@ -145,7 +175,7 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function SpacePanel({ data, loading }: Props) {
+export function SpacePanel({ data, decay, loading }: Props) {
   const [open, setOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -160,10 +190,11 @@ export function SpacePanel({ data, loading }: Props) {
     };
   }, [open, data?.launches.length]);
 
-  const next    = data?.launches[0] ?? null;
-  const rest    = data?.launches.slice(1) ?? [];
-  const events  = data?.events ?? [];
+  const next     = data?.launches[0] ?? null;
+  const rest     = data?.launches.slice(1) ?? [];
+  const events   = data?.events ?? [];
   const previous = data?.previous ?? [];
+  const decayList = (decay?.objects ?? []).sort((a, b) => (a.daysLeft ?? 99) - (b.daysLeft ?? 99));
 
   return (
     <>
@@ -229,6 +260,14 @@ export function SpacePanel({ data, loading }: Props) {
               <div style={{ padding: '20px 12px', color: '#4a6a7a', fontSize: '10px', textAlign: 'center' }}>
                 CHARGEMENT...
               </div>
+            )}
+
+            {/* Rentrées atmosphériques — en tête car priorité sécurité */}
+            {decayList.length > 0 && (
+              <>
+                <SectionHeader title="RENTRÉES (30J)" count={decayList.length} />
+                {decayList.map(o => <DecayRow key={o.id} obj={o} />)}
+              </>
             )}
 
             {/* Next launch countdown */}

@@ -8,6 +8,7 @@ const path    = require('path');
 const { fetchTodayEvents }      = require('./gdelt');
 const { enrichEvents }          = require('./enrich');
 const { fetchAll: fetchLaunches, getCache: getLaunchCache } = require('./launches');
+const { fetchDecay,              getCache: getDecayCache  } = require('./spacetrack');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -117,6 +118,16 @@ app.get('/events', (req, res) => {
   });
 });
 
+app.get('/decay', (req, res) => {
+  const c = getDecayCache();
+  res.json({
+    objects:    c.objects,
+    count:      c.objects.length,
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  });
+});
+
 app.get('/launches', (req, res) => {
   const c = getLaunchCache();
   res.json({
@@ -157,9 +168,16 @@ cron.schedule('0 */4 * * *', () => {
   fetchLaunches().catch(err => console.error('[launches-cron]', err.message));
 });
 
+// ── Cron 1x/jour à 06:00 UTC — DECAY ─────────────────────────────────────
+cron.schedule('0 6 * * *', () => {
+  console.log('[cron-decay] triggered');
+  fetchDecay().catch(err => console.error('[decay-cron]', err.message));
+});
+
 // ── Démarrage ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
   refresh().catch(err => console.error('[startup] refresh failed:', err.message));
   fetchLaunches().catch(err => console.error('[startup-launches]', err.message));
+  fetchDecay().catch(err => console.error('[startup-decay]', err.message));
 });

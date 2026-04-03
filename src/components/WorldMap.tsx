@@ -3,14 +3,39 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Event } from '../types/event';
 import type { LaunchPad } from '../types/launch';
+import type { DecayObject } from '../types/decay';
 import { buildGeoJSON } from '../utils/geo';
 import { getColor, getCategoryColor, getCategoryLabel, getSeverityLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
 
 interface Props {
-  events:  Event[];
-  loading: boolean;
-  pads?:   LaunchPad[];
+  events:       Event[];
+  loading:      boolean;
+  pads?:        LaunchPad[];
+  decayObjects?: DecayObject[];
+}
+
+function buildDecayGeoJSON(objects: DecayObject[]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: objects.map(o => ({
+      type:     'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [o.lon, o.lat] },
+      properties: {
+        id:          o.id,
+        name:        o.name,
+        objectId:    o.objectId,
+        decayEpoch:  o.decayEpoch,
+        window:      o.window,
+        inclination: o.inclination,
+        apogee:      o.apogee,
+        perigee:     o.perigee,
+        country:     o.country,
+        daysLeft:    o.daysLeft,
+        color:       o.color,
+      },
+    })),
+  };
 }
 
 function buildPadsGeoJSON(pads: LaunchPad[]): GeoJSON.FeatureCollection {
@@ -30,7 +55,7 @@ function buildPadsGeoJSON(pads: LaunchPad[]): GeoJSON.FeatureCollection {
   };
 }
 
-export function WorldMap({ events, loading, pads = [] }: Props) {
+export function WorldMap({ events, loading, pads = [], decayObjects = [] }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<maplibregl.Map | null>(null);
   const popupRef      = useRef<maplibregl.Popup | null>(null);
@@ -86,6 +111,11 @@ export function WorldMap({ events, loading, pads = [] }: Props) {
         data: { type: 'FeatureCollection', features: [] },
       });
 
+      map.addSource('decay', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
       addLayers(map);
       bindEvents(map, popupRef.current!);
       mapLoadedRef.current = true;
@@ -119,6 +149,14 @@ export function WorldMap({ events, loading, pads = [] }: Props) {
     const source = map.getSource('launch-pads') as maplibregl.GeoJSONSource | undefined;
     source?.setData(buildPadsGeoJSON(pads));
   }, [pads]);
+
+  // Update decay layer
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    const source = map.getSource('decay') as maplibregl.GeoJSONSource | undefined;
+    source?.setData(buildDecayGeoJSON(decayObjects));
+  }, [decayObjects]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -198,6 +236,44 @@ function addLayers(map: maplibregl.Map) {
       'circle-opacity':       0.92,
       'circle-stroke-width':  0,
     },
+  });
+
+  // Decay — halo de danger (pulsation visuelle via opacité forte)
+  map.addLayer({
+    id: 'decay-glow', type: 'circle', source: 'decay',
+    paint: {
+      'circle-color':   ['get', 'color'],
+      'circle-radius':  14,
+      'circle-opacity': 0.18,
+      'circle-stroke-width': 0,
+    },
+  });
+
+  // Decay — marker principal (triangle simulé via cercle + stroke)
+  map.addLayer({
+    id: 'decay-circles', type: 'circle', source: 'decay',
+    paint: {
+      'circle-color':        ['get', 'color'],
+      'circle-radius':       6,
+      'circle-opacity':      0.95,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-opacity': 0.3,
+    },
+  });
+
+  // Decay — label "⚠" affiché au-dessus du marker
+  map.addLayer({
+    id: 'decay-labels', type: 'symbol', source: 'decay',
+    layout: {
+      'text-field':             '⚠',
+      'text-font':              ['Noto Sans Regular'],
+      'text-size':              10,
+      'text-offset':            [0, -1.4],
+      'text-allow-overlap':     true,
+      'text-ignore-placement':  true,
+    },
+    paint: { 'text-color': ['get', 'color'], 'text-opacity': 0.9 },
   });
 
   // Launch pad — glow ring
@@ -285,6 +361,50 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup) {
       .catch(() => {});
   });
 
+  // Decay click
+  map.on('click', 'decay-circles', e => {
+    const feature = e.features?.[0];
+    if (!feature) return;
+    const p      = feature.properties || {};
+    const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+    const color  = p.color || '#ffaa00';
+
+    const daysLabel = p.daysLeft != null
+      ? p.daysLeft < 1
+        ? `<span style="color:${color};font-weight:bold;">< 24H</span>`
+        : `<span style="color:${color};">${Number(p.daysLeft).toFixed(1)}J</span>`
+      : '—';
+
+    const epoch = p.decayEpoch
+      ? new Date(p.decayEpoch).toUTCString().replace(' GMT', ' UTC')
+      : '—';
+
+    popup.setLngLat(coords).setHTML(`
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:280px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
+          <span style="padding:2px 8px;font-size:9px;background:${color}18;color:${color};border:1px solid ${color}44;letter-spacing:1px;">
+            RENTRÉE ATMOSPHÉRIQUE
+          </span>
+          <span style="margin-left:auto;font-size:12px;">${daysLabel}</span>
+        </div>
+        <p style="color:#c8d8e8;margin:0 0 6px 0;font-size:12px;">${escapeHtml(p.name)}</p>
+        <div style="color:#4a6a7a;font-size:9px;margin-bottom:8px;">${escapeHtml(p.objectId)} &nbsp;·&nbsp; ${escapeHtml(p.country)}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9px;border-top:1px solid #1a2a3a;padding-top:8px;">
+          <div><span style="color:#4a6a7a;">INCLINAISON</span><br><span style="color:#c8d8e8;">${p.inclination}°</span></div>
+          <div><span style="color:#4a6a7a;">FENÊTRE</span><br><span style="color:#c8d8e8;">±${p.window}h</span></div>
+          <div><span style="color:#4a6a7a;">APOGÉE</span><br><span style="color:#c8d8e8;">${p.apogee} km</span></div>
+          <div><span style="color:#4a6a7a;">PÉRIGÉE</span><br><span style="color:#c8d8e8;">${p.perigee} km</span></div>
+        </div>
+        <div style="margin-top:8px;font-size:9px;color:#4a6a7a;">
+          Rentrée prévue : <span style="color:#8aabbb;">${escapeHtml(epoch)}</span>
+        </div>
+        <div style="margin-top:4px;font-size:8px;color:#2a4a5a;">
+          ◈ Position indicative — pays de lancement (${escapeHtml(p.country)})
+        </div>
+      </div>
+    `).addTo(map);
+  });
+
   // Launch pad click
   map.on('click', 'pads-circles', e => {
     const feature = e.features?.[0];
@@ -309,6 +429,8 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup) {
   map.on('mouseleave', 'events-circles', () => { map.getCanvas().style.cursor = ''; });
   map.on('mouseenter', 'clusters',       () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'clusters',       () => { map.getCanvas().style.cursor = ''; });
-  map.on('mouseenter', 'pads-circles',   () => { map.getCanvas().style.cursor = 'pointer'; });
-  map.on('mouseleave', 'pads-circles',   () => { map.getCanvas().style.cursor = ''; });
+  map.on('mouseenter', 'pads-circles',    () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'pads-circles',    () => { map.getCanvas().style.cursor = ''; });
+  map.on('mouseenter', 'decay-circles',   () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'decay-circles',   () => { map.getCanvas().style.cursor = ''; });
 }
