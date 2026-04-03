@@ -2,15 +2,33 @@
   "name": "minitoring-cde",
   "version": "1.0.0",
   "scripts": {
-    "start": "node server/server.js"
+    "start": "node server/server.js",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.56.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "jszip": "^3.10.1",
-    "node-cron": "^3.0.3"
+    "maplibre-gl": "^4.7.0",
+    "node-cron": "^3.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.12",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.8"
   }
 }

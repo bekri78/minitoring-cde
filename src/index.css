@@ -1,0 +1,46 @@
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #080c10;
+  color: #c8d8e8;
+  font-family: 'Rajdhani', sans-serif;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#root { height: 100vh; }
+
+/* MapLibre popup overrides */
+.maplibregl-popup-content {
+  background: #0d1520 !important;
+  border: 1px solid #1a2a3a !important;
+  border-radius: 4px !important;
+  padding: 14px 16px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.8) !important;
+  max-width: 380px !important;
+  min-width: 320px !important;
+}
+
+.maplibregl-popup-tip { display: none !important; }
+
+.maplibregl-popup-close-button {
+  color: #4a6a7a !important;
+  font-size: 16px !important;
+  padding: 4px 6px !important;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,255,136,0.4); }
+  50%       { opacity: 0.7; box-shadow: 0 0 0 4px rgba(0,255,136,0); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
