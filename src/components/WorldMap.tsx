@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Event } from '../types/event';
+import type { LaunchPad } from '../types/launch';
 import { buildGeoJSON } from '../utils/geo';
 import { getColor, getCategoryColor, getCategoryLabel, getSeverityLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
@@ -9,9 +10,27 @@ import { formatDate, escapeHtml } from '../utils/format';
 interface Props {
   events:  Event[];
   loading: boolean;
+  pads?:   LaunchPad[];
 }
 
-export function WorldMap({ events, loading }: Props) {
+function buildPadsGeoJSON(pads: LaunchPad[]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: pads
+      .filter(p => p.lat && p.lon)
+      .map(p => ({
+        type:     'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [p.lon, p.lat] },
+        properties: {
+          name:        p.name,
+          country:     p.country,
+          hasUpcoming: p.hasUpcoming,
+        },
+      })),
+  };
+}
+
+export function WorldMap({ events, loading, pads = [] }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<maplibregl.Map | null>(null);
   const popupRef      = useRef<maplibregl.Popup | null>(null);
@@ -62,6 +81,11 @@ export function WorldMap({ events, loading }: Props) {
         clusterRadius:  25,
       });
 
+      map.addSource('launch-pads', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
       addLayers(map);
       bindEvents(map, popupRef.current!);
       mapLoadedRef.current = true;
@@ -80,13 +104,21 @@ export function WorldMap({ events, loading }: Props) {
     };
   }, []);
 
-  // Update data when events change
+  // Update events layer
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current) return;
     const source = map.getSource('events') as maplibregl.GeoJSONSource | undefined;
     source?.setData(buildGeoJSON(events) as Parameters<maplibregl.GeoJSONSource['setData']>[0]);
   }, [events]);
+
+  // Update launch pads layer
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current || !pads.length) return;
+    const source = map.getSource('launch-pads') as maplibregl.GeoJSONSource | undefined;
+    source?.setData(buildPadsGeoJSON(pads));
+  }, [pads]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -167,6 +199,27 @@ function addLayers(map: maplibregl.Map) {
       'circle-stroke-width':  0,
     },
   });
+
+  // Launch pad — glow ring
+  map.addLayer({
+    id: 'pads-glow', type: 'circle', source: 'launch-pads',
+    paint: {
+      'circle-color':   ['case', ['get', 'hasUpcoming'], '#00d4ff', '#1a3a4a'],
+      'circle-radius':  8,
+      'circle-opacity': 0.15,
+    },
+  });
+
+  // Launch pad — marker
+  map.addLayer({
+    id: 'pads-circles', type: 'circle', source: 'launch-pads',
+    paint: {
+      'circle-color':        ['case', ['get', 'hasUpcoming'], 'rgba(0,212,255,0.85)', 'rgba(26,58,74,0.85)'],
+      'circle-radius':       4,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': ['case', ['get', 'hasUpcoming'], '#00d4ff', '#2a4a5a'],
+    },
+  });
 }
 
 function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup) {
@@ -232,8 +285,30 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup) {
       .catch(() => {});
   });
 
+  // Launch pad click
+  map.on('click', 'pads-circles', e => {
+    const feature = e.features?.[0];
+    if (!feature) return;
+    const p      = feature.properties || {};
+    const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+    const color  = p.hasUpcoming ? '#00d4ff' : '#2a4a5a';
+    popup.setLngLat(coords).setHTML(`
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:200px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+          <span style="padding:2px 8px;font-size:9px;background:${color}18;color:${color};border:1px solid ${color}44;">
+            ${p.hasUpcoming ? 'LANCEMENT PRÉVU' : 'PAD ACTIF'}
+          </span>
+        </div>
+        <p style="color:#c8d8e8;margin:0 0 6px 0;">${escapeHtml(p.name)}</p>
+        <div style="font-size:9px;color:#4a6a7a;">◈ ${escapeHtml(p.country)}</div>
+      </div>
+    `).addTo(map);
+  });
+
   map.on('mouseenter', 'events-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'events-circles', () => { map.getCanvas().style.cursor = ''; });
   map.on('mouseenter', 'clusters',       () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'clusters',       () => { map.getCanvas().style.cursor = ''; });
+  map.on('mouseenter', 'pads-circles',   () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'pads-circles',   () => { map.getCanvas().style.cursor = ''; });
 }

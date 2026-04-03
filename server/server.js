@@ -5,8 +5,9 @@ const cors    = require('cors');
 const cron    = require('node-cron');
 const fs      = require('fs');
 const path    = require('path');
-const { fetchTodayEvents } = require('./gdelt');
-const { enrichEvents }    = require('./enrich');
+const { fetchTodayEvents }      = require('./gdelt');
+const { enrichEvents }          = require('./enrich');
+const { fetchAll: fetchLaunches, getCache: getLaunchCache } = require('./launches');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -116,6 +117,18 @@ app.get('/events', (req, res) => {
   });
 });
 
+app.get('/launches', (req, res) => {
+  const c = getLaunchCache();
+  res.json({
+    launches:   c.launches,
+    previous:   c.previous,
+    events:     c.events,
+    pads:       c.pads,
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({
     ok:         cache.status === 'ok',
@@ -132,14 +145,21 @@ app.post('/refresh', (req, res) => {
   refresh(true).catch(err => console.error('[manual-refresh] failed:', err.message));
 });
 
-// ── Cron 15 min ───────────────────────────────────────────────────────────
+// ── Cron 15 min — GDELT ───────────────────────────────────────────────────
 cron.schedule('*/15 * * * *', () => {
   console.log('[cron] triggered');
   refresh();
+});
+
+// ── Cron 4h — Launches ────────────────────────────────────────────────────
+cron.schedule('0 */4 * * *', () => {
+  console.log('[cron-launches] triggered');
+  fetchLaunches().catch(err => console.error('[launches-cron]', err.message));
 });
 
 // ── Démarrage ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
   refresh().catch(err => console.error('[startup] refresh failed:', err.message));
+  fetchLaunches().catch(err => console.error('[startup-launches]', err.message));
 });
