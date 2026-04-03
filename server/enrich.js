@@ -6,6 +6,30 @@ const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
 
 async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// ── Geocoding Nominatim (OpenStreetMap) ───────────────────────────────────
+const geocodeCache = new Map();
+
+async function geocode(location) {
+  if (!location) return null;
+  if (geocodeCache.has(location)) return geocodeCache.get(location);
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'WorldMonitor/1.0' },
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (!data?.[0]) return null;
+    const coords = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+    geocodeCache.set(location, coords);
+    return coords;
+  } catch {
+    return null;
+  }
+}
+
 // ── Appel Groq pour un batch d'événements ────────────────────────────────
 const SYSTEM_PROMPT = `You are a strict intelligence analyst filtering news events for a geopolitical security monitoring dashboard.
 
@@ -95,22 +119,38 @@ Required output format for each event:
 
   const RELEVANCE_THRESHOLD = 65;
 
-  return events
-    .filter(e => {
+  const kept = events.filter(e => {
+    const r = byId[e.id];
+    return r && r.keep === true && (r.relevance || 0) >= RELEVANCE_THRESHOLD;
+  });
+
+  // Geocode corrected locations in parallel (max 1 req/s Nominatim policy)
+  const geocoded = await Promise.all(
+    kept.map(async (e, i) => {
       const r = byId[e.id];
-      // Strict opt-in: must be explicitly kept AND meet relevance threshold
-      return r && r.keep === true && (r.relevance || 0) >= RELEVANCE_THRESHOLD;
-    })
-    .map(e => {
-      const r = byId[e.id];
+      const aiLocation = r.location;
+      let lat = e.lat, lon = e.lon;
+
+      // Only geocode if AI returned a location different from GDELT's country
+      if (aiLocation && aiLocation.toLowerCase() !== (e.country || '').toLowerCase()) {
+        await sleep(i * 1100); // stagger requests — Nominatim: 1 req/s
+        const coords = await geocode(aiLocation);
+        if (coords) { lat = coords.lat; lon = coords.lon; }
+      }
+
       return {
         ...e,
         title:     r.title_fr  || e.title,
-        country:   r.location  || e.country,
+        country:   aiLocation  || e.country,
         category:  r.category  || e.category,
-        relevance: r.relevance || 0
+        relevance: r.relevance || 0,
+        lat, lon,
+        rawLat: lat, rawLon: lon
       };
-    });
+    })
+  );
+
+  return geocoded;
 }
 
 // ── Enrichissement complet par batches de 20 ─────────────────────────────
