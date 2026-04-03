@@ -1,7 +1,6 @@
 import { useMemo, useCallback, useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEvents }      from './hooks/useEvents';
-import { useAcledEvents } from './hooks/useAcledEvents';
 import { useFilterStore } from './store/filterStore';
 import { Header }         from './components/Header';
 import { WorldMap }       from './components/WorldMap';
@@ -13,17 +12,13 @@ import type { Event }     from './types/event';
 export default function App() {
   const queryClient = useQueryClient();
   const { data: gdeltEvents, status: gdeltStatus } = useEvents();
-  const { data: acledEvents } = useAcledEvents();
   const { severity, categories, regions } = useFilterStore();
 
   const [nextRefresh,     setNextRefresh]     = useState('—');
   const [nextRefreshTime, setNextRefreshTime] = useState(0);
 
   // Combine sources
-  const allEvents = useMemo<Event[]>(() => [
-    ...(gdeltEvents  || []),
-    ...(acledEvents || []),
-  ], [gdeltEvents, acledEvents]);
+  const allEvents = useMemo<Event[]>(() => gdeltEvents || [], [gdeltEvents]);
 
   // Apply filters
   const filteredEvents = useMemo(() => allEvents.filter(e => {
@@ -50,7 +45,6 @@ export default function App() {
 
   const handleRefresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['events'] });
-    queryClient.invalidateQueries({ queryKey: ['acled-events'] });
   }, [queryClient]);
 
   return (
