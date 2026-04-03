@@ -1,0 +1,16 @@
+{
+  "name": "minitoring-cde",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "jszip": "^3.10.1",
+    "node-cron": "^3.0.3"
+  }
+}
