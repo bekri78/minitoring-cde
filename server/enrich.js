@@ -64,11 +64,13 @@ STRICT RULE: When in doubt → REJECT. Only keep events an intelligence officer 
 async function enrichBatch(events, attempt = 0) {
   const userContent = `Classify these events. Return ONLY a valid JSON array, no markdown, no explanation.
 
+CRITICAL: The "source_country" field is GDELT's automated extraction of the NEWS ARTICLE'S PUBLICATION LOCATION — it is NOT the event location and is frequently wrong (e.g., an Australian newspaper reporting on Ukraine will show Australia). You MUST infer the true event location exclusively from the "title" content. Ignore source_country for location purposes.
+
 Events:
-${events.map(e => `{"id":"${e.id}","title":"${e.title}","country":"${e.country}"}`).join('\n')}
+${events.map(e => `{"id":"${e.id}","title":"${e.title}","source_country":"${e.country}"}`).join('\n')}
 
 Required output format for each event:
-{"id":"...","keep":true/false,"relevance":0-100,"title_fr":"titre français ≤12 mots","location":"Ville, Pays","category":"military|conflict|terrorism|protest|cyber|strategic|crisis|critical_incident|discard"}`;
+{"id":"...","keep":true/false,"relevance":0-100,"title_fr":"titre français ≤12 mots","location":"Ville ou Pays réel de l'événement (inféré du titre uniquement)","category":"military|conflict|terrorism|protest|cyber|strategic|crisis|critical_incident|discard"}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
