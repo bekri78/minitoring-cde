@@ -1007,13 +1007,36 @@ function renderMap() {
 
   const filtered = getFilteredEvents();
 
+  // Detect co-located events (same coords rounded to ~1km) and spread them
+  const coordCount = new Map();
+  const coordIdx   = new Map();
+  filtered.forEach(e => {
+    const key = `${Number(e.lon).toFixed(2)},${Number(e.lat).toFixed(2)}`;
+    coordCount.set(key, (coordCount.get(key) || 0) + 1);
+  });
+
   const geojson = {
     type: 'FeatureCollection',
-    features: filtered.map(e => ({
+    features: filtered.map(e => {
+      const key = `${Number(e.lon).toFixed(2)},${Number(e.lat).toFixed(2)}`;
+      const total = coordCount.get(key) || 1;
+      const idx   = coordIdx.get(key) || 0;
+      coordIdx.set(key, idx + 1);
+
+      let lon = Number(e.lon);
+      let lat = Number(e.lat);
+      if (total > 1) {
+        const angle  = (idx / total) * 2 * Math.PI;
+        const radius = 0.18; // ~18km spread
+        lon += Math.cos(angle) * radius;
+        lat += Math.sin(angle) * radius;
+      }
+
+      return {
       type: 'Feature',
       geometry: {
         type: 'Point',
-        coordinates: [Number(e.lon), Number(e.lat)]
+        coordinates: [lon, lat]
       },
       properties: {
         id: e.id,
@@ -1035,7 +1058,8 @@ function renderMap() {
         actor2: e.actor2 || '',
         subType: e.subType || ''
       }
-    }))
+    };
+    })
   };
 
   map.addSource('events', {
