@@ -7,6 +7,7 @@ import { useTip }          from './hooks/useTip';
 import { useEarthquakes }       from './hooks/useEarthquakes';
 import { useSpaceWeather }      from './hooks/useSpaceWeather';
 import { useMilitaryAircraft }  from './hooks/useMilitaryAircraft';
+import { useMilitaryShips }     from './hooks/useMilitaryShips';
 import { useHistory }      from './hooks/useHistory';
 import { useFilterStore } from './store/filterStore';
 import { Header }         from './components/Header';
@@ -28,6 +29,7 @@ export default function App() {
   const { data: quakeData }   = useEarthquakes();
   const { data: swData }      = useSpaceWeather();
   const { data: milData }     = useMilitaryAircraft();
+  const { data: milShipData } = useMilitaryShips();
   const { data: historyData } = useHistory();
   const { severity, categories, regions } = useFilterStore();
 
@@ -73,7 +75,7 @@ export default function App() {
         onRefresh={handleRefresh}
       />
       <div style={{ position: 'relative', overflow: 'hidden' }}>
-        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} quakes={quakeData?.quakes} milAircraft={milData?.aircraft} launches={launchData?.launches} />
+        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} quakes={quakeData?.quakes} milAircraft={milData?.aircraft} milShips={milShipData?.ships} launches={launchData?.launches} />
         <FilterPanel />
         <SpacePanel data={launchData} decay={decayData} tip={tipData} loading={launchStatus === 'pending'} />
         <TrendPanel data={historyData?.history ?? []} />

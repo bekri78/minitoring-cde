@@ -12,6 +12,7 @@ const { fetchDecay, getCache: getDecayCache, fetchTip, getTipCache } = require('
 const { fetchQuakes, getCache: getQuakeCache }                       = require('./earthquakes');
 const { fetchSpaceWeather, getCache: getSwCache }                    = require('./spaceweather');
 const { fetchMilitary, getCache: getMilCache }                       = require('./military-aircraft');
+const { startMilitaryShips, getCache: getShipCache }                 = require('./military-ships');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -239,6 +240,11 @@ app.get('/military-aircraft', (req, res) => {
   });
 });
 
+app.get('/military-ships', (req, res) => {
+  const c = getShipCache();
+  res.json(c);
+});
+
 app.get('/health', (req, res) => {
   res.json({
     ok:         cache.status === 'ok',
@@ -306,4 +312,5 @@ app.listen(PORT, () => {
   fetchQuakes().catch(err => console.error('[startup-earthquakes]', err.message));
   fetchSpaceWeather().catch(err => console.error('[startup-spaceweather]', err.message));
   fetchMilitary().catch(err => console.error('[startup-military]', err.message));
+  startMilitaryShips();
 });
