@@ -66,8 +66,8 @@ function countryFromMmsi(mmsi) {
   return null; // MMSI inconnu → pas militaire
 }
 
-// Patterns de noms militaires connus
-const MILITARY_NAME_RE = /^(USS|HMS|HMAS|HDMS|HNLMS|FS |FNS |RFS |INS |ROKS |JS |TCG|ITS |ESPS|NRP|HMCS)/i;
+// Patterns de noms militaires connus (OTAN + Russie + Chine)
+const MILITARY_NAME_RE = /^(USS|HMS|HMAS|HDMS|HNLMS|FS |FNS |RFS |INS |ROKS |JS |TCG|ITS |ESPS|NRP|HMCS|ADMIRAL |MARSHAL |VARYAG|SLAVA|MOSKVA|KUZNETSOV|UDALOY|SOVREMEN|STOIKY|NEUSTRASH|CNS |LIAONING|SHANDONG|FUJIAN|NANJING|GUANGZHOU|HARBIN|WUHAN|HAIKOU|LANZHOU|SHIJIAZHUANG)/i;
 
 // ── État ──────────────────────────────────────────────────────────────────
 // mmsi (string) → shipMeta : { name, callsign, country, color }
