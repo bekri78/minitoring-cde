@@ -235,6 +235,7 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
         data: { type: 'FeatureCollection', features: [] },
       });
 
+      createAircraftSdfImage(map);
       addLayers(map);
       bindEvents(map, popupRef.current!, launchesRef);
       mapLoadedRef.current = true;
@@ -344,6 +345,70 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
       )}
     </div>
   );
+}
+
+// ── Dessine un avion sur canvas et l'enregistre comme image SDF MapLibre ─
+// SDF = l'icône peut être teinté via icon-color (une seule image, N couleurs)
+function createAircraftSdfImage(map: maplibregl.Map) {
+  const S = 40;
+  const cx = S / 2, cy = S / 2;
+  const canvas = document.createElement('canvas');
+  canvas.width  = S;
+  canvas.height = S;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = 'white';
+
+  // Fuselage (pointe vers le haut = nord = 0°)
+  ctx.beginPath();
+  ctx.moveTo(cx,     cy - 17);   // nez
+  ctx.lineTo(cx + 3, cy - 4);   // épaule droite
+  ctx.lineTo(cx + 3, cy + 8);   // corps bas droit
+  ctx.lineTo(cx,     cy + 6);   // dip central
+  ctx.lineTo(cx - 3, cy + 8);   // corps bas gauche
+  ctx.lineTo(cx - 3, cy - 4);   // épaule gauche
+  ctx.closePath();
+  ctx.fill();
+
+  // Aile droite
+  ctx.beginPath();
+  ctx.moveTo(cx + 3,  cy - 2);
+  ctx.lineTo(cx + 19, cy + 7);
+  ctx.lineTo(cx + 17, cy + 10);
+  ctx.lineTo(cx + 3,  cy + 3);
+  ctx.closePath();
+  ctx.fill();
+
+  // Aile gauche
+  ctx.beginPath();
+  ctx.moveTo(cx - 3,  cy - 2);
+  ctx.lineTo(cx - 19, cy + 7);
+  ctx.lineTo(cx - 17, cy + 10);
+  ctx.lineTo(cx - 3,  cy + 3);
+  ctx.closePath();
+  ctx.fill();
+
+  // Empennage droit
+  ctx.beginPath();
+  ctx.moveTo(cx + 2,  cy + 8);
+  ctx.lineTo(cx + 10, cy + 17);
+  ctx.lineTo(cx + 9,  cy + 18);
+  ctx.lineTo(cx + 2,  cy + 12);
+  ctx.closePath();
+  ctx.fill();
+
+  // Empennage gauche
+  ctx.beginPath();
+  ctx.moveTo(cx - 2,  cy + 8);
+  ctx.lineTo(cx - 10, cy + 17);
+  ctx.lineTo(cx - 9,  cy + 18);
+  ctx.lineTo(cx - 2,  cy + 12);
+  ctx.closePath();
+  ctx.fill();
+
+  const imgData = ctx.getImageData(0, 0, S, S);
+  map.addImage('aircraft-icon',
+    { width: S, height: S, data: new Uint8Array(imgData.data.buffer) },
+    { sdf: true });
 }
 
 function addLayers(map: maplibregl.Map) {
@@ -546,23 +611,22 @@ function addLayers(map: maplibregl.Map) {
     },
   });
 
-  // Military aircraft — icône ▸ orientée selon le cap (▸ est dans Noto Sans Regular / Geometric Shapes)
+  // Military aircraft — silhouette avion (image SDF canvas, teinté par icon-color)
   map.addLayer({
     id: 'mil-aircraft', type: 'symbol', source: 'mil-aircraft',
     layout: {
-      'text-field':            '▸',
-      'text-font':             ['Noto Sans Regular'],
-      'text-size':             16,
-      'text-rotate':           ['get', 'track'],
-      'text-rotation-alignment': 'map',
-      'text-allow-overlap':    true,
-      'text-ignore-placement': true,
+      'icon-image':              'aircraft-icon',
+      'icon-size':               0.6,
+      'icon-rotate':             ['get', 'track'],
+      'icon-rotation-alignment': 'map',
+      'icon-allow-overlap':      true,
+      'icon-ignore-placement':   true,
     },
     paint: {
-      'text-color':       ['get', 'color'],
-      'text-opacity':     0.95,
-      'text-halo-color':  'rgba(0,0,0,0.7)',
-      'text-halo-width':  1.5,
+      'icon-color':       ['get', 'color'],
+      'icon-opacity':     0.95,
+      'icon-halo-color':  'rgba(0,0,0,0.65)',
+      'icon-halo-width':  1.5,
     },
   });
 
