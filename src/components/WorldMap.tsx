@@ -4,15 +4,17 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Event } from '../types/event';
 import type { LaunchPad } from '../types/launch';
 import type { DecayObject } from '../types/decay';
+import type { TipObject } from '../types/tip';
 import { buildGeoJSON } from '../utils/geo';
 import { getColor, getCategoryColor, getCategoryLabel, getSeverityLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
 
 interface Props {
-  events:       Event[];
-  loading:      boolean;
-  pads?:        LaunchPad[];
+  events:        Event[];
+  loading:       boolean;
+  pads?:         LaunchPad[];
   decayObjects?: DecayObject[];
+  tipObjects?:   TipObject[];
 }
 
 function buildDecayGeoJSON(objects: DecayObject[]): GeoJSON.FeatureCollection {
@@ -38,6 +40,30 @@ function buildDecayGeoJSON(objects: DecayObject[]): GeoJSON.FeatureCollection {
   };
 }
 
+function buildTipGeoJSON(objects: TipObject[]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: objects.map(o => ({
+      type:     'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [o.lon, o.lat] },
+      properties: {
+        id:          o.id,
+        name:        o.name,
+        objectId:    o.objectId,
+        objectType:  o.objectType,
+        decayEpoch:  o.decayEpoch,
+        window:      o.window,
+        inclination: o.inclination,
+        direction:   o.direction,
+        country:     o.country,
+        highInterest: o.highInterest,
+        hoursLeft:   o.hoursLeft,
+        color:       o.color,
+      },
+    })),
+  };
+}
+
 function buildPadsGeoJSON(pads: LaunchPad[]): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
@@ -55,7 +81,7 @@ function buildPadsGeoJSON(pads: LaunchPad[]): GeoJSON.FeatureCollection {
   };
 }
 
-export function WorldMap({ events, loading, pads = [], decayObjects = [] }: Props) {
+export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObjects = [] }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<maplibregl.Map | null>(null);
   const popupRef      = useRef<maplibregl.Popup | null>(null);
@@ -63,11 +89,13 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [] }: Prop
   const eventsRef     = useRef<Event[]>(events);
   const padsRef       = useRef<LaunchPad[]>(pads);
   const decayRef      = useRef<DecayObject[]>(decayObjects);
+  const tipRef        = useRef<TipObject[]>(tipObjects);
 
   // Keep refs current so the load handler can access latest data
-  useEffect(() => { eventsRef.current = events; }, [events]);
-  useEffect(() => { padsRef.current   = pads;   }, [pads]);
+  useEffect(() => { eventsRef.current = events;       }, [events]);
+  useEffect(() => { padsRef.current   = pads;         }, [pads]);
   useEffect(() => { decayRef.current  = decayObjects; }, [decayObjects]);
+  useEffect(() => { tipRef.current    = tipObjects;   }, [tipObjects]);
 
   // Initialize MapLibre once
   useEffect(() => {
@@ -118,6 +146,11 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [] }: Prop
         data: { type: 'FeatureCollection', features: [] },
       });
 
+      map.addSource('tip', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
       addLayers(map);
       bindEvents(map, popupRef.current!);
       mapLoadedRef.current = true;
@@ -134,6 +167,10 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [] }: Prop
       if (decayRef.current.length > 0) {
         (map.getSource('decay') as maplibregl.GeoJSONSource)
           .setData(buildDecayGeoJSON(decayRef.current));
+      }
+      if (tipRef.current.length > 0) {
+        (map.getSource('tip') as maplibregl.GeoJSONSource)
+          .setData(buildTipGeoJSON(tipRef.current));
       }
     });
 
@@ -167,6 +204,14 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [] }: Prop
     const source = map.getSource('decay') as maplibregl.GeoJSONSource | undefined;
     source?.setData(buildDecayGeoJSON(decayObjects));
   }, [decayObjects]);
+
+  // Update TIP layer
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    const source = map.getSource('tip') as maplibregl.GeoJSONSource | undefined;
+    source?.setData(buildTipGeoJSON(tipObjects));
+  }, [tipObjects]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -282,6 +327,56 @@ function addLayers(map: maplibregl.Map) {
       'text-offset':            [0, -1.4],
       'text-allow-overlap':     true,
       'text-ignore-placement':  true,
+    },
+    paint: { 'text-color': ['get', 'color'], 'text-opacity': 0.9 },
+  });
+
+  // TIP — halo large (position orbitale réelle de rentrée)
+  map.addLayer({
+    id: 'tip-glow', type: 'circle', source: 'tip',
+    paint: {
+      'circle-color':   ['get', 'color'],
+      'circle-radius':  20,
+      'circle-opacity': 0.12,
+      'circle-stroke-width': 0,
+    },
+  });
+
+  // TIP — anneau extérieur (crosshair visuel)
+  map.addLayer({
+    id: 'tip-ring', type: 'circle', source: 'tip',
+    paint: {
+      'circle-color':        'transparent',
+      'circle-radius':       10,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': ['get', 'color'],
+      'circle-stroke-opacity': 0.7,
+    },
+  });
+
+  // TIP — point central
+  map.addLayer({
+    id: 'tip-circles', type: 'circle', source: 'tip',
+    paint: {
+      'circle-color':        ['get', 'color'],
+      'circle-radius':       4,
+      'circle-opacity':      1,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-opacity': 0.5,
+    },
+  });
+
+  // TIP — label "◎" (cible)
+  map.addLayer({
+    id: 'tip-labels', type: 'symbol', source: 'tip',
+    layout: {
+      'text-field':            '◎',
+      'text-font':             ['Noto Sans Regular'],
+      'text-size':             12,
+      'text-offset':           [0, -1.8],
+      'text-allow-overlap':    true,
+      'text-ignore-placement': true,
     },
     paint: { 'text-color': ['get', 'color'], 'text-opacity': 0.9 },
   });
@@ -415,6 +510,57 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup) {
     `).addTo(map);
   });
 
+  // TIP click
+  map.on('click', 'tip-circles', e => {
+    const feature = e.features?.[0];
+    if (!feature) return;
+    const p      = feature.properties || {};
+    const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+    const color  = p.color || '#ffaa00';
+
+    const hoursLabel = p.hoursLeft != null
+      ? p.hoursLeft < 1
+        ? `<span style="color:${color};font-weight:bold;">< 1H</span>`
+        : `<span style="color:${color};">${Number(p.hoursLeft).toFixed(1)}H</span>`
+      : '—';
+
+    const epoch = p.decayEpoch
+      ? new Date(p.decayEpoch).toUTCString().replace(' GMT', ' UTC')
+      : '—';
+
+    const hiTag = p.highInterest
+      ? `<span style="padding:2px 8px;font-size:9px;background:rgba(255,34,68,0.15);color:#ff2244;border:1px solid rgba(255,34,68,0.4);">⚠ HIGH INTEREST</span>`
+      : '';
+
+    popup.setLngLat(coords).setHTML(`
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:290px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+          <span style="padding:2px 8px;font-size:9px;background:${color}18;color:${color};border:1px solid ${color}44;letter-spacing:1px;">
+            TIP — RENTRÉE IMMINENTE
+          </span>
+          <span style="margin-left:auto;font-size:12px;">${hoursLabel}</span>
+          ${hiTag}
+        </div>
+        <p style="color:#c8d8e8;margin:0 0 4px 0;font-size:12px;">${escapeHtml(p.name)}</p>
+        <div style="color:#4a6a7a;font-size:9px;margin-bottom:8px;">
+          ${escapeHtml(p.objectId)} &nbsp;·&nbsp; ${escapeHtml(p.objectType)} &nbsp;·&nbsp; ${escapeHtml(p.country)}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9px;border-top:1px solid #1a2a3a;padding-top:8px;">
+          <div><span style="color:#4a6a7a;">INCLINAISON</span><br><span style="color:#c8d8e8;">${p.inclination}°</span></div>
+          <div><span style="color:#4a6a7a;">FENÊTRE</span><br><span style="color:#c8d8e8;">±${p.window} min</span></div>
+          <div><span style="color:#4a6a7a;">DIRECTION</span><br><span style="color:#c8d8e8;">${escapeHtml(p.direction) || '—'}</span></div>
+          <div><span style="color:#4a6a7a;">POSITION</span><br><span style="color:#c8d8e8;">${Number(p.lat ?? coords[1]).toFixed(2)}°, ${Number(p.lon ?? coords[0]).toFixed(2)}°</span></div>
+        </div>
+        <div style="margin-top:8px;font-size:9px;color:#4a6a7a;">
+          Rentrée prévue : <span style="color:#8aabbb;">${escapeHtml(epoch)}</span>
+        </div>
+        <div style="margin-top:4px;font-size:8px;color:#2a4a5a;">
+          ◎ Position orbitale au moment de la rentrée (Space-Track TIP)
+        </div>
+      </div>
+    `).addTo(map);
+  });
+
   // Launch pad click
   map.on('click', 'pads-circles', e => {
     const feature = e.features?.[0];
@@ -443,4 +589,6 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup) {
   map.on('mouseleave', 'pads-circles',    () => { map.getCanvas().style.cursor = ''; });
   map.on('mouseenter', 'decay-circles',   () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'decay-circles',   () => { map.getCanvas().style.cursor = ''; });
+  map.on('mouseenter', 'tip-circles',     () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'tip-circles',     () => { map.getCanvas().style.cursor = ''; });
 }

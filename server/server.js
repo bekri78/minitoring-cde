@@ -8,7 +8,7 @@ const path    = require('path');
 const { fetchTodayEvents }      = require('./gdelt');
 const { enrichEvents }          = require('./enrich');
 const { fetchAll: fetchLaunches, getCache: getLaunchCache } = require('./launches');
-const { fetchDecay,              getCache: getDecayCache  } = require('./spacetrack');
+const { fetchDecay, getCache: getDecayCache, fetchTip, getTipCache } = require('./spacetrack');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -136,6 +136,16 @@ app.get('/decay', (req, res) => {
   });
 });
 
+app.get('/tip', (req, res) => {
+  const c = getTipCache();
+  res.json({
+    objects:    c.objects,
+    count:      c.objects.length,
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  });
+});
+
 app.get('/launches', (req, res) => {
   const c = getLaunchCache();
   res.json({
@@ -219,10 +229,17 @@ cron.schedule('0 6 * * *', () => {
   fetchDecay().catch(err => console.error('[decay-cron]', err.message));
 });
 
+// ── Cron 6h — TIP ─────────────────────────────────────────────────────────
+cron.schedule('0 */6 * * *', () => {
+  console.log('[cron-tip] triggered');
+  fetchTip().catch(err => console.error('[tip-cron]', err.message));
+});
+
 // ── Démarrage ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
   refresh().catch(err => console.error('[startup] refresh failed:', err.message));
   fetchLaunches().catch(err => console.error('[startup-launches]', err.message));
   fetchDecay().catch(err => console.error('[startup-decay]', err.message));
+  fetchTip().catch(err => console.error('[startup-tip]', err.message));
 });

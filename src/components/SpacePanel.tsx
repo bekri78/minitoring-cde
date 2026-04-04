@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Launch, SpaceEvent, LaunchData } from '../types/launch';
 import type { DecayObject, DecayData } from '../types/decay';
+import type { TipObject, TipData } from '../types/tip';
 
 interface Props {
   data:      LaunchData | undefined;
   decay:     DecayData  | undefined;
+  tip:       TipData    | undefined;
   loading:   boolean;
 }
 
@@ -128,6 +130,37 @@ function EventRow({ event }: { event: SpaceEvent }) {
   );
 }
 
+function TipRow({ obj }: { obj: TipObject }) {
+  const hoursLabel = obj.hoursLeft != null
+    ? obj.hoursLeft < 1 ? '< 1H' : `${obj.hoursLeft.toFixed(1)}H`
+    : '—';
+  return (
+    <div style={{ padding: '8px 12px', borderTop: '1px solid #0e1a24' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+        <span style={{
+          padding: '1px 6px', fontSize: '9px',
+          background: `${obj.color}18`, color: obj.color,
+          border: `1px solid ${obj.color}44`, letterSpacing: '1px',
+        }}>
+          {hoursLabel}
+        </span>
+        {obj.highInterest && (
+          <span style={{ fontSize: '9px', color: '#ff2244' }}>⚠</span>
+        )}
+        <span style={{ color: '#c8d8e8', fontSize: '10px', flex: 1, minWidth: 0 }}>
+          {truncate(obj.name, 26)}
+        </span>
+        <span style={{ color: '#4a6a7a', fontSize: '9px' }}>{obj.country}</span>
+      </div>
+      <div style={{ color: '#4a6a7a', fontSize: '9px', paddingLeft: '2px', display: 'flex', gap: '8px' }}>
+        <span>{obj.objectType || 'DEBRIS'}</span>
+        <span>±{obj.window}min</span>
+        <span style={{ marginLeft: 'auto' }}>{formatDate(obj.decayEpoch)}</span>
+      </div>
+    </div>
+  );
+}
+
 function DecayRow({ obj }: { obj: DecayObject }) {
   const daysLabel = obj.daysLeft != null
     ? obj.daysLeft < 1 ? '< 24H' : `${obj.daysLeft.toFixed(1)}J`
@@ -175,7 +208,7 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function SpacePanel({ data, decay, loading }: Props) {
+export function SpacePanel({ data, decay, tip, loading }: Props) {
   const [open, setOpen] = useState(false);
   const [tick, setTick] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -195,6 +228,7 @@ export function SpacePanel({ data, decay, loading }: Props) {
   const events   = data?.events ?? [];
   const previous = data?.previous ?? [];
   const decayList = (decay?.objects ?? []).sort((a, b) => (a.daysLeft ?? 99) - (b.daysLeft ?? 99));
+  const tipList   = (tip?.objects   ?? []).sort((a, b) => (a.hoursLeft ?? 9999) - (b.hoursLeft ?? 9999));
 
   return (
     <>
@@ -260,6 +294,14 @@ export function SpacePanel({ data, decay, loading }: Props) {
               <div style={{ padding: '20px 12px', color: '#4a6a7a', fontSize: '10px', textAlign: 'center' }}>
                 CHARGEMENT...
               </div>
+            )}
+
+            {/* TIP — en tête absolu car rentrées imminentes avec coordonnées réelles */}
+            {tipList.length > 0 && (
+              <>
+                <SectionHeader title="IMPACT PRÉDIT (TIP)" count={tipList.length} />
+                {tipList.map(o => <TipRow key={o.id} obj={o} />)}
+              </>
             )}
 
             {/* Rentrées atmosphériques — en tête car priorité sécurité */}

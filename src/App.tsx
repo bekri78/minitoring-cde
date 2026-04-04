@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEvents }      from './hooks/useEvents';
 import { useLaunches }    from './hooks/useLaunches';
 import { useDecay }       from './hooks/useDecay';
+import { useTip }         from './hooks/useTip';
 import { useHistory }     from './hooks/useHistory';
 import { useFilterStore } from './store/filterStore';
 import { Header }         from './components/Header';
@@ -19,6 +20,7 @@ export default function App() {
   const { data: gdeltEvents, status: gdeltStatus } = useEvents();
   const { data: launchData,  status: launchStatus } = useLaunches();
   const { data: decayData }   = useDecay();
+  const { data: tipData }     = useTip();
   const { data: historyData } = useHistory();
   const { severity, categories, regions } = useFilterStore();
 
@@ -64,9 +66,9 @@ export default function App() {
         onRefresh={handleRefresh}
       />
       <div style={{ position: 'relative', overflow: 'hidden' }}>
-        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} />
+        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} />
         <FilterPanel />
-        <SpacePanel data={launchData} decay={decayData} loading={launchStatus === 'pending'} />
+        <SpacePanel data={launchData} decay={decayData} tip={tipData} loading={launchStatus === 'pending'} />
         <TrendPanel data={historyData?.history ?? []} />
       </div>
     </div>

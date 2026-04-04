@@ -193,4 +193,108 @@ function normalizeDecay(row) {
 
 function getCache() { return cache; }
 
-module.exports = { fetchDecay, getCache };
+// ── Cache TIP ─────────────────────────────────────────────────────────────────
+let tipCache = {
+  objects:    [],
+  lastUpdate: null,
+};
+
+let isFetchingTip = false;
+
+// ── Fetch TIP ─────────────────────────────────────────────────────────────────
+async function fetchTip() {
+  if (isFetchingTip) {
+    console.log('[spacetrack-tip] already fetching — skipped');
+    return;
+  }
+  isFetchingTip = true;
+
+  const user = process.env.SPACETRACK_USER;
+  const pass = process.env.SPACETRACK_PASS;
+  if (!user || !pass) {
+    isFetchingTip = false;
+    return;
+  }
+
+  try {
+    if (!sessionCookie) {
+      const ok = await login();
+      if (!ok) { isFetchingTip = false; return; }
+    }
+
+    // Fenêtre : TIP dans les 30 prochains jours
+    const now    = new Date();
+    const future = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
+    const nowStr    = now.toISOString().slice(0, 10);
+    const futureStr = future.toISOString().slice(0, 10);
+
+    const url = `${BASE_URL}/class/tip/DECAY_EPOCH/%3E${nowStr}/DECAY_EPOCH/%3C${futureStr}/orderby/DECAY_EPOCH%20asc/limit/100/format/json`;
+
+    console.log('[spacetrack-tip] fetching TIP...');
+    let resp = await fetch(url, { headers: { Cookie: sessionCookie } });
+
+    if (resp.status === 401 || resp.status === 403) {
+      console.log('[spacetrack-tip] session expirée — re-login');
+      sessionCookie = null;
+      const ok = await login();
+      if (!ok) { isFetchingTip = false; return; }
+      resp = await fetch(url, { headers: { Cookie: sessionCookie } });
+    }
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const data = await resp.json();
+    const rows = Array.isArray(data) ? data : [];
+
+    tipCache.objects    = rows.map(normalizeTip).filter(Boolean);
+    tipCache.lastUpdate = new Date().toISOString();
+
+    console.log(`[spacetrack-tip] ok — ${tipCache.objects.length} objets TIP`);
+  } catch (err) {
+    console.error('[spacetrack-tip] fetchTip failed:', err.message);
+  } finally {
+    isFetchingTip = false;
+  }
+}
+
+// ── Normalisation TIP ─────────────────────────────────────────────────────────
+function normalizeTip(row) {
+  const lat = Number(row.LAT);
+  const lon = Number(row.LON);
+  // TIP a de vraies coordonnées orbitales — ignorer si invalides
+  if (isNaN(lat) || isNaN(lon)) return null;
+
+  const decayEpoch = row.DECAY_EPOCH || null;
+  const hoursLeft  = decayEpoch
+    ? (new Date(decayEpoch).getTime() - Date.now()) / 3_600_000
+    : null;
+
+  let color = '#ffdd55';
+  if (hoursLeft !== null) {
+    if (hoursLeft < 6)       color = '#ff2244';
+    else if (hoursLeft < 24) color = '#ff6600';
+    else if (hoursLeft < 72) color = '#ffaa00';
+  }
+
+  return {
+    id:          row.NORAD_CAT_ID  || 'unknown',
+    name:        row.OBJECT_NAME   || `NORAD ${row.NORAD_CAT_ID}`,
+    objectId:    row.OBJECT_ID     || '',
+    objectType:  row.OBJECT_TYPE   || '',
+    decayEpoch,
+    window:      Number(row.WINDOW) || 0,    // incertitude en minutes
+    inclination: Number(row.INCLINATION) || 0,
+    direction:   row.DIRECTION     || '',
+    country:     row.COUNTRY_CODE  || 'INTL',
+    highInterest: row.HIGH_INTEREST === 'Y',
+    msgEpoch:    row.MSG_EPOCH     || null,
+    hoursLeft,
+    color,
+    lat,
+    lon,
+  };
+}
+
+function getTipCache() { return tipCache; }
+
+module.exports = { fetchDecay, getCache, fetchTip, getTipCache };
