@@ -74,6 +74,30 @@ const NOISE_DOMAINS = new Set([
   'marketwatch.com', 'investopedia.com', 'fool.com'
 ]);
 
+// ── Boost de score pour les sources étatiques stratégiques ─────────────────
+// Ces sources ont des URL sans slug anglais (ex: tass.ru/armiya-i-opk/20388435)
+// → titleFromUrl extrait un numérique → score 0 sans ce boost
+const PRIORITY_DOMAIN_BOOST = {
+  // Russie
+  'tass.ru': 65, 'tass.com': 65, 'ria.ru': 60, 'rt.com': 55,
+  'sputniknews.com': 55, 'sputnikglobe.com': 55, 'interfax.ru': 60,
+  // Chine
+  'xinhuanet.com': 65, 'news.cn': 65, 'globaltimes.cn': 60,
+  'chinadaily.com.cn': 55, 'cgtn.com': 55, 'china.org.cn': 55,
+  // Corée du Nord
+  'kcna.kp': 70, 'kcna.co.jp': 70, 'rodong.rep.kp': 70,
+  // Iran
+  'presstv.ir': 60, 'presstv.com': 60, 'irna.ir': 60, 'tasnimnews.com': 60,
+  'farsnews.ir': 55, 'mehrnews.com': 55,
+  // Pays arabes / autres zones sous-représentées
+  'almayadeen.net': 55, 'aljazeera.net': 50, 'alarabiya.net': 50,
+  'yonhapnews.co.kr': 55,
+};
+
+// Codes pays FIPS pour les zones stratégiques sous-représentées dans GDELT english
+const STRATEGIC_COUNTRY_CODES = new Set(['RS', 'CH', 'KN', 'IR', 'SY', 'UP', 'IZ']);
+const STRATEGIC_MIN_EVENTS = 60; // slots réservés dans le top 800
+
 // ── Mots-clés opérationnels ────────────────────────────────────────────────
 const MILITARY_CRISIS_KEYWORDS = [
   'military', 'army', 'navy', 'air force', 'missile', 'strike', 'attack',
@@ -198,7 +222,7 @@ function classifyEvent(text, eventCode = '') {
   return 'incident';
 }
 
-function scoreEvent(text, tone) {
+function scoreEvent(text, tone, domain) {
   let score = Math.abs(Number(tone) || 0) * 10;
   const normalized = normalizeText(text);
   for (const kw of MILITARY_CRISIS_KEYWORDS) {
@@ -211,6 +235,10 @@ function scoreEvent(text, tone) {
   };
   for (const [word, bonus] of Object.entries(bonuses)) {
     if (normalized.includes(word)) score += bonus;
+  }
+  // Boost pour les sources étatiques stratégiques (URL sans slug anglais)
+  if (domain && PRIORITY_DOMAIN_BOOST[domain]) {
+    score += PRIORITY_DOMAIN_BOOST[domain];
   }
   return score;
 }
@@ -301,9 +329,10 @@ function parseLine(line) {
     // Le filtre CAMEO + Goldstein est suffisant pour garantir la pertinence
     if (isNoiseEvent(title, url, domain)) return null;
 
-    const text     = `${title} ${url}`;
-    const category = classifyEvent(text, eventCode);
-    const score    = scoreEvent(text, goldstein);
+    const text        = `${title} ${url}`;
+    const category    = classifyEvent(text, eventCode);
+    const countryCode = (c[53] || '').trim(); // ActionGeo_CountryCode (FIPS)
+    const score       = scoreEvent(text, goldstein, domain);
 
     return {
       id:            c[0] || `gdelt_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -312,6 +341,7 @@ function parseLine(line) {
       domain,
       date:          c[1] || '',
       country:       geoName || c[36] || '',
+      countryCode,
       rootCode,
       lat,
       lon,
@@ -385,11 +415,22 @@ async function fetchTodayEvents() {
     console.log(`[gdelt] ${i + batch.length}/${todayUrls.length} — ${dedupMap.size} events — ${ok} OK / ${fail} fail`);
   }
 
-  const events = Array.from(dedupMap.values())
+  // ── Diversité géographique : réserver des slots pour les zones stratégiques ──
+  // Russie (RS), Chine (CH), Corée du Nord (KN), Iran (IR), Syrie (SY),
+  // Ukraine (UP), Irak (IZ) ont des sources aux URL sans slug anglais → scores bas
+  const allSorted  = Array.from(dedupMap.values()).sort((a, b) => b.score - a.score);
+  const strategic  = allSorted.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode));
+  const others     = allSorted.filter(e => !STRATEGIC_COUNTRY_CODES.has(e.countryCode));
+
+  const strategicSlice = strategic.slice(0, STRATEGIC_MIN_EVENTS);
+  const othersSlice    = others.slice(0, 800 - strategicSlice.length);
+
+  const events = [...othersSlice, ...strategicSlice]
     .sort((a, b) => b.score - a.score)
     .slice(0, 800);
 
-  console.log(`[gdelt] done — ${events.length} events from ${ok}/${todayUrls.length} files`);
+  const strategicCount = events.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)).length;
+  console.log(`[gdelt] done — ${events.length} events (${strategicCount} strategic) from ${ok}/${todayUrls.length} files`);
   return events;
 }
 

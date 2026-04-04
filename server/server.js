@@ -55,7 +55,7 @@ function loadFromDisk(date) {
 }
 
 // ── Refresh GDELT ─────────────────────────────────────────────────────────
-const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1h
+const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h — réduit les appels OpenAI de ~480 à ~52/jour
 
 async function refresh(force = false) {
   if (isRefreshing) {
@@ -97,10 +97,20 @@ async function refresh(force = false) {
   cache.status = 'refreshing';
 
   try {
-    const raw       = await fetchTodayEvents();
-    const MAX_ENRICH = 400;
-    // Sort by most negative Goldstein (highest conflict intensity) — enrich only these
-    const toEnrich   = [...raw].sort((a, b) => (a.goldstein || 0) - (b.goldstein || 0)).slice(0, MAX_ENRICH);
+    const raw        = await fetchTodayEvents();
+    const MAX_ENRICH = 250; // réduit les appels OpenAI — la diversité géo est assurée dans gdelt.js
+
+    // Diversité géographique : garder les zones stratégiques (Russie, Chine, etc.)
+    const STRATEGIC = new Set(['RS', 'CH', 'KN', 'IR', 'SY', 'UP', 'IZ']);
+    const STRATEGIC_MIN = 30; // slots réservés dans les 250
+    const rawSorted = [...raw].sort((a, b) => b.score - a.score);
+    const rawStrategic = rawSorted.filter(e => STRATEGIC.has(e.countryCode));
+    const rawOthers    = rawSorted.filter(e => !STRATEGIC.has(e.countryCode));
+    const toEnrich = [
+      ...rawOthers.slice(0, MAX_ENRICH - Math.min(rawStrategic.length, STRATEGIC_MIN)),
+      ...rawStrategic.slice(0, STRATEGIC_MIN),
+    ].sort((a, b) => b.score - a.score);
+
     console.log(`[refresh] ${raw.length} raw events — enriching top ${toEnrich.length} with AI (rest discarded)...`);
     const events     = await enrichEvents(toEnrich);
     cache.events     = events;
