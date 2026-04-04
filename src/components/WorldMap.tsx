@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, MutableRefObject } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Event } from '../types/event';
@@ -19,6 +19,7 @@ interface Props {
   tipObjects?:   TipObject[];
   quakes?:       Quake[];
   milAircraft?:  MilAircraft[];
+  launches?:     import('../types/launch').Launch[];
 }
 
 function buildDecayGeoJSON(objects: DecayObject[]): GeoJSON.FeatureCollection {
@@ -143,7 +144,7 @@ function buildMilPointsGeoJSON(aircraft: MilAircraft[]): GeoJSON.FeatureCollecti
   };
 }
 
-export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObjects = [], quakes = [], milAircraft = [] }: Props) {
+export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObjects = [], quakes = [], milAircraft = [], launches = [] }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<maplibregl.Map | null>(null);
   const popupRef      = useRef<maplibregl.Popup | null>(null);
@@ -154,6 +155,7 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   const tipRef        = useRef<TipObject[]>(tipObjects);
   const quakesRef     = useRef<Quake[]>(quakes);
   const milAircraftRef = useRef<MilAircraft[]>(milAircraft);
+  const launchesRef    = useRef<import('../types/launch').Launch[]>(launches);
 
   // Keep refs current so the load handler can access latest data
   useEffect(() => { eventsRef.current = events;             }, [events]);
@@ -162,6 +164,7 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   useEffect(() => { tipRef.current    = tipObjects;         }, [tipObjects]);
   useEffect(() => { quakesRef.current = quakes;             }, [quakes]);
   useEffect(() => { milAircraftRef.current = milAircraft;   }, [milAircraft]);
+  useEffect(() => { launchesRef.current    = launches;      }, [launches]);
 
   // Initialize MapLibre once
   useEffect(() => {
@@ -233,7 +236,7 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
       });
 
       addLayers(map);
-      bindEvents(map, popupRef.current!);
+      bindEvents(map, popupRef.current!, launchesRef);
       mapLoadedRef.current = true;
 
       // Render data that already loaded before map was ready
@@ -606,7 +609,7 @@ function addLayers(map: maplibregl.Map) {
   });
 }
 
-function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup) {
+function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup, launchesRef: MutableRefObject<import('../types/launch').Launch[]>) {
   map.on('click', 'events-circles', e => {
     const feature = e.features?.[0];
     if (!feature) return;
@@ -771,15 +774,52 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup) {
     const p      = feature.properties || {};
     const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
     const color  = p.hasUpcoming ? '#00d4ff' : '#2a4a5a';
+
+    // Retrouver le lancement correspondant à ce pad (par coordonnées)
+    const padLon = coords[0];
+    const padLat = coords[1];
+    const launch = launchesRef.current
+      .find(l => Math.abs(l.pad.lon - padLon) < 0.05 && Math.abs(l.pad.lat - padLat) < 0.05);
+
+    // Countdown
+    function countdown(net: string | null): string {
+      if (!net) return '—';
+      const diff = new Date(net).getTime() - Date.now();
+      if (diff <= 0) return 'LAUNCHED';
+      const d = Math.floor(diff / 86_400_000);
+      const h = Math.floor((diff % 86_400_000) / 3_600_000);
+      const m = Math.floor((diff % 3_600_000)  / 60_000);
+      const hms = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      return d > 0 ? `T− ${d}J ${hms}` : `T− ${hms}`;
+    }
+
+    const missionBlock = launch ? `
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid #0e1a24;">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+          <span style="padding:2px 8px;font-size:9px;background:${launch.status.color}18;color:${launch.status.color};border:1px solid ${launch.status.color}44;">${launch.status.label}</span>
+          ${launch.webcastLive ? '<span style="font-size:9px;color:#ff2244">● LIVE</span>' : ''}
+          <span style="font-size:9px;color:${launch.status.color};margin-left:auto;">${countdown(launch.net)}</span>
+        </div>
+        <div style="color:#c8d8e8;font-size:10px;margin-bottom:4px;">${escapeHtml(launch.name)}</div>
+        <div style="color:#4a6a7a;font-size:9px;margin-bottom:2px;">
+          ${escapeHtml(launch.rocket)}
+          ${launch.mission.type    ? ' · ' + escapeHtml(launch.mission.type)  : ''}
+          ${launch.mission.orbit   ? ' · ' + escapeHtml(launch.mission.orbit) : ''}
+        </div>
+        <div style="color:#4a6a7a;font-size:9px;">${escapeHtml(launch.provider)}</div>
+        ${launch.mission.desc ? `<div style="margin-top:6px;color:#6a8a9a;font-size:9px;line-height:1.6;">${escapeHtml(launch.mission.desc.slice(0, 220))}${launch.mission.desc.length > 220 ? '…' : ''}</div>` : ''}
+      </div>` : '';
+
     popup.setLngLat(coords).setHTML(`
-      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:200px;">
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:240px;max-width:320px;">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
           <span style="padding:2px 8px;font-size:9px;background:${color}18;color:${color};border:1px solid ${color}44;">
             ${p.hasUpcoming ? 'LANCEMENT PRÉVU' : 'PAD ACTIF'}
           </span>
         </div>
-        <p style="color:#c8d8e8;margin:0 0 6px 0;">${escapeHtml(p.name)}</p>
+        <p style="color:#c8d8e8;margin:0 0 4px 0;">${escapeHtml(p.name)}</p>
         <div style="font-size:9px;color:#4a6a7a;">◈ ${escapeHtml(p.country)}</div>
+        ${missionBlock}
       </div>
     `).addTo(map);
   });

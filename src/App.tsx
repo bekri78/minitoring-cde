@@ -73,7 +73,7 @@ export default function App() {
         onRefresh={handleRefresh}
       />
       <div style={{ position: 'relative', overflow: 'hidden' }}>
-        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} quakes={quakeData?.quakes} milAircraft={milData?.aircraft} />
+        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} quakes={quakeData?.quakes} milAircraft={milData?.aircraft} launches={launchData?.launches} />
         <FilterPanel />
         <SpacePanel data={launchData} decay={decayData} tip={tipData} loading={launchStatus === 'pending'} />
         <TrendPanel data={historyData?.history ?? []} />
