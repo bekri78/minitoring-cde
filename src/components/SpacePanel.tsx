@@ -61,9 +61,26 @@ function NextLaunchCard({ launch, tick }: { launch: Launch; tick: number }) {
         <span style={{ color: '#4a6a7a', fontSize: '9px' }}>{launch.rocket}</span>
         <span style={{ color: '#4a6a7a', fontSize: '9px', marginLeft: 'auto' }}>{launch.pad.country}</span>
       </div>
-      {launch.mission.type && (
+      {(launch.mission.type || launch.mission.orbit) && (
         <div style={{ marginTop: '4px', color: '#4a6a7a', fontSize: '9px' }}>
           {launch.mission.type}{launch.mission.orbit ? ` · ${launch.mission.orbit}` : ''}
+        </div>
+      )}
+      {launch.pad.name && (
+        <div style={{ marginTop: '4px', color: '#2a5a6a', fontSize: '9px' }}>
+          ◈ {truncate(launch.pad.name, 44)}
+        </div>
+      )}
+      {launch.mission.desc && (
+        <div style={{
+          marginTop:    '8px',
+          paddingTop:   '8px',
+          borderTop:    '1px solid #0e1a24',
+          color:        '#6a8a9a',
+          fontSize:     '9px',
+          lineHeight:   1.6,
+        }}>
+          {truncate(launch.mission.desc, 220)}
         </div>
       )}
     </div>
@@ -86,18 +103,45 @@ function StatusBadge({ status }: { status: Launch['status'] }) {
 }
 
 function LaunchRow({ launch }: { launch: Launch }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasDetails = !!(launch.mission.desc || launch.pad.name || launch.mission.orbit);
   return (
-    <div style={{ padding: '8px 12px', borderTop: '1px solid #0e1a24' }}>
+    <div
+      style={{ padding: '8px 12px', borderTop: '1px solid #0e1a24', cursor: hasDetails ? 'pointer' : 'default' }}
+      onClick={() => hasDetails && setExpanded(e => !e)}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
         <StatusBadge status={launch.status} />
         <span style={{ color: '#c8d8e8', fontSize: '10px', flex: 1, minWidth: 0 }}>
           {truncate(launch.name, 38)}
         </span>
+        {hasDetails && (
+          <span style={{ color: '#2a5a6a', fontSize: '9px', flexShrink: 0 }}>{expanded ? '▴' : '▾'}</span>
+        )}
       </div>
       <div style={{ color: '#4a6a7a', fontSize: '9px', paddingLeft: '2px', display: 'flex', justifyContent: 'space-between' }}>
         <span>{truncate(launch.provider, 22)}</span>
         <span>{formatDate(launch.net)}</span>
       </div>
+      {expanded && (
+        <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid #0e1a24' }}>
+          {(launch.mission.type || launch.mission.orbit) && (
+            <div style={{ color: '#4a6a7a', fontSize: '9px', marginBottom: '3px' }}>
+              {launch.rocket}{launch.mission.type ? ` · ${launch.mission.type}` : ''}{launch.mission.orbit ? ` · ${launch.mission.orbit}` : ''}
+            </div>
+          )}
+          {launch.pad.name && (
+            <div style={{ color: '#2a5a6a', fontSize: '9px', marginBottom: '3px' }}>
+              ◈ {truncate(launch.pad.name, 44)}
+            </div>
+          )}
+          {launch.mission.desc && (
+            <div style={{ color: '#6a8a9a', fontSize: '9px', lineHeight: 1.6 }}>
+              {truncate(launch.mission.desc, 200)}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
