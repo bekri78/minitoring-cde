@@ -96,7 +96,7 @@ async function refresh(force = false) {
 
   try {
     const raw       = await fetchTodayEvents();
-    const MAX_ENRICH = 200;
+    const MAX_ENRICH = 400;
     // Sort by most negative Goldstein (highest conflict intensity) — enrich only these
     const toEnrich   = [...raw].sort((a, b) => (a.goldstein || 0) - (b.goldstein || 0)).slice(0, MAX_ENRICH);
     console.log(`[refresh] ${raw.length} raw events — enriching top ${toEnrich.length} with AI (rest discarded)...`);

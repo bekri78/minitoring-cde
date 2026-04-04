@@ -273,10 +273,10 @@ function parseLine(line) {
     const goldsteinThreshold = quadClass === '4' ? -1 : -5;
     if (isNaN(goldstein) || goldstein > goldsteinThreshold) return null;
 
-    // Garder uniquement les géolocalisations précises
-    // 1=Country (centroïde imprécis), 2=US State, 3=US City, 4=World City, 5=World State
-    // On accepte 3 (US City), 4 (World City), 5 (World State) — on rejette 1 et 2
-    if (geoType !== '3' && geoType !== '4' && geoType !== '5') return null;
+    // Accepter tous les niveaux de géolocalisation
+    // 1=Country, 2=US State, 3=US City, 4=World City, 5=World State
+    // GeoType 1 et 2 sont imprécis mais indispensables pour Russie, Chine, Corée, Amérique du Sud
+    if (!geoType || geoType === '0') return null;
     if (!url) return null;
 
     let lat = latRaw;
@@ -284,13 +284,24 @@ function parseLine(line) {
 
     if (isNaN(lat) || isNaN(lon)) return null;
 
+    // Jitter pour les centroïdes pays (type 1) et états US (type 2) — évite l'empilement visuel
+    if (geoType === '1') {
+      lat += (Math.random() - 0.5) * 6;
+      lon += (Math.random() - 0.5) * 6;
+    } else if (geoType === '2') {
+      lat += (Math.random() - 0.5) * 2;
+      lon += (Math.random() - 0.5) * 2;
+    }
+
     const title  = titleFromUrl(url);
     const domain = safeDomainFromUrl(url);
-    const text   = `${title} ${url}`;
 
+    // isNoiseEvent filtre le bruit — isOperationalEvent SUPPRIMÉ car il rejette
+    // toutes les sources non-anglophones (TASS, Xinhua, Itar-TASS, RT.ru, Yonhap KO)
+    // Le filtre CAMEO + Goldstein est suffisant pour garantir la pertinence
     if (isNoiseEvent(title, url, domain)) return null;
-    if (!isOperationalEvent(title, url)) return null;
 
+    const text     = `${title} ${url}`;
     const category = classifyEvent(text, eventCode);
     const score    = scoreEvent(text, goldstein);
 
