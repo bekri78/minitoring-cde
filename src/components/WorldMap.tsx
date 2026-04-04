@@ -6,6 +6,7 @@ import type { LaunchPad } from '../types/launch';
 import type { DecayObject } from '../types/decay';
 import type { TipObject } from '../types/tip';
 import type { Quake } from '../types/earthquake';
+import type { MilAircraft } from '../types/aircraft';
 import { buildGeoJSON } from '../utils/geo';
 import { getColor, getCategoryColor, getCategoryLabel, getSeverityLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
@@ -17,6 +18,7 @@ interface Props {
   decayObjects?: DecayObject[];
   tipObjects?:   TipObject[];
   quakes?:       Quake[];
+  milAircraft?:  MilAircraft[];
 }
 
 function buildDecayGeoJSON(objects: DecayObject[]): GeoJSON.FeatureCollection {
@@ -108,7 +110,40 @@ function buildPadsGeoJSON(pads: LaunchPad[]): GeoJSON.FeatureCollection {
   };
 }
 
-export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObjects = [], quakes = [] }: Props) {
+function buildMilTrailsGeoJSON(aircraft: MilAircraft[]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: aircraft
+      .filter(a => a.trail.length >= 2)
+      .map(a => ({
+        type:     'Feature' as const,
+        geometry: { type: 'LineString' as const, coordinates: a.trail },
+        properties: { id: a.id, color: a.color },
+      })),
+  };
+}
+
+function buildMilPointsGeoJSON(aircraft: MilAircraft[]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: aircraft.map(a => ({
+      type:     'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [a.lon, a.lat] },
+      properties: {
+        id:       a.id,
+        callsign: a.callsign,
+        country:  a.country,
+        color:    a.color,
+        alt:      a.alt,
+        altFt:    a.altFt,
+        speed:    a.speed,
+        track:    a.track,
+      },
+    })),
+  };
+}
+
+export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObjects = [], quakes = [], milAircraft = [] }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<maplibregl.Map | null>(null);
   const popupRef      = useRef<maplibregl.Popup | null>(null);
@@ -118,13 +153,15 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   const decayRef      = useRef<DecayObject[]>(decayObjects);
   const tipRef        = useRef<TipObject[]>(tipObjects);
   const quakesRef     = useRef<Quake[]>(quakes);
+  const milAircraftRef = useRef<MilAircraft[]>(milAircraft);
 
   // Keep refs current so the load handler can access latest data
-  useEffect(() => { eventsRef.current = events;       }, [events]);
-  useEffect(() => { padsRef.current   = pads;         }, [pads]);
-  useEffect(() => { decayRef.current  = decayObjects; }, [decayObjects]);
-  useEffect(() => { tipRef.current    = tipObjects;   }, [tipObjects]);
-  useEffect(() => { quakesRef.current = quakes;       }, [quakes]);
+  useEffect(() => { eventsRef.current = events;             }, [events]);
+  useEffect(() => { padsRef.current   = pads;               }, [pads]);
+  useEffect(() => { decayRef.current  = decayObjects;       }, [decayObjects]);
+  useEffect(() => { tipRef.current    = tipObjects;         }, [tipObjects]);
+  useEffect(() => { quakesRef.current = quakes;             }, [quakes]);
+  useEffect(() => { milAircraftRef.current = milAircraft;   }, [milAircraft]);
 
   // Initialize MapLibre once
   useEffect(() => {
@@ -185,6 +222,16 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
         data: { type: 'FeatureCollection', features: [] },
       });
 
+      map.addSource('mil-trails', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
+      map.addSource('mil-aircraft', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
       addLayers(map);
       bindEvents(map, popupRef.current!);
       mapLoadedRef.current = true;
@@ -209,6 +256,12 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
       if (quakesRef.current.length > 0) {
         (map.getSource('earthquakes') as maplibregl.GeoJSONSource)
           .setData(buildQuakeGeoJSON(quakesRef.current));
+      }
+      if (milAircraftRef.current.length > 0) {
+        (map.getSource('mil-trails') as maplibregl.GeoJSONSource)
+          .setData(buildMilTrailsGeoJSON(milAircraftRef.current));
+        (map.getSource('mil-aircraft') as maplibregl.GeoJSONSource)
+          .setData(buildMilPointsGeoJSON(milAircraftRef.current));
       }
     });
 
@@ -258,6 +311,14 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
     const source = map.getSource('earthquakes') as maplibregl.GeoJSONSource | undefined;
     source?.setData(buildQuakeGeoJSON(quakes));
   }, [quakes]);
+
+  // Update military aircraft layers
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    (map.getSource('mil-trails')   as maplibregl.GeoJSONSource | undefined)?.setData(buildMilTrailsGeoJSON(milAircraft));
+    (map.getSource('mil-aircraft') as maplibregl.GeoJSONSource | undefined)?.setData(buildMilPointsGeoJSON(milAircraft));
+  }, [milAircraft]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -469,6 +530,58 @@ function addLayers(map: maplibregl.Map) {
       'text-ignore-placement': false,
     },
     paint: { 'text-color': ['get', 'color'], 'text-opacity': 0.9 },
+  });
+
+  // Military aircraft — traînée de positions
+  map.addLayer({
+    id: 'mil-trail-lines', type: 'line', source: 'mil-trails',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color':   ['get', 'color'],
+      'line-opacity': 0.35,
+      'line-width':   1.5,
+    },
+  });
+
+  // Military aircraft — icône ✈ orientée selon le cap
+  map.addLayer({
+    id: 'mil-aircraft', type: 'symbol', source: 'mil-aircraft',
+    layout: {
+      'text-field':            '✈',
+      'text-font':             ['Noto Sans Regular'],
+      'text-size':             13,
+      'text-rotate':           ['get', 'track'],
+      'text-rotation-alignment': 'map',
+      'text-allow-overlap':    true,
+      'text-ignore-placement': true,
+    },
+    paint: {
+      'text-color':       ['get', 'color'],
+      'text-opacity':     0.95,
+      'text-halo-color':  'rgba(0,0,0,0.7)',
+      'text-halo-width':  1,
+    },
+  });
+
+  // Military aircraft — label callsign (zoom 5+)
+  map.addLayer({
+    id: 'mil-aircraft-labels', type: 'symbol', source: 'mil-aircraft',
+    minzoom: 5,
+    layout: {
+      'text-field':            ['get', 'callsign'],
+      'text-font':             ['Noto Sans Regular'],
+      'text-size':             9,
+      'text-offset':           [0, 1.6],
+      'text-anchor':           'top',
+      'text-allow-overlap':    false,
+      'text-ignore-placement': false,
+    },
+    paint: {
+      'text-color':       ['get', 'color'],
+      'text-opacity':     0.75,
+      'text-halo-color':  'rgba(0,0,0,0.6)',
+      'text-halo-width':  1,
+    },
   });
 
   // Launch pad — glow ring
@@ -726,4 +839,40 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup) {
   map.on('mouseleave', 'tip-circles',     () => { map.getCanvas().style.cursor = ''; });
   map.on('mouseenter', 'quake-circles',   () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'quake-circles',   () => { map.getCanvas().style.cursor = ''; });
+
+  // Military aircraft click
+  map.on('click', 'mil-aircraft', e => {
+    const feature = e.features?.[0];
+    if (!feature) return;
+    const p      = feature.properties || {};
+    const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+    const color  = p.color || '#4a9eff';
+    const altStr = p.altFt  != null ? `${Number(p.altFt).toLocaleString()} ft` : '—';
+    const spdStr = p.speed  != null ? `${p.speed} kt` : '—';
+    const capStr = p.track  != null ? `${Math.round(p.track)}°` : '—';
+    popup.setLngLat(coords).setHTML(`
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:260px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+          <span style="padding:2px 8px;font-size:9px;background:${color}18;color:${color};border:1px solid ${color}44;letter-spacing:1px;">
+            ✈ MILITAIRE
+          </span>
+          <span style="padding:2px 8px;font-size:9px;background:#1a2a3a;color:#c8d8e8;border:1px solid #2a3a4a;">
+            ${escapeHtml(p.country)}
+          </span>
+        </div>
+        <p style="color:#e8f4ff;margin:0 0 10px 0;font-size:13px;letter-spacing:2px;">${escapeHtml(p.callsign)}</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:9px;border-top:1px solid #1a2a3a;padding-top:8px;">
+          <div><span style="color:#4a6a7a;">ALTITUDE</span><br><span style="color:#c8d8e8;">${altStr}</span></div>
+          <div><span style="color:#4a6a7a;">VITESSE</span><br><span style="color:#c8d8e8;">${spdStr}</span></div>
+          <div><span style="color:#4a6a7a;">CAP</span><br><span style="color:#c8d8e8;">${capStr}</span></div>
+        </div>
+        <div style="margin-top:8px;font-size:9px;color:#4a6a7a;">
+          ${Number(coords[1]).toFixed(3)}°, ${Number(coords[0]).toFixed(3)}° — ICAO ${escapeHtml(p.id)}
+        </div>
+      </div>
+    `).addTo(map);
+  });
+
+  map.on('mouseenter', 'mil-aircraft', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'mil-aircraft', () => { map.getCanvas().style.cursor = ''; });
 }

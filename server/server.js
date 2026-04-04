@@ -11,6 +11,7 @@ const { fetchAll: fetchLaunches, getCache: getLaunchCache } = require('./launche
 const { fetchDecay, getCache: getDecayCache, fetchTip, getTipCache } = require('./spacetrack');
 const { fetchQuakes, getCache: getQuakeCache }                       = require('./earthquakes');
 const { fetchSpaceWeather, getCache: getSwCache }                    = require('./spaceweather');
+const { fetchMilitary, getCache: getMilCache }                       = require('./military-aircraft');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -228,6 +229,16 @@ app.get('/spaceweather', (req, res) => {
   });
 });
 
+app.get('/military-aircraft', (req, res) => {
+  const c = getMilCache();
+  res.json({
+    aircraft:   c.aircraft,
+    count:      c.count,
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({
     ok:         cache.status === 'ok',
@@ -278,6 +289,11 @@ cron.schedule('*/15 * * * *', () => {
   fetchSpaceWeather().catch(err => console.error('[spaceweather-cron]', err.message));
 });
 
+// ── Cron 5min — Avions militaires OpenSky ─────────────────────────────────────
+cron.schedule('*/5 * * * *', () => {
+  fetchMilitary().catch(err => console.error('[military-aircraft-cron]', err.message));
+});
+
 // ── Démarrage ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
@@ -289,4 +305,5 @@ app.listen(PORT, () => {
     .catch(err => console.error('[startup-spacetrack]', err.message));
   fetchQuakes().catch(err => console.error('[startup-earthquakes]', err.message));
   fetchSpaceWeather().catch(err => console.error('[startup-spaceweather]', err.message));
+  fetchMilitary().catch(err => console.error('[startup-military]', err.message));
 });
