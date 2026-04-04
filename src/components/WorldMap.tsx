@@ -546,13 +546,13 @@ function addLayers(map: maplibregl.Map) {
     },
   });
 
-  // Military aircraft — icône ✈ orientée selon le cap
+  // Military aircraft — icône ▸ orientée selon le cap (▸ est dans Noto Sans Regular / Geometric Shapes)
   map.addLayer({
     id: 'mil-aircraft', type: 'symbol', source: 'mil-aircraft',
     layout: {
-      'text-field':            '✈',
+      'text-field':            '▸',
       'text-font':             ['Noto Sans Regular'],
-      'text-size':             13,
+      'text-size':             16,
       'text-rotate':           ['get', 'track'],
       'text-rotation-alignment': 'map',
       'text-allow-overlap':    true,
@@ -562,7 +562,7 @@ function addLayers(map: maplibregl.Map) {
       'text-color':       ['get', 'color'],
       'text-opacity':     0.95,
       'text-halo-color':  'rgba(0,0,0,0.7)',
-      'text-halo-width':  1,
+      'text-halo-width':  1.5,
     },
   });
 
