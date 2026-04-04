@@ -91,8 +91,12 @@ setInterval(() => {
 function loadCache() {
   try {
     const raw = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-    for (const s of (raw.ships || [])) ships.set(s.id, s);
-    console.log(`[military-ships] cache chargé — ${ships.size} navires`);
+    // Ne charger QUE les navires validés (flag milVerified) — rejette l'ancien cache large
+    let loaded = 0;
+    for (const s of (raw.ships || [])) {
+      if (s.milVerified) { ships.set(s.id, s); loaded++; }
+    }
+    console.log(`[military-ships] cache chargé — ${loaded} navires vérifiés (${(raw.ships||[]).length - loaded} ignorés)`);
   } catch { /* premier démarrage */ }
 }
 
@@ -168,14 +172,17 @@ function wsConnect() {
     const mmsi = String(meta.MMSI || '');
     if (!mmsi) return;
 
-    // ── ShipStaticData → enregistrer si ShipType=35 OU nom militaire ──────
+    // ── ShipStaticData → valider seulement les vrais militaires ──────────
     if (type === 'ShipStaticData') {
-      const sd  = msg.Message?.ShipStaticData || {};
+      const sd   = msg.Message?.ShipStaticData || {};
       const name = (sd.Name || '').trim().replace(/@+$/, '');
-      const isMilType = sd.Type === 35;
+      const c    = countryFromMmsi(mmsi);
+      const isWarshipMmsi = c && c.isWarshipFormat;
+      // Critère 1 : nom avec préfixe militaire (USS, HMS, RFS…)
       const isMilName = name && MILITARY_NAME_RE.test(name);
-      if (isMilType || isMilName) {
-        const c = countryFromMmsi(mmsi);
+      // Critère 2 : ShipType=35 ET MMSI au format warship ITU (les civils utilisent souvent Type=35 par erreur)
+      const isMilType35 = sd.Type === 35 && isWarshipMmsi;
+      if (isMilName || isMilType35) {
         const entry = {
           name:     name || mmsi,
           callsign: (sd.CallSign || '').trim(),
@@ -220,6 +227,7 @@ function wsConnect() {
           country: meta2.country, color: meta2.color,
           lon, lat, cog: 0, sog: 0, heading: null,
           lastSeen: Date.now(), trail: [],
+          milVerified: true,  // flag pour le cache — seuls ces navires sont rechargés
         };
         ships.set(mmsi, s);
       }
