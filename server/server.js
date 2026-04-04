@@ -229,8 +229,8 @@ cron.schedule('0 6 * * *', () => {
   fetchDecay().catch(err => console.error('[decay-cron]', err.message));
 });
 
-// ── Cron 6h — TIP ─────────────────────────────────────────────────────────
-cron.schedule('0 */6 * * *', () => {
+// ── Cron 6h — TIP (décalé de 3h par rapport à DECAY pour éviter le double login) ──
+cron.schedule('0 3,9,15,21 * * *', () => {
   console.log('[cron-tip] triggered');
   fetchTip().catch(err => console.error('[tip-cron]', err.message));
 });

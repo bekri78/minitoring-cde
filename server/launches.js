@@ -1,6 +1,12 @@
 'use strict';
 
-const BASE_URL = 'https://ll.thespacedevs.com/2.3.0';
+const fs   = require('fs');
+const path = require('path');
+
+const BASE_URL  = 'https://ll.thespacedevs.com/2.3.0';
+const CACHE_DIR = process.env.CACHE_DIR || '/data';
+const CACHE_FILE = path.join(CACHE_DIR, 'launches.json');
+const CACHE_MAX_AGE = 4 * 60 * 60 * 1000; // 4h (même fréquence que le cron)
 
 // Status ID → display color (Launch Library 2 status IDs)
 const STATUS_COLOR = {
@@ -22,6 +28,30 @@ let cache = {
 };
 
 let isFetching = false;
+
+function saveToDisk() {
+  try {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(cache));
+    console.log(`[launches] saved to disk — ${cache.launches.length} upcoming, ${cache.pads.length} pads`);
+  } catch (err) {
+    console.warn('[launches] save failed:', err.message);
+  }
+}
+
+function loadFromDisk() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+    if (raw?.lastUpdate) {
+      const age = Date.now() - new Date(raw.lastUpdate).getTime();
+      if (age < CACHE_MAX_AGE) {
+        console.log(`[launches] restored from disk — ${raw.launches?.length ?? 0} upcoming, ${raw.pads?.length ?? 0} pads (${Math.round(age / 60000)}min old)`);
+        return raw;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
 
 function normalizeLaunch(l) {
   return {
@@ -77,6 +107,21 @@ async function fetchAll() {
     console.log('[launches] already fetching — skipped');
     return;
   }
+
+  // Retourner le cache disque si encore frais (évite le 429 au restart)
+  if (cache.lastUpdate) {
+    const age = Date.now() - new Date(cache.lastUpdate).getTime();
+    if (age < CACHE_MAX_AGE) {
+      console.log(`[launches] skipped — cache ${Math.round(age / 60000)}min old`);
+      return;
+    }
+  }
+  const disk = loadFromDisk();
+  if (disk) {
+    Object.assign(cache, disk);
+    return;
+  }
+
   isFetching = true;
   console.log('[launches] fetching from Launch Library 2...');
 
@@ -113,6 +158,7 @@ async function fetchAll() {
     cache.pads = Object.values(padMap);
 
     cache.lastUpdate = new Date().toISOString();
+    saveToDisk();
     console.log(
       `[launches] ok — ${cache.launches.length} upcoming, ` +
       `${cache.previous.length} previous, ${cache.events.length} events, ` +
