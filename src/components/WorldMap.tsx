@@ -282,8 +282,9 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
         data: { type: 'FeatureCollection', features: [] },
       });
 
-      createAircraftSdfImage(map);
-      createShipSdfImage(map);
+      createSdfIcon(map, 'aircraft-icon', AIRCRAFT_PATHS, 40);
+      createSdfIcon(map, 'ship-icon',     SHIP_PATHS,     40);
+      createSdfIcon(map, 'rocket-icon',   ROCKET_PATHS,   40);
       addLayers(map);
       bindEvents(map, popupRef.current!, launchesRef);
       mapLoadedRef.current = true;
@@ -409,97 +410,39 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   );
 }
 
-// ── Dessine un navire vu du dessus (proue vers le haut) — image SDF MapLibre ─
-function createShipSdfImage(map: maplibregl.Map) {
-  const S = 40;
-  const cx = S / 2, cy = S / 2;
+// ── Icônes SVG (chemins Path2D, canvas 40×40, nord = haut) ───────────────
+
+// Avion — fuselage + ailes + empennage, nez vers le haut
+const AIRCRAFT_PATHS = [
+  'M20 3 L23 16 L23 28 L20 26 L17 28 L17 16 Z',
+  'M23 18 L39 27 L37 30 L23 23 Z',
+  'M17 18 L1 27 L3 30 L17 23 Z',
+  'M22 28 L30 37 L29 38 L22 32 Z',
+  'M18 28 L10 37 L11 38 L18 32 Z',
+];
+
+// Navire — coque pointue (proue en haut) + passerelle
+const SHIP_PATHS = [
+  'M20 2 C15 2 13 7 13 11 L12 30 C12 32 15 35 20 35 C25 35 28 32 28 30 L27 11 C27 7 25 2 20 2 Z',
+  'M15 15 L25 15 L25 23 L15 23 Z',
+];
+
+// Fusée — corps + ailettes + tuyère, nez vers le haut
+const ROCKET_PATHS = [
+  'M20 2 C16 2 14 6 14 11 L14 27 L20 33 L26 27 L26 11 C26 6 24 2 20 2 Z',
+  'M14 23 L8 33 L14 30 Z',
+  'M26 23 L32 33 L26 30 Z',
+  'M15 33 L13 38 L27 38 L25 33 Z',
+];
+
+function createSdfIcon(map: maplibregl.Map, name: string, paths: string[], size: number) {
   const canvas = document.createElement('canvas');
-  canvas.width  = S;
-  canvas.height = S;
+  canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
   ctx.fillStyle = 'white';
-
-  // Coque — forme en amande, proue en haut
-  ctx.beginPath();
-  ctx.moveTo(cx,      cy - 16);  // proue
-  ctx.bezierCurveTo(cx + 9, cy - 8, cx + 9, cy + 8, cx + 6, cy + 16);  // tribord
-  ctx.lineTo(cx,      cy + 18);  // poupe centre
-  ctx.lineTo(cx - 6,  cy + 16);  // poupe bâbord
-  ctx.bezierCurveTo(cx - 9, cy + 8, cx - 9, cy - 8, cx, cy - 16); // bâbord
-  ctx.closePath();
-  ctx.fill();
-
-  // Superstructure (passerelle) — rectangle centré légèrement vers l'avant
-  ctx.fillRect(cx - 4, cy - 5, 8, 10);
-
-  const imgData = ctx.getImageData(0, 0, S, S);
-  map.addImage('ship-icon',
-    { width: S, height: S, data: new Uint8Array(imgData.data.buffer) },
-    { sdf: true });
-}
-
-// ── Dessine un avion sur canvas et l'enregistre comme image SDF MapLibre ─
-// SDF = l'icône peut être teinté via icon-color (une seule image, N couleurs)
-function createAircraftSdfImage(map: maplibregl.Map) {
-  const S = 40;
-  const cx = S / 2, cy = S / 2;
-  const canvas = document.createElement('canvas');
-  canvas.width  = S;
-  canvas.height = S;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = 'white';
-
-  // Fuselage (pointe vers le haut = nord = 0°)
-  ctx.beginPath();
-  ctx.moveTo(cx,     cy - 17);   // nez
-  ctx.lineTo(cx + 3, cy - 4);   // épaule droite
-  ctx.lineTo(cx + 3, cy + 8);   // corps bas droit
-  ctx.lineTo(cx,     cy + 6);   // dip central
-  ctx.lineTo(cx - 3, cy + 8);   // corps bas gauche
-  ctx.lineTo(cx - 3, cy - 4);   // épaule gauche
-  ctx.closePath();
-  ctx.fill();
-
-  // Aile droite
-  ctx.beginPath();
-  ctx.moveTo(cx + 3,  cy - 2);
-  ctx.lineTo(cx + 19, cy + 7);
-  ctx.lineTo(cx + 17, cy + 10);
-  ctx.lineTo(cx + 3,  cy + 3);
-  ctx.closePath();
-  ctx.fill();
-
-  // Aile gauche
-  ctx.beginPath();
-  ctx.moveTo(cx - 3,  cy - 2);
-  ctx.lineTo(cx - 19, cy + 7);
-  ctx.lineTo(cx - 17, cy + 10);
-  ctx.lineTo(cx - 3,  cy + 3);
-  ctx.closePath();
-  ctx.fill();
-
-  // Empennage droit
-  ctx.beginPath();
-  ctx.moveTo(cx + 2,  cy + 8);
-  ctx.lineTo(cx + 10, cy + 17);
-  ctx.lineTo(cx + 9,  cy + 18);
-  ctx.lineTo(cx + 2,  cy + 12);
-  ctx.closePath();
-  ctx.fill();
-
-  // Empennage gauche
-  ctx.beginPath();
-  ctx.moveTo(cx - 2,  cy + 8);
-  ctx.lineTo(cx - 10, cy + 17);
-  ctx.lineTo(cx - 9,  cy + 18);
-  ctx.lineTo(cx - 2,  cy + 12);
-  ctx.closePath();
-  ctx.fill();
-
-  const imgData = ctx.getImageData(0, 0, S, S);
-  map.addImage('aircraft-icon',
-    { width: S, height: S, data: new Uint8Array(imgData.data.buffer) },
-    { sdf: true });
+  for (const d of paths) ctx.fill(new Path2D(d));
+  const imgData = ctx.getImageData(0, 0, size, size);
+  map.addImage(name, { width: size, height: size, data: new Uint8Array(imgData.data.buffer) }, { sdf: true });
 }
 
 function addLayers(map: maplibregl.Map) {
@@ -793,24 +736,30 @@ function addLayers(map: maplibregl.Map) {
     },
   });
 
-  // Launch pad — glow ring
+  // Launch pad — halo
   map.addLayer({
     id: 'pads-glow', type: 'circle', source: 'launch-pads',
     paint: {
       'circle-color':   ['case', ['get', 'hasUpcoming'], '#00d4ff', '#1a3a4a'],
-      'circle-radius':  8,
-      'circle-opacity': 0.15,
+      'circle-radius':  14,
+      'circle-opacity': 0.12,
     },
   });
 
-  // Launch pad — marker
+  // Launch pad — icône fusée
   map.addLayer({
-    id: 'pads-circles', type: 'circle', source: 'launch-pads',
+    id: 'pads-icon', type: 'symbol', source: 'launch-pads',
+    layout: {
+      'icon-image':            'rocket-icon',
+      'icon-size':             0.45,
+      'icon-allow-overlap':    true,
+      'icon-ignore-placement': true,
+    },
     paint: {
-      'circle-color':        ['case', ['get', 'hasUpcoming'], 'rgba(0,212,255,0.85)', 'rgba(26,58,74,0.85)'],
-      'circle-radius':       4,
-      'circle-stroke-width': 1,
-      'circle-stroke-color': ['case', ['get', 'hasUpcoming'], '#00d4ff', '#2a4a5a'],
+      'icon-color':      ['case', ['get', 'hasUpcoming'], '#00d4ff', '#2a5a7a'],
+      'icon-opacity':    0.9,
+      'icon-halo-color': 'rgba(0,0,0,0.6)',
+      'icon-halo-width': 1.5,
     },
   });
 }
