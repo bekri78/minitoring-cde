@@ -77,7 +77,9 @@ const ships    = new Map();
 
 let ws             = null;
 let reconnectTimer = null;
+let pingTimer      = null;
 let wsFirstMsgLogged = false;
+let reconnectDelay = 30_000;   // backoff exponentiel: 30s → 60s → 120s → max 5min
 let msgCount       = 0;
 let milCount       = 0;
 // Log stats toutes les 60s
@@ -138,16 +140,32 @@ function wsConnect() {
 
   if (ws) { try { ws.terminate(); } catch {} ws = null; }
   clearTimeout(reconnectTimer);
+  clearInterval(pingTimer);
 
   ws = new WebSocket(AISSTREAM_URL);
 
   ws.on('open', () => {
-    console.log('[military-ships] WebSocket connecté → abonnement global ShipType=35');
+    console.log('[military-ships] WebSocket connecté → envoi souscription...');
     ws.send(JSON.stringify({
       APIKey:             key,
       BoundingBoxes:      [[[-90, -180], [90, 180]]],
       FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
     }));
+    // Keepalive ping toutes les 25s pour éviter les déconnexions idle
+    pingTimer = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 25_000);
+  });
+
+  // Réponse HTTP non-101 (ex: 401, 403, 429 rate limit)
+  ws.on('unexpected-response', (_req, res) => {
+    let body = '';
+    res.on('data', d => body += d);
+    res.on('end', () => {
+      console.error(`[military-ships] HTTP ${res.statusCode} rejeté par aisstream: ${body.slice(0, 200)}`);
+    });
   });
 
   ws.on('message', (raw) => {
@@ -164,6 +182,8 @@ function wsConnect() {
         }
       } catch {}
     }
+    // Reset du backoff dès qu'on reçoit des données
+    reconnectDelay = 30_000;
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
@@ -245,12 +265,16 @@ function wsConnect() {
     console.warn('[military-ships] ws error:', err.message);
   });
 
-  ws.on('close', (code) => {
-    console.warn(`[military-ships] ws fermé (${code}) — reconnexion dans 30s`);
+  ws.on('close', (code, reason) => {
+    clearInterval(pingTimer);
+    const reasonStr = reason?.toString() || '';
+    console.warn(`[military-ships] ws fermé (${code})${reasonStr ? ' — ' + reasonStr : ''} — reconnexion dans ${Math.round(reconnectDelay/1000)}s`);
     ws = null;
-    wsFirstMsgLogged = false; // reset pour le prochain connect
+    wsFirstMsgLogged = false;
     saveCache();
-    reconnectTimer = setTimeout(wsConnect, 30_000);
+    reconnectTimer = setTimeout(wsConnect, reconnectDelay);
+    // Backoff exponentiel: 30s, 60s, 2min, 4min, max 10min
+    reconnectDelay = Math.min(reconnectDelay * 2, 10 * 60_000);
   });
 }
 
