@@ -53,6 +53,8 @@ function loadFromDisk(date) {
 }
 
 // ── Refresh GDELT ─────────────────────────────────────────────────────────
+const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1h
+
 async function refresh(force = false) {
   if (isRefreshing) {
     console.log('[refresh] skipped — already in progress');
@@ -61,7 +63,33 @@ async function refresh(force = false) {
 
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
+  // Skip si le dernier enrichissement date de moins d'1h (sauf force)
+  if (!force && cache.status === 'ok' && cache.lastUpdate) {
+    const age = Date.now() - new Date(cache.lastUpdate).getTime();
+    if (age < REFRESH_INTERVAL_MS) {
+      console.log(`[refresh] skipped — last enrichment ${Math.round(age / 60000)}min ago`);
+      return;
+    }
+  }
+
   isRefreshing = true;
+
+  // Charger depuis le disque si disponible (évite l'enrichissement IA au restart)
+  if (!force) {
+    const disk = loadFromDisk(today);
+    if (disk && disk.lastUpdate) {
+      const age = Date.now() - new Date(disk.lastUpdate).getTime();
+      if (age < REFRESH_INTERVAL_MS) {
+        cache.events     = disk.events;
+        cache.lastUpdate = disk.lastUpdate;
+        cache.date       = today;
+        cache.status     = 'ok';
+        isRefreshing     = false;
+        console.log(`[refresh] restored from disk — ${disk.events.length} events (${Math.round(age / 60000)}min old)`);
+        return;
+      }
+    }
+  }
 
   console.log('[refresh] starting...');
   cache.status = 'refreshing';
