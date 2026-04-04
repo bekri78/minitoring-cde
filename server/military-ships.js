@@ -124,7 +124,7 @@ function wsConnect() {
   ws.on('open', () => {
     console.log('[military-ships] WebSocket connecté → abonnement global ShipType=35');
     ws.send(JSON.stringify({
-      Apikey:             key,
+      APIKey:             key,
       BoundingBoxes:      [[[-90, -180], [90, 180]]],
       FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
     }));
