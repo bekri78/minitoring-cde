@@ -110,7 +110,8 @@ function purgeOld() {
 
 // ── WebSocket ─────────────────────────────────────────────────────────────
 function wsConnect() {
-  const key = process.env.AISSTREAM_KEY;
+  const raw = process.env.AISSTREAM_KEY || '';
+  const key = raw.trim().replace(/^=+/, ''); // nettoie espaces et = parasites
   if (!key) {
     console.warn('[military-ships] AISSTREAM_KEY manquante — module désactivé');
     return;
