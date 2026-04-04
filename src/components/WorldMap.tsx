@@ -267,13 +267,11 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
       });
 
       // FA Solid icons → canvas SDF (async car SVG blob → Image)
-      // faPlane  pointe à droite  → -90° pour pointer nord
-      // faShip   pointe à droite  → -90° pour pointer nord
-      // faRocket pointe en diag   → -45° pour pointer nord (pad statique, pas de rotation)
+      // Phosphor fill icons — airplane-tilt pointe NE → -45°, boat symétrique → 0°, rocket → -45°
       Promise.all([
-        faToMapImage(map, 'aircraft-icon', faPlane,  40, -90),
-        faToMapImage(map, 'ship-icon',     faShip,   40, -90),
-        faToMapImage(map, 'rocket-icon',   faRocket, 40, -45),
+        phosphorToMapImage(map, 'aircraft-icon', airplaneSvgRaw, 40, -45),
+        phosphorToMapImage(map, 'ship-icon',     boatSvgRaw,     40,   0),
+        phosphorToMapImage(map, 'rocket-icon',   rocketSvgRaw,   40, -45),
       ]).then(() => {
         addLayers(map);
         bindEvents(map, popupRef.current!, launchesRef);
@@ -398,28 +396,29 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   );
 }
 
-// ── Icônes Font Awesome Solid — remplies, nettes, conçues pour les petites tailles ─
-import { faPlane, faShip, faRocket } from '@fortawesome/free-solid-svg-icons';
-import type { IconDefinition } from '@fortawesome/free-solid-svg-icons';
+// ── Icônes Phosphor Fill — SVG assets importés directement depuis le package ─
+import airplaneSvgRaw from '@phosphor-icons/core/assets/fill/airplane-tilt-fill.svg?raw';
+import boatSvgRaw     from '@phosphor-icons/core/assets/fill/boat-fill.svg?raw';
+import rocketSvgRaw   from '@phosphor-icons/core/assets/fill/rocket-launch-fill.svg?raw';
 
-// Rend une icône FA Solid sur canvas et l'enregistre comme image SDF MapLibre.
+// Rend un SVG Phosphor (fill="currentColor") sur canvas et l'enregistre comme SDF MapLibre.
 // rotateDeg : pré-rotation pour orienter l'icône "nord = haut" (base de icon-rotate).
-function faToMapImage(
+function phosphorToMapImage(
   map: maplibregl.Map,
   name: string,
-  icon: IconDefinition,
+  svgRaw: string,
   size: number,
   rotateDeg = 0,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const [vbW, vbH, , , pathData] = icon.icon;
-    const paths = Array.isArray(pathData) ? pathData : [pathData];
-    const pathElems = paths.map(d => `<path d="${d}" fill="white"/>`).join('');
-    const cx = vbW / 2, cy = vbH / 2;
-    const g = rotateDeg !== 0
-      ? `<g transform="rotate(${rotateDeg} ${cx} ${cy})">${pathElems}</g>`
-      : pathElems;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${vbW} ${vbH}">${g}</svg>`;
+    // Remplace currentColor par white, ajoute dimensions
+    let svg = svgRaw
+      .replace(/fill="currentColor"/g, 'fill="white"')
+      .replace('<svg ', `<svg width="${size}" height="${size}" `);
+    // Applique la pré-rotation autour du centre 128 128 (viewBox 256x256)
+    if (rotateDeg !== 0) {
+      svg = svg.replace(/<svg([^>]*)>/, `<svg$1><g transform="rotate(${rotateDeg} 128 128)">`).replace('</svg>', '</g></svg>');
+    }
     const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
     const img = new Image(size, size);
     img.onload = () => {
@@ -428,7 +427,6 @@ function faToMapImage(
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, 0, 0, size, size);
       URL.revokeObjectURL(url);
-      // Normalise en SDF blanc sur transparent
       const imgData = ctx.getImageData(0, 0, size, size);
       const d = imgData.data;
       for (let i = 0; i < d.length; i += 4) {
