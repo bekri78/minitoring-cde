@@ -85,7 +85,7 @@ let milCount       = 0;
 // Log stats toutes les 60s
 setInterval(() => {
   if (msgCount > 0)
-    console.log(`[military-ships] stream: ${msgCount} msg/min, ${ships.size} navires mil, ${milCount} détectés`);
+    console.log(`[military-ships] stream: ${msgCount} msg/min — ${ships.size} navires affichés, ${milCount} nouveaux confirmés`);
   msgCount = 0; milCount = 0;
 }, 60_000);
 
@@ -197,11 +197,11 @@ function wsConnect() {
       const sd   = msg.Message?.ShipStaticData || {};
       const name = (sd.Name || '').trim().replace(/@+$/, '');
       const c    = countryFromMmsi(mmsi);
-      const isWarshipMmsi = c && c.isWarshipFormat;
-      // Critère 1 : nom avec préfixe militaire (USS, HMS, RFS…)
+      const isKnownNavy = !!c;  // MMSI appartient à une marine dans notre MID_MAP
+      // Critère 1 : nom avec préfixe militaire (USS, HMS, RFS…) — quel que soit le pays
       const isMilName = name && MILITARY_NAME_RE.test(name);
-      // Critère 2 : ShipType=35 ET MMSI au format warship ITU (les civils utilisent souvent Type=35 par erreur)
-      const isMilType35 = sd.Type === 35 && isWarshipMmsi;
+      // Critère 2 : ShipType=35 ET MMSI dans une marine connue (évite les civils hors liste)
+      const isMilType35 = sd.Type === 35 && isKnownNavy;
       if (isMilName || isMilType35) {
         const entry = {
           name:     name || mmsi,
@@ -211,6 +211,7 @@ function wsConnect() {
           confirmed: true,
         };
         shipMeta.set(mmsi, entry);
+        milCount++;
         // Mettre à jour le navire si déjà connu
         const s = ships.get(mmsi);
         if (s) { s.name = entry.name; s.callsign = entry.callsign; }
