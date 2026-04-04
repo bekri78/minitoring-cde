@@ -282,46 +282,53 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
         data: { type: 'FeatureCollection', features: [] },
       });
 
-      createSdfIcon(map, 'aircraft-icon', AIRCRAFT_PATHS, 40);
-      createSdfIcon(map, 'ship-icon',     SHIP_PATHS,     40);
-      createSdfIcon(map, 'rocket-icon',   ROCKET_PATHS,   40);
-      addLayers(map);
-      bindEvents(map, popupRef.current!, launchesRef);
-      mapLoadedRef.current = true;
+      // Lucide icons sont async (SVG → canvas → SDF)
+      // Avion Lucide Plane orienté nord (tourne de -45°)
+      // Navire Lucide Ship orienté nord (tourne de 180° car proue = bas dans Lucide)
+      // Fusée Lucide Rocket orientée haut (tourne de -45°)
+      Promise.all([
+        lucideToMapImage(map, 'aircraft-icon', LUCIDE_PLANE_PATHS,  40, -45),
+        lucideToMapImage(map, 'ship-icon',     LUCIDE_SHIP_PATHS,   40, 180),
+        lucideToMapImage(map, 'rocket-icon',   LUCIDE_ROCKET_PATHS, 40, -45),
+      ]).then(() => {
+        addLayers(map);
+        bindEvents(map, popupRef.current!, launchesRef);
+        mapLoadedRef.current = true;
 
-      // Render data that already loaded before map was ready
-      if (eventsRef.current.length > 0) {
-        (map.getSource('events') as maplibregl.GeoJSONSource)
-          .setData(buildGeoJSON(eventsRef.current) as Parameters<maplibregl.GeoJSONSource['setData']>[0]);
-      }
-      if (padsRef.current.length > 0) {
-        (map.getSource('launch-pads') as maplibregl.GeoJSONSource)
-          .setData(buildPadsGeoJSON(padsRef.current));
-      }
-      if (decayRef.current.length > 0) {
-        (map.getSource('decay') as maplibregl.GeoJSONSource)
-          .setData(buildDecayGeoJSON(decayRef.current));
-      }
-      if (tipRef.current.length > 0) {
-        (map.getSource('tip') as maplibregl.GeoJSONSource)
-          .setData(buildTipGeoJSON(tipRef.current));
-      }
-      if (quakesRef.current.length > 0) {
-        (map.getSource('earthquakes') as maplibregl.GeoJSONSource)
-          .setData(buildQuakeGeoJSON(quakesRef.current));
-      }
-      if (milAircraftRef.current.length > 0) {
-        (map.getSource('mil-trails') as maplibregl.GeoJSONSource)
-          .setData(buildMilTrailsGeoJSON(milAircraftRef.current));
-        (map.getSource('mil-aircraft') as maplibregl.GeoJSONSource)
-          .setData(buildMilPointsGeoJSON(milAircraftRef.current));
-      }
-      if (milShipsRef.current.length > 0) {
-        (map.getSource('mil-ship-trails') as maplibregl.GeoJSONSource)
-          .setData(buildShipTrailsGeoJSON(milShipsRef.current));
-        (map.getSource('mil-ships') as maplibregl.GeoJSONSource)
-          .setData(buildShipPointsGeoJSON(milShipsRef.current));
-      }
+        // Render data that already loaded before map was ready
+        if (eventsRef.current.length > 0) {
+          (map.getSource('events') as maplibregl.GeoJSONSource)
+            .setData(buildGeoJSON(eventsRef.current) as Parameters<maplibregl.GeoJSONSource['setData']>[0]);
+        }
+        if (padsRef.current.length > 0) {
+          (map.getSource('launch-pads') as maplibregl.GeoJSONSource)
+            .setData(buildPadsGeoJSON(padsRef.current));
+        }
+        if (decayRef.current.length > 0) {
+          (map.getSource('decay') as maplibregl.GeoJSONSource)
+            .setData(buildDecayGeoJSON(decayRef.current));
+        }
+        if (tipRef.current.length > 0) {
+          (map.getSource('tip') as maplibregl.GeoJSONSource)
+            .setData(buildTipGeoJSON(tipRef.current));
+        }
+        if (quakesRef.current.length > 0) {
+          (map.getSource('earthquakes') as maplibregl.GeoJSONSource)
+            .setData(buildQuakeGeoJSON(quakesRef.current));
+        }
+        if (milAircraftRef.current.length > 0) {
+          (map.getSource('mil-trails') as maplibregl.GeoJSONSource)
+            .setData(buildMilTrailsGeoJSON(milAircraftRef.current));
+          (map.getSource('mil-aircraft') as maplibregl.GeoJSONSource)
+            .setData(buildMilPointsGeoJSON(milAircraftRef.current));
+        }
+        if (milShipsRef.current.length > 0) {
+          (map.getSource('mil-ship-trails') as maplibregl.GeoJSONSource)
+            .setData(buildShipTrailsGeoJSON(milShipsRef.current));
+          (map.getSource('mil-ships') as maplibregl.GeoJSONSource)
+            .setData(buildShipPointsGeoJSON(milShipsRef.current));
+        }
+      });
     });
 
     return () => {
@@ -410,44 +417,60 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   );
 }
 
-// ── Icônes SVG (chemins Path2D, canvas 40×40, nord = haut) ───────────────
+// ── Icônes Lucide (vrais SVG de la librairie, rendus sur canvas pour MapLibre) ─
 
-// Avion — vue du dessus, ailes delta larges, nez fin vers le haut
-const AIRCRAFT_PATHS = [
-  // Fuselage fin (nez pointu en haut)
-  'M20 1 L22 12 L22 30 L20 33 L18 30 L18 12 Z',
-  // Aile droite (large, delta)
-  'M22 8 L38 30 L22 24 Z',
-  // Aile gauche (large, delta)
-  'M18 8 L2 30 L18 24 Z',
-  // Empennage droit (petit)
-  'M21 30 L28 38 L21 36 Z',
-  // Empennage gauche (petit)
-  'M19 30 L12 38 L19 36 Z',
+// Chemins SVG Lucide — viewBox 0 0 24 24
+const LUCIDE_PLANE_PATHS = [
+  'M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z',
+];
+const LUCIDE_SHIP_PATHS = [
+  'M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2c1.3 0 1.9.5 2.5 1',
+  'M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.278.483 4.294 1.62 6',
+  'M2 21V7l9-4 9 4v14',
+  'M6 11h12',
+];
+const LUCIDE_ROCKET_PATHS = [
+  'M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z',
+  'M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11A22.35 22.35 0 0 1 15 15z',
+  'M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0',
+  'M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5',
 ];
 
-// Navire — coque pointue (proue en haut) + passerelle
-const SHIP_PATHS = [
-  'M20 2 C15 2 13 7 13 11 L12 30 C12 32 15 35 20 35 C25 35 28 32 28 30 L27 11 C27 7 25 2 20 2 Z',
-  'M15 15 L25 15 L25 23 L15 23 Z',
-];
-
-// Fusée — corps + ailettes + tuyère, nez vers le haut
-const ROCKET_PATHS = [
-  'M20 2 C16 2 14 6 14 11 L14 27 L20 33 L26 27 L26 11 C26 6 24 2 20 2 Z',
-  'M14 23 L8 33 L14 30 Z',
-  'M26 23 L32 33 L26 30 Z',
-  'M15 33 L13 38 L27 38 L25 33 Z',
-];
-
-function createSdfIcon(map: maplibregl.Map, name: string, paths: string[], size: number) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = 'white';
-  for (const d of paths) ctx.fill(new Path2D(d));
-  const imgData = ctx.getImageData(0, 0, size, size);
-  map.addImage(name, { width: size, height: size, data: new Uint8Array(imgData.data.buffer) }, { sdf: true });
+// Rend un SVG Lucide (stroke-based) sur canvas et l'enregistre comme image SDF MapLibre.
+// rotateDeg : rotation appliquée autour du centre (12,12) pour orienter nord = haut.
+function lucideToMapImage(
+  map: maplibregl.Map,
+  name: string,
+  paths: string[],
+  size: number,
+  rotateDeg = 0,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const pathElems = paths.map(d => `<path d="${d}"/>`).join('');
+    const g = rotateDeg !== 0
+      ? `<g transform="rotate(${rotateDeg} 12 12)">${pathElems}</g>`
+      : pathElems;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${g}</svg>`;
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    const img = new Image(size, size);
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      // Convertit en SDF : tous les pixels non-transparents → blanc
+      const imgData = ctx.getImageData(0, 0, size, size);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] > 0) { d[i] = 255; d[i + 1] = 255; d[i + 2] = 255; }
+      }
+      map.addImage(name, { width: size, height: size, data: new Uint8Array(d.buffer) }, { sdf: true });
+      resolve();
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
 }
 
 function addLayers(map: maplibregl.Map) {
