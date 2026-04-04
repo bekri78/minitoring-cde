@@ -66,24 +66,28 @@ function buildTipGeoJSON(objects: TipObject[]): GeoJSON.FeatureCollection {
   };
 }
 
+const QUAKE_MIN_MAG = 5.5; // afficher uniquement M5.5+ sur la carte
+
 function buildQuakeGeoJSON(quakes: Quake[]): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
-    features: quakes.map(q => ({
-      type:     'Feature' as const,
-      geometry: { type: 'Point' as const, coordinates: [q.lon, q.lat] },
-      properties: {
-        id:      q.id,
-        mag:     q.mag,
-        place:   q.place,
-        time:    q.time,
-        depth:   q.depth,
-        tsunami: q.tsunami,
-        alert:   q.alert,
-        url:     q.url,
-        color:   q.color,
-      },
-    })),
+    features: quakes
+      .filter(q => q.mag >= QUAKE_MIN_MAG)
+      .map(q => ({
+        type:     'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [q.lon, q.lat] },
+        properties: {
+          id:      q.id,
+          mag:     q.mag,
+          place:   q.place,
+          time:    q.time,
+          depth:   q.depth,
+          tsunami: q.tsunami,
+          alert:   q.alert,
+          url:     q.url,
+          color:   q.color,
+        },
+      })),
   };
 }
 
