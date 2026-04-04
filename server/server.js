@@ -148,6 +148,43 @@ app.get('/launches', (req, res) => {
   });
 });
 
+// ── Historique — résumé par jour ──────────────────────────────────────────
+app.get('/history', (req, res) => {
+  try {
+    const files = fs.readdirSync(CACHE_DIR)
+      .filter(f => /^events-\d{8}\.json$/.test(f))
+      .sort();
+
+    const history = files.map(file => {
+      try {
+        const raw    = JSON.parse(fs.readFileSync(path.join(CACHE_DIR, file), 'utf8'));
+        const events = raw.events || [];
+        const categories = {};
+        const severities  = {};
+        for (const e of events) {
+          const cat = e.category || 'incident';
+          const sev = e.severity || 'LOW';
+          categories[cat] = (categories[cat] || 0) + 1;
+          severities[sev]  = (severities[sev]  || 0) + 1;
+        }
+        return {
+          date:       file.replace('events-', '').replace('.json', ''),
+          count:      events.length,
+          lastUpdate: raw.lastUpdate || null,
+          categories,
+          severities,
+        };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+
+    res.json({ history });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/health', (req, res) => {
   res.json({
     ok:         cache.status === 'ok',

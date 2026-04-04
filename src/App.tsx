@@ -3,11 +3,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEvents }      from './hooks/useEvents';
 import { useLaunches }    from './hooks/useLaunches';
 import { useDecay }       from './hooks/useDecay';
+import { useHistory }     from './hooks/useHistory';
 import { useFilterStore } from './store/filterStore';
 import { Header }         from './components/Header';
 import { WorldMap }       from './components/WorldMap';
 import { FilterPanel }    from './components/FilterPanel';
 import { SpacePanel }     from './components/SpacePanel';
+import { TrendPanel }     from './components/TrendPanel';
 import { getSeverityKey } from './utils/classify';
 import { getRegionKey }   from './utils/geo';
 import type { Event }     from './types/event';
@@ -16,7 +18,8 @@ export default function App() {
   const queryClient = useQueryClient();
   const { data: gdeltEvents, status: gdeltStatus } = useEvents();
   const { data: launchData,  status: launchStatus } = useLaunches();
-  const { data: decayData } = useDecay();
+  const { data: decayData }   = useDecay();
+  const { data: historyData } = useHistory();
   const { severity, categories, regions } = useFilterStore();
 
   const [nextRefresh,     setNextRefresh]     = useState('—');
@@ -64,6 +67,7 @@ export default function App() {
         <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} />
         <FilterPanel />
         <SpacePanel data={launchData} decay={decayData} loading={launchStatus === 'pending'} />
+        <TrendPanel data={historyData?.history ?? []} />
       </div>
     </div>
   );
