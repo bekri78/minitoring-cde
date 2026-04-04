@@ -61,11 +61,13 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [] }: Prop
   const popupRef      = useRef<maplibregl.Popup | null>(null);
   const mapLoadedRef  = useRef(false);
   const eventsRef     = useRef<Event[]>(events);
+  const padsRef       = useRef<LaunchPad[]>(pads);
+  const decayRef      = useRef<DecayObject[]>(decayObjects);
 
-  // Keep events ref current so the load handler can access latest data
-  useEffect(() => {
-    eventsRef.current = events;
-  }, [events]);
+  // Keep refs current so the load handler can access latest data
+  useEffect(() => { eventsRef.current = events; }, [events]);
+  useEffect(() => { padsRef.current   = pads;   }, [pads]);
+  useEffect(() => { decayRef.current  = decayObjects; }, [decayObjects]);
 
   // Initialize MapLibre once
   useEffect(() => {
@@ -120,10 +122,18 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [] }: Prop
       bindEvents(map, popupRef.current!);
       mapLoadedRef.current = true;
 
-      // Render events that already loaded before map was ready
+      // Render data that already loaded before map was ready
       if (eventsRef.current.length > 0) {
         (map.getSource('events') as maplibregl.GeoJSONSource)
           .setData(buildGeoJSON(eventsRef.current) as Parameters<maplibregl.GeoJSONSource['setData']>[0]);
+      }
+      if (padsRef.current.length > 0) {
+        (map.getSource('launch-pads') as maplibregl.GeoJSONSource)
+          .setData(buildPadsGeoJSON(padsRef.current));
+      }
+      if (decayRef.current.length > 0) {
+        (map.getSource('decay') as maplibregl.GeoJSONSource)
+          .setData(buildDecayGeoJSON(decayRef.current));
       }
     });
 
