@@ -61,27 +61,7 @@ async function refresh(force = false) {
 
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
-  // Si déjà enrichi aujourd'hui → skip jusqu'au lendemain
-  if (!force && cache.date === today && cache.status === 'ok') {
-    console.log('[refresh] skipped — already enriched today');
-    return;
-  }
-
   isRefreshing = true;
-
-  // Charger depuis le disque si disponible (évite l'enrichissement IA au restart)
-  if (!force) {
-    const disk = loadFromDisk(today);
-    if (disk) {
-      cache.events     = disk.events;
-      cache.lastUpdate = disk.lastUpdate;
-      cache.date       = today;
-      cache.status     = 'ok';
-      isRefreshing     = false;
-      console.log(`[refresh] restored from disk — ${disk.events.length} events`);
-      return;
-    }
-  }
 
   console.log('[refresh] starting...');
   cache.status = 'refreshing';
