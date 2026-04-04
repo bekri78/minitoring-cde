@@ -412,13 +412,18 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
 
 // ── Icônes SVG (chemins Path2D, canvas 40×40, nord = haut) ───────────────
 
-// Avion — fuselage + ailes + empennage, nez vers le haut
+// Avion — vue du dessus, ailes delta larges, nez fin vers le haut
 const AIRCRAFT_PATHS = [
-  'M20 3 L23 16 L23 28 L20 26 L17 28 L17 16 Z',
-  'M23 18 L39 27 L37 30 L23 23 Z',
-  'M17 18 L1 27 L3 30 L17 23 Z',
-  'M22 28 L30 37 L29 38 L22 32 Z',
-  'M18 28 L10 37 L11 38 L18 32 Z',
+  // Fuselage fin (nez pointu en haut)
+  'M20 1 L22 12 L22 30 L20 33 L18 30 L18 12 Z',
+  // Aile droite (large, delta)
+  'M22 8 L38 30 L22 24 Z',
+  // Aile gauche (large, delta)
+  'M18 8 L2 30 L18 24 Z',
+  // Empennage droit (petit)
+  'M21 30 L28 38 L21 36 Z',
+  // Empennage gauche (petit)
+  'M19 30 L12 38 L19 36 Z',
 ];
 
 // Navire — coque pointue (proue en haut) + passerelle
@@ -923,7 +928,7 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup, launchesRef: M
   });
 
   // Launch pad click
-  map.on('click', 'pads-circles', e => {
+  map.on('click', 'pads-icon', e => {
     const feature = e.features?.[0];
     if (!feature) return;
     const p      = feature.properties || {};
@@ -1026,8 +1031,8 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup, launchesRef: M
   map.on('mouseleave', 'events-circles', () => { map.getCanvas().style.cursor = ''; });
   map.on('mouseenter', 'clusters',       () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'clusters',       () => { map.getCanvas().style.cursor = ''; });
-  map.on('mouseenter', 'pads-circles',    () => { map.getCanvas().style.cursor = 'pointer'; });
-  map.on('mouseleave', 'pads-circles',    () => { map.getCanvas().style.cursor = ''; });
+  map.on('mouseenter', 'pads-icon',    () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'pads-icon',    () => { map.getCanvas().style.cursor = ''; });
   map.on('mouseenter', 'decay-circles',   () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'decay-circles',   () => { map.getCanvas().style.cursor = ''; });
   map.on('mouseenter', 'tip-circles',     () => { map.getCanvas().style.cursor = 'pointer'; });
