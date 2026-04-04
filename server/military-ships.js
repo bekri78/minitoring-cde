@@ -197,11 +197,10 @@ function wsConnect() {
       const sd   = msg.Message?.ShipStaticData || {};
       const name = (sd.Name || '').trim().replace(/@+$/, '');
       const c    = countryFromMmsi(mmsi);
-      const isKnownNavy = !!c;  // MMSI appartient à une marine dans notre MID_MAP
       // Critère 1 : nom avec préfixe militaire (USS, HMS, RFS…) — quel que soit le pays
       const isMilName = name && MILITARY_NAME_RE.test(name);
-      // Critère 2 : ShipType=35 ET MMSI dans une marine connue (évite les civils hors liste)
-      const isMilType35 = sd.Type === 35 && isKnownNavy;
+      // Critère 2 : ShipType=35 — type AIS "Military ops", fiable sans condition de pays
+      const isMilType35 = sd.Type === 35;
       if (isMilName || isMilType35) {
         const entry = {
           name:     name || mmsi,
@@ -234,7 +233,7 @@ function wsConnect() {
       // 2. Format MMSI warship ITU (0 + MID connu + 5 chiffres) ?
       if (!meta2) {
         const c = countryFromMmsi(mmsi);
-        if (!c || !c.isWarshipFormat) return; // non militaire → ignorer
+        if (!c || !c.isWarshipFormat) return; // MMSI classique → attendre ShipStaticData
         // Format warship ITU confirmé pour une marine connue
         meta2 = { name: mmsi, callsign: '', country: c.country, color: c.color, confirmed: false };
         shipMeta.set(mmsi, meta2);
