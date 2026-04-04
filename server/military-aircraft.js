@@ -1,10 +1,12 @@
 'use strict';
 
-// ── Sources OpenSky Network (gratuit, enregistrement recommandé) ──────────
+// ── Sources ───────────────────────────────────────────────────────────────
+// OpenSky bloque les IP des clouds (Railway/GCP/AWS) — fallback sur ADS-B Exchange
 const OPENSKY_URL   = 'https://opensky-network.org/api/states/all';
-const CACHE_MAX_AGE = 5 * 60 * 1000;   // 5min — ~288 req/jour (< 400 limite free)
-const TRAIL_MAX_PTS = 6;                 // 6 × 5min = 30min de traînée
-const TRAIL_EXPIRE  = 40 * 60 * 1000;   // purge après 40min sans signal
+const ADSBX_URL     = 'https://adsbexchange-com1.p.rapidapi.com/v2/mil/';  // militaires uniquement
+const CACHE_MAX_AGE = 5 * 60 * 1000;   // 5min
+const TRAIL_MAX_PTS = 6;
+const TRAIL_EXPIRE  = 40 * 60 * 1000;
 
 // ── Plages ICAO hex des aviations militaires connues ─────────────────────
 // Source : ICAO Doc 9303 + bases publiques (OpenSkyDB, ADSB-DB)
@@ -93,6 +95,105 @@ let cache = {
 let isFetching = false;
 
 // ── Fetch OpenSky ─────────────────────────────────────────────────────────
+async function fetchFromOpenSky() {
+  const user = process.env.OPENSKY_USER;
+  const pass = process.env.OPENSKY_PASS;
+  const headers = user && pass
+    ? { 'Authorization': 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64') }
+    : {};
+
+  const resp = await fetch(OPENSKY_URL, {
+    headers,
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (resp.status === 429) throw new Error('OpenSky rate limited (429)');
+  if (!resp.ok) throw new Error(`OpenSky HTTP ${resp.status}`);
+
+  const data   = await resp.json();
+  const states = data.states || [];
+  const aircraft = [];
+
+  for (const s of states) {
+    if (!s || s[8]) continue;              // on_ground
+    if (s[5] == null || s[6] == null) continue;
+
+    const icao24   = (s[0] || '').toLowerCase();
+    const callsign = (s[1] || '').trim();
+    const mil      = detectMilitary(icao24, callsign);
+    if (!mil) continue;
+
+    const lon   = Number(s[5]);
+    const lat   = Number(s[6]);
+    const alt   = s[7]  != null ? Math.round(Number(s[7]))         : null; // mètres
+    const speed = s[9]  != null ? Math.round(Number(s[9]) * 1.944) : null; // m/s → kt
+    const track = s[10] != null ? Number(s[10]) : 0;
+
+    updateTrail(icao24, lon, lat);
+    const trail = trails.get(icao24)?.positions || [];
+
+    aircraft.push({
+      id: icao24, callsign: callsign || icao24.toUpperCase(),
+      country: mil.country, color: mil.color,
+      lon, lat, alt, altFt: alt != null ? Math.round(alt * 3.281) : null,
+      speed, track,
+      trail: trail.map(p => [p.lon, p.lat]),
+    });
+  }
+  console.log(`[military-aircraft] OpenSky ok — ${aircraft.length} aircraft from ${states.length} states`);
+  return aircraft;
+}
+
+// ── Fetch ADS-B Exchange /v2/mil/ (militaires uniquement) ─────────────────
+async function fetchFromAdsbExchange() {
+  const key = process.env.ADSBX_API_KEY;
+  if (!key) throw new Error('ADSBX_API_KEY not set');
+
+  const resp = await fetch(ADSBX_URL, {
+    headers: {
+      'X-RapidAPI-Key':  key,
+      'X-RapidAPI-Host': 'adsbexchange-com1.p.rapidapi.com',
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (resp.status === 429) throw new Error('ADS-B Exchange rate limited (429)');
+  if (!resp.ok) throw new Error(`ADS-B Exchange HTTP ${resp.status}`);
+
+  const data = await resp.json();
+  const ac   = data.ac || [];
+  const aircraft = [];
+
+  for (const a of ac) {
+    if (!a || a.alt_baro === 'ground') continue;
+    if (a.lat == null || a.lon == null) continue;
+
+    const icao24   = (a.hex || '').toLowerCase();
+    const callsign = (a.flight || '').trim();
+    const mil      = detectMilitary(icao24, callsign) || { country: 'MIL', color: '#e8f4ff' };
+
+    const lon   = Number(a.lon);
+    const lat   = Number(a.lat);
+    const altFt = a.alt_baro != null && a.alt_baro !== 'ground' ? Math.round(Number(a.alt_baro)) : null;
+    const alt   = altFt != null ? Math.round(altFt / 3.281) : null;
+    const speed = a.gs    != null ? Math.round(Number(a.gs))    : null; // déjà en kt
+    const track = a.track != null ? Number(a.track) : 0;
+
+    updateTrail(icao24, lon, lat);
+    const trail = trails.get(icao24)?.positions || [];
+
+    aircraft.push({
+      id: icao24, callsign: callsign || icao24.toUpperCase(),
+      country: mil.country, color: mil.color,
+      lon, lat, alt, altFt, speed, track,
+      trail: trail.map(p => [p.lon, p.lat]),
+    });
+  }
+  console.log(`[military-aircraft] ADS-B Exchange ok — ${aircraft.length} aircraft`);
+  return aircraft;
+}
+
+// ── Fetch principal : ADS-B Exchange si clé dispo, sinon OpenSky ──────────
 async function fetchMilitary() {
   if (isFetching) return;
 
@@ -102,76 +203,29 @@ async function fetchMilitary() {
   }
 
   isFetching = true;
+  purgeTrails();
 
   try {
-    // OpenSky accepte un user:pass en Basic Auth pour plus de quota (optionnel)
-    const user = process.env.OPENSKY_USER;
-    const pass = process.env.OPENSKY_PASS;
-    const headers = user && pass
-      ? { 'Authorization': 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64') }
-      : {};
+    let aircraft;
 
-    const resp = await fetch(OPENSKY_URL, {
-      headers,
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (resp.status === 429) {
-      console.warn('[military-aircraft] rate limited by OpenSky — skipping');
-      return;
-    }
-    if (!resp.ok) throw new Error(`OpenSky HTTP ${resp.status}`);
-
-    const data = await resp.json();
-    const states = data.states || [];
-
-    // Colonnes OpenSky states/all :
-    // 0=icao24, 1=callsign, 2=origin_country, 3=time_position, 4=last_contact,
-    // 5=longitude, 6=latitude, 7=baro_altitude, 8=on_ground, 9=velocity,
-    // 10=true_track, 11=vertical_rate, 12=sensors, 13=geo_altitude,
-    // 14=squawk, 15=spi, 16=position_source, 17=category
-
-    purgeTrails();
-
-    const aircraft = [];
-    for (const s of states) {
-      if (!s || s[8]) continue;               // on_ground === true → skip
-      if (s[5] == null || s[6] == null) continue; // pas de position
-
-      const icao24   = (s[0] || '').toLowerCase();
-      const callsign = (s[1] || '').trim();
-      const mil      = detectMilitary(icao24, callsign);
-      if (!mil) continue;
-
-      const lon   = Number(s[5]);
-      const lat   = Number(s[6]);
-      const alt   = s[7]  != null ? Math.round(Number(s[7]))  : null; // baro_altitude m
-      const speed = s[9]  != null ? Math.round(Number(s[9]) * 1.944) : null; // m/s → kt
-      const track = s[10] != null ? Number(s[10]) : 0; // degrés vrai
-
-      updateTrail(icao24, lon, lat);
-      const trail = trails.get(icao24)?.positions || [];
-
-      aircraft.push({
-        id:       icao24,
-        callsign: callsign || icao24.toUpperCase(),
-        country:  mil.country,
-        color:    mil.color,
-        lon, lat,
-        alt,          // mètres
-        altFt: alt != null ? Math.round(alt * 3.281) : null,
-        speed,        // noeuds
-        track,        // cap en degrés
-        trail:        trail.map(p => [p.lon, p.lat]),
-      });
+    // Priorité 1 : ADS-B Exchange (fonctionne depuis les clouds)
+    if (process.env.ADSBX_API_KEY) {
+      try {
+        aircraft = await fetchFromAdsbExchange();
+      } catch (err) {
+        console.warn(`[military-aircraft] ADS-B Exchange failed: ${err.message} — trying OpenSky fallback`);
+        aircraft = await fetchFromOpenSky();
+      }
+    } else {
+      // Priorité 2 : OpenSky (peut être bloqué sur cloud)
+      aircraft = await fetchFromOpenSky();
     }
 
     cache.aircraft   = aircraft;
     cache.count      = aircraft.length;
     cache.lastUpdate = new Date().toISOString();
-    console.log(`[military-aircraft] ok — ${aircraft.length} aircraft from ${states.length} states`);
   } catch (err) {
-    console.error('[military-aircraft] fetch failed:', err.message);
+    console.error(`[military-aircraft] fetch failed: ${err.message} (cause: ${err.cause?.message || err.cause || 'unknown'})`);
   } finally {
     isFetching = false;
   }
