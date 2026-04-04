@@ -240,6 +240,8 @@ app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
   refresh().catch(err => console.error('[startup] refresh failed:', err.message));
   fetchLaunches().catch(err => console.error('[startup-launches]', err.message));
-  fetchDecay().catch(err => console.error('[startup-decay]', err.message));
-  fetchTip().catch(err => console.error('[startup-tip]', err.message));
+  // Sérialiser les appels Space-Track pour éviter la concurrence sur la session
+  fetchDecay()
+    .then(() => fetchTip())
+    .catch(err => console.error('[startup-spacetrack]', err.message));
 });

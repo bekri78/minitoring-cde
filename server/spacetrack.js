@@ -160,6 +160,12 @@ function normalizeDecay(row) {
   if (!coords) return null;   // pays inconnu → on ne place pas sur la carte
 
   const decayEpoch = row.DECAY_EPOCH || null;
+
+  // Ignorer les rentrées déjà confirmées (> 6h dans le passé)
+  if (decayEpoch && new Date(decayEpoch).getTime() < Date.now() - 6 * 3600 * 1000) {
+    return null;
+  }
+
   const daysLeft   = decayEpoch
     ? Math.max(0, (new Date(decayEpoch).getTime() - Date.now()) / 86_400_000)
     : null;
@@ -265,6 +271,12 @@ function normalizeTip(row) {
   if (isNaN(lat) || isNaN(lon)) return null;
 
   const decayEpoch = row.DECAY_EPOCH || null;
+
+  // Ignorer les prédictions déjà passées (> 6h dans le passé)
+  if (decayEpoch && new Date(decayEpoch).getTime() < Date.now() - 6 * 3600 * 1000) {
+    return null;
+  }
+
   const hoursLeft  = decayEpoch
     ? (new Date(decayEpoch).getTime() - Date.now()) / 3_600_000
     : null;

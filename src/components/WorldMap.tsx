@@ -346,7 +346,7 @@ function addLayers(map: maplibregl.Map) {
   map.addLayer({
     id: 'tip-ring', type: 'circle', source: 'tip',
     paint: {
-      'circle-color':        'transparent',
+      'circle-color':        'rgba(0,0,0,0)',
       'circle-radius':       10,
       'circle-stroke-width': 2,
       'circle-stroke-color': ['get', 'color'],
