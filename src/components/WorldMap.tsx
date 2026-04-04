@@ -146,18 +146,6 @@ function buildShipPointsGeoJSON(ships: MilShip[]): GeoJSON.FeatureCollection {
   };
 }
 
-function buildMilTrailsGeoJSON(aircraft: MilAircraft[]): GeoJSON.FeatureCollection {
-  return {
-    type: 'FeatureCollection',
-    features: aircraft
-      .filter(a => a.trail.length >= 2)
-      .map(a => ({
-        type:     'Feature' as const,
-        geometry: { type: 'LineString' as const, coordinates: a.trail },
-        properties: { id: a.id, color: a.color },
-      })),
-  };
-}
 
 function buildMilPointsGeoJSON(aircraft: MilAircraft[]): GeoJSON.FeatureCollection {
   return {
@@ -262,10 +250,6 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
         data: { type: 'FeatureCollection', features: [] },
       });
 
-      map.addSource('mil-trails', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      });
 
       map.addSource('mil-aircraft', {
         type: 'geojson',
@@ -317,8 +301,6 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
             .setData(buildQuakeGeoJSON(quakesRef.current));
         }
         if (milAircraftRef.current.length > 0) {
-          (map.getSource('mil-trails') as maplibregl.GeoJSONSource)
-            .setData(buildMilTrailsGeoJSON(milAircraftRef.current));
           (map.getSource('mil-aircraft') as maplibregl.GeoJSONSource)
             .setData(buildMilPointsGeoJSON(milAircraftRef.current));
         }
@@ -378,11 +360,10 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
     source?.setData(buildQuakeGeoJSON(quakes));
   }, [quakes]);
 
-  // Update military aircraft layers
+  // Update military aircraft layer
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current) return;
-    (map.getSource('mil-trails')   as maplibregl.GeoJSONSource | undefined)?.setData(buildMilTrailsGeoJSON(milAircraft));
     (map.getSource('mil-aircraft') as maplibregl.GeoJSONSource | undefined)?.setData(buildMilPointsGeoJSON(milAircraft));
   }, [milAircraft]);
 
@@ -450,7 +431,7 @@ function lucideToMapImage(
     const g = rotateDeg !== 0
       ? `<g transform="rotate(${rotateDeg} 12 12)">${pathElems}</g>`
       : pathElems;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${g}</svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">${g}</svg>`;
     const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
     const img = new Image(size, size);
     img.onload = () => {
@@ -710,17 +691,6 @@ function addLayers(map: maplibregl.Map) {
       'text-opacity':    0.8,
       'text-halo-color': 'rgba(0,0,0,0.6)',
       'text-halo-width': 1,
-    },
-  });
-
-  // Military aircraft — traînée de positions
-  map.addLayer({
-    id: 'mil-trail-lines', type: 'line', source: 'mil-trails',
-    layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: {
-      'line-color':   ['get', 'color'],
-      'line-opacity': 0.35,
-      'line-width':   1.5,
     },
   });
 
