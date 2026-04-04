@@ -5,6 +5,7 @@ import type { Event } from '../types/event';
 import type { LaunchPad } from '../types/launch';
 import type { DecayObject } from '../types/decay';
 import type { TipObject } from '../types/tip';
+import type { Quake } from '../types/earthquake';
 import { buildGeoJSON } from '../utils/geo';
 import { getColor, getCategoryColor, getCategoryLabel, getSeverityLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
@@ -15,6 +16,7 @@ interface Props {
   pads?:         LaunchPad[];
   decayObjects?: DecayObject[];
   tipObjects?:   TipObject[];
+  quakes?:       Quake[];
 }
 
 function buildDecayGeoJSON(objects: DecayObject[]): GeoJSON.FeatureCollection {
@@ -64,6 +66,27 @@ function buildTipGeoJSON(objects: TipObject[]): GeoJSON.FeatureCollection {
   };
 }
 
+function buildQuakeGeoJSON(quakes: Quake[]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: quakes.map(q => ({
+      type:     'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [q.lon, q.lat] },
+      properties: {
+        id:      q.id,
+        mag:     q.mag,
+        place:   q.place,
+        time:    q.time,
+        depth:   q.depth,
+        tsunami: q.tsunami,
+        alert:   q.alert,
+        url:     q.url,
+        color:   q.color,
+      },
+    })),
+  };
+}
+
 function buildPadsGeoJSON(pads: LaunchPad[]): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
@@ -81,7 +104,7 @@ function buildPadsGeoJSON(pads: LaunchPad[]): GeoJSON.FeatureCollection {
   };
 }
 
-export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObjects = [] }: Props) {
+export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObjects = [], quakes = [] }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<maplibregl.Map | null>(null);
   const popupRef      = useRef<maplibregl.Popup | null>(null);
@@ -90,12 +113,14 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   const padsRef       = useRef<LaunchPad[]>(pads);
   const decayRef      = useRef<DecayObject[]>(decayObjects);
   const tipRef        = useRef<TipObject[]>(tipObjects);
+  const quakesRef     = useRef<Quake[]>(quakes);
 
   // Keep refs current so the load handler can access latest data
   useEffect(() => { eventsRef.current = events;       }, [events]);
   useEffect(() => { padsRef.current   = pads;         }, [pads]);
   useEffect(() => { decayRef.current  = decayObjects; }, [decayObjects]);
   useEffect(() => { tipRef.current    = tipObjects;   }, [tipObjects]);
+  useEffect(() => { quakesRef.current = quakes;       }, [quakes]);
 
   // Initialize MapLibre once
   useEffect(() => {
@@ -151,6 +176,11 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
         data: { type: 'FeatureCollection', features: [] },
       });
 
+      map.addSource('earthquakes', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+
       addLayers(map);
       bindEvents(map, popupRef.current!);
       mapLoadedRef.current = true;
@@ -171,6 +201,10 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
       if (tipRef.current.length > 0) {
         (map.getSource('tip') as maplibregl.GeoJSONSource)
           .setData(buildTipGeoJSON(tipRef.current));
+      }
+      if (quakesRef.current.length > 0) {
+        (map.getSource('earthquakes') as maplibregl.GeoJSONSource)
+          .setData(buildQuakeGeoJSON(quakesRef.current));
       }
     });
 
@@ -212,6 +246,14 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
     const source = map.getSource('tip') as maplibregl.GeoJSONSource | undefined;
     source?.setData(buildTipGeoJSON(tipObjects));
   }, [tipObjects]);
+
+  // Update earthquakes layer
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    const source = map.getSource('earthquakes') as maplibregl.GeoJSONSource | undefined;
+    source?.setData(buildQuakeGeoJSON(quakes));
+  }, [quakes]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -377,6 +419,45 @@ function addLayers(map: maplibregl.Map) {
       'text-offset':           [0, -1.8],
       'text-allow-overlap':    true,
       'text-ignore-placement': true,
+    },
+    paint: { 'text-color': ['get', 'color'], 'text-opacity': 0.9 },
+  });
+
+  // Earthquakes — halo sismique (radius proportionnel à la magnitude)
+  map.addLayer({
+    id: 'quake-glow', type: 'circle', source: 'earthquakes',
+    paint: {
+      'circle-color':   ['get', 'color'],
+      'circle-radius':  ['interpolate', ['linear'], ['get', 'mag'], 4.5, 10, 6.0, 20, 7.0, 34],
+      'circle-opacity': 0.10,
+      'circle-stroke-width': 0,
+    },
+  });
+
+  // Earthquakes — cercle principal
+  map.addLayer({
+    id: 'quake-circles', type: 'circle', source: 'earthquakes',
+    paint: {
+      'circle-color':        ['get', 'color'],
+      'circle-radius':       ['interpolate', ['linear'], ['get', 'mag'], 4.5, 4, 6.0, 8, 7.0, 13],
+      'circle-opacity':      0.85,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-opacity': 0.25,
+    },
+  });
+
+  // Earthquakes — label magnitude (M6.5+)
+  map.addLayer({
+    id: 'quake-labels', type: 'symbol', source: 'earthquakes',
+    filter: ['>=', ['get', 'mag'], 6.5],
+    layout: {
+      'text-field':            ['concat', 'M', ['number-format', ['get', 'mag'], { 'min-fraction-digits': 1, 'max-fraction-digits': 1 }]],
+      'text-font':             ['Noto Sans Regular'],
+      'text-size':             9,
+      'text-offset':           [0, -1.8],
+      'text-allow-overlap':    false,
+      'text-ignore-placement': false,
     },
     paint: { 'text-color': ['get', 'color'], 'text-opacity': 0.9 },
   });
@@ -581,6 +662,49 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup) {
     `).addTo(map);
   });
 
+  // Earthquake click
+  map.on('click', 'quake-circles', e => {
+    const feature = e.features?.[0];
+    if (!feature) return;
+    const p      = feature.properties || {};
+    const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+    const color  = p.color || '#ffaa00';
+    const mag    = Number(p.mag);
+
+    const alertTag = p.alert && p.alert !== 'green'
+      ? `<span style="padding:2px 8px;font-size:9px;background:${color}18;color:${color};border:1px solid ${color}44;">PAGER ${p.alert.toUpperCase()}</span>`
+      : '';
+
+    const tsunamiTag = p.tsunami
+      ? `<span style="padding:2px 8px;font-size:9px;background:rgba(0,212,255,0.12);color:#00d4ff;border:1px solid rgba(0,212,255,0.3);">🌊 TSUNAMI</span>`
+      : '';
+
+    const titleBlock = p.url
+      ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener noreferrer" style="color:#e8f4ff;text-decoration:none;border-bottom:1px dotted #2a4a5a;">${escapeHtml(p.place)}</a>`
+      : `<span style="color:#c8d8e8;">${escapeHtml(p.place)}</span>`;
+
+    const epoch = p.time ? new Date(p.time).toUTCString().replace(' GMT', ' UTC') : '—';
+
+    popup.setLngLat(coords).setHTML(`
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:280px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+          <span style="padding:2px 8px;font-size:9px;background:${color}18;color:${color};border:1px solid ${color}44;letter-spacing:1px;">
+            SÉISME M${mag.toFixed(1)}
+          </span>
+          ${alertTag}${tsunamiTag}
+        </div>
+        <p style="color:#c8d8e8;margin:0 0 8px 0;font-size:11px;">${titleBlock}</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9px;border-top:1px solid #1a2a3a;padding-top:8px;">
+          <div><span style="color:#4a6a7a;">PROFONDEUR</span><br><span style="color:#c8d8e8;">${p.depth} km</span></div>
+          <div><span style="color:#4a6a7a;">COORDONNÉES</span><br><span style="color:#c8d8e8;">${Number(coords[1]).toFixed(2)}°, ${Number(coords[0]).toFixed(2)}°</span></div>
+        </div>
+        <div style="margin-top:8px;font-size:9px;color:#4a6a7a;">
+          ${escapeHtml(epoch)}
+        </div>
+      </div>
+    `).addTo(map);
+  });
+
   map.on('mouseenter', 'events-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'events-circles', () => { map.getCanvas().style.cursor = ''; });
   map.on('mouseenter', 'clusters',       () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -591,4 +715,6 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup) {
   map.on('mouseleave', 'decay-circles',   () => { map.getCanvas().style.cursor = ''; });
   map.on('mouseenter', 'tip-circles',     () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'tip-circles',     () => { map.getCanvas().style.cursor = ''; });
+  map.on('mouseenter', 'quake-circles',   () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'quake-circles',   () => { map.getCanvas().style.cursor = ''; });
 }

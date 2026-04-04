@@ -3,14 +3,17 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEvents }      from './hooks/useEvents';
 import { useLaunches }    from './hooks/useLaunches';
 import { useDecay }       from './hooks/useDecay';
-import { useTip }         from './hooks/useTip';
-import { useHistory }     from './hooks/useHistory';
+import { useTip }          from './hooks/useTip';
+import { useEarthquakes }  from './hooks/useEarthquakes';
+import { useSpaceWeather } from './hooks/useSpaceWeather';
+import { useHistory }      from './hooks/useHistory';
 import { useFilterStore } from './store/filterStore';
 import { Header }         from './components/Header';
 import { WorldMap }       from './components/WorldMap';
 import { FilterPanel }    from './components/FilterPanel';
-import { SpacePanel }     from './components/SpacePanel';
-import { TrendPanel }     from './components/TrendPanel';
+import { SpacePanel }          from './components/SpacePanel';
+import { TrendPanel }          from './components/TrendPanel';
+import { SpaceWeatherWidget }  from './components/SpaceWeatherWidget';
 import { getSeverityKey } from './utils/classify';
 import { getRegionKey }   from './utils/geo';
 import type { Event }     from './types/event';
@@ -21,6 +24,8 @@ export default function App() {
   const { data: launchData,  status: launchStatus } = useLaunches();
   const { data: decayData }   = useDecay();
   const { data: tipData }     = useTip();
+  const { data: quakeData }   = useEarthquakes();
+  const { data: swData }      = useSpaceWeather();
   const { data: historyData } = useHistory();
   const { severity, categories, regions } = useFilterStore();
 
@@ -66,10 +71,11 @@ export default function App() {
         onRefresh={handleRefresh}
       />
       <div style={{ position: 'relative', overflow: 'hidden' }}>
-        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} />
+        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} quakes={quakeData?.quakes} />
         <FilterPanel />
         <SpacePanel data={launchData} decay={decayData} tip={tipData} loading={launchStatus === 'pending'} />
         <TrendPanel data={historyData?.history ?? []} />
+        <SpaceWeatherWidget data={swData} />
       </div>
     </div>
   );

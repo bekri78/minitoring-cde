@@ -9,6 +9,8 @@ const { fetchTodayEvents }      = require('./gdelt');
 const { enrichEvents }          = require('./enrich');
 const { fetchAll: fetchLaunches, getCache: getLaunchCache } = require('./launches');
 const { fetchDecay, getCache: getDecayCache, fetchTip, getTipCache } = require('./spacetrack');
+const { fetchQuakes, getCache: getQuakeCache }                       = require('./earthquakes');
+const { fetchSpaceWeather, getCache: getSwCache }                    = require('./spaceweather');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -195,6 +197,27 @@ app.get('/history', (req, res) => {
   }
 });
 
+app.get('/earthquakes', (req, res) => {
+  const c = getQuakeCache();
+  res.json({
+    quakes:     c.quakes,
+    count:      c.quakes.length,
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  });
+});
+
+app.get('/spaceweather', (req, res) => {
+  const c = getSwCache();
+  res.json({
+    kp:         c.kp,
+    scales:     c.scales,
+    alerts:     c.alerts,
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({
     ok:         cache.status === 'ok',
@@ -235,6 +258,16 @@ cron.schedule('0 3,9,15,21 * * *', () => {
   fetchTip().catch(err => console.error('[tip-cron]', err.message));
 });
 
+// ── Cron 15min — Séismes USGS ─────────────────────────────────────────────────
+cron.schedule('*/15 * * * *', () => {
+  fetchQuakes().catch(err => console.error('[earthquakes-cron]', err.message));
+});
+
+// ── Cron 15min — Météo spatiale NOAA ──────────────────────────────────────────
+cron.schedule('*/15 * * * *', () => {
+  fetchSpaceWeather().catch(err => console.error('[spaceweather-cron]', err.message));
+});
+
 // ── Démarrage ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
@@ -244,4 +277,6 @@ app.listen(PORT, () => {
   fetchDecay()
     .then(() => fetchTip())
     .catch(err => console.error('[startup-spacetrack]', err.message));
+  fetchQuakes().catch(err => console.error('[startup-earthquakes]', err.message));
+  fetchSpaceWeather().catch(err => console.error('[startup-spaceweather]', err.message));
 });
