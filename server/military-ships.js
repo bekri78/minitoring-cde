@@ -72,6 +72,14 @@ const ships    = new Map();
 let ws             = null;
 let reconnectTimer = null;
 let wsFirstMsgLogged = false;
+let msgCount       = 0;
+let milCount       = 0;
+// Log stats toutes les 60s
+setInterval(() => {
+  if (msgCount > 0)
+    console.log(`[military-ships] stream: ${msgCount} msg/min, ${ships.size} navires mil, ${milCount} détectés`);
+  msgCount = 0; milCount = 0;
+}, 60_000);
 
 // ── Persistance disque ────────────────────────────────────────────────────
 function loadCache() {
@@ -133,6 +141,7 @@ function wsConnect() {
   });
 
   ws.on('message', (raw) => {
+    msgCount++;
     // Log du premier message pour diagnostiquer les erreurs d'auth/format
     if (!wsFirstMsgLogged) {
       wsFirstMsgLogged = true;
@@ -140,6 +149,8 @@ function wsConnect() {
         const preview = JSON.parse(raw);
         if (preview.error || preview.Error || preview.status === 'error') {
           console.error('[military-ships] erreur serveur:', JSON.stringify(preview));
+        } else {
+          console.log('[military-ships] premier msg reçu — stream OK');
         }
       } catch {}
     }
@@ -151,41 +162,56 @@ function wsConnect() {
     const mmsi = String(meta.MMSI || '');
     if (!mmsi) return;
 
-    // ── ShipStaticData → enregistrer si ShipType = 35 ────────────────────
+    // ── ShipStaticData → enregistrer/enrichir si ShipType = 35 ──────────
     if (type === 'ShipStaticData') {
       const sd = msg.Message?.ShipStaticData || {};
-      if (sd.Type !== 35) {
-        // Supprimer de la liste si on reçoit un type non-militaire pour ce MMSI
-        if (shipMeta.has(mmsi)) { shipMeta.delete(mmsi); ships.delete(mmsi); }
-        return;
+      if (sd.Type === 35) {
+        const c = countryFromMmsi(mmsi);
+        shipMeta.set(mmsi, {
+          name:     (sd.Name || '').trim().replace(/@+$/, '') || mmsi,
+          callsign: (sd.CallSign || '').trim(),
+          country:  c.country,
+          color:    c.color,
+        });
+        // Mettre à jour le navire si déjà connu
+        const s = ships.get(mmsi);
+        if (s) {
+          const m = shipMeta.get(mmsi);
+          s.name = m.name; s.callsign = m.callsign;
+        }
       }
-      const c = countryFromMmsi(mmsi);
-      shipMeta.set(mmsi, {
-        name:     (sd.Name || '').trim().replace(/@+$/, '') || mmsi,
-        callsign: (sd.CallSign || '').trim(),
-        country:  c.country,
-        color:    c.color,
-      });
       return;
     }
 
-    // ── PositionReport → mettre à jour si MMSI militaire connu ────────────
+    // ── PositionReport → identifier par MMSI (MID) directement ──────────
+    // On n'attend plus ShipStaticData — on détecte via le préfixe MMSI
     if (type === 'PositionReport') {
-      if (!shipMeta.has(mmsi)) return;
-
       const pr  = msg.Message?.PositionReport || {};
       const lon = pr.Longitude ?? meta.longitude;
       const lat = pr.Latitude  ?? meta.latitude;
       if (lon == null || lat == null) return;
       if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
-      if (lat === 0 && lon === 0) return;  // positions invalides AIS
+      if (lat === 0 && lon === 0) return;
 
-      const m = shipMeta.get(mmsi);
-      let   s = ships.get(mmsi);
+      // Est-ce un MMSI militaire connu (déjà reçu via ShipStaticData) ?
+      let meta2 = shipMeta.get(mmsi);
+
+      // Sinon : vérifier si le MID correspond à une marine connue
+      if (!meta2) {
+        const c = countryFromMmsi(mmsi);
+        // countryFromMmsi retourne 'MIL' + '#e8f4ff' si inconnu — on ignore ces cas
+        if (c.country === 'MIL') return;
+        // MMSI d'une marine connue mais pas encore vu en ShipStaticData
+        meta2 = { name: mmsi, callsign: '', country: c.country, color: c.color };
+        shipMeta.set(mmsi, meta2);
+        milCount++;
+      }
+
+      let s = ships.get(mmsi);
       if (!s) {
         s = {
-          id: mmsi, name: m.name, callsign: m.callsign,
-          country: m.country, color: m.color,
+          id: mmsi, name: meta2.name, callsign: meta2.callsign,
+          country: meta2.country, color: meta2.color,
           lon, lat, cog: 0, sog: 0, heading: null,
           lastSeen: Date.now(), trail: [],
         };
@@ -195,7 +221,7 @@ function wsConnect() {
       s.lat      = lat;
       s.cog      = pr.Cog ?? 0;
       s.sog      = pr.Sog ?? 0;
-      s.heading  = pr.TrueHeading !== 511 ? pr.TrueHeading : null; // 511 = invalide AIS
+      s.heading  = pr.TrueHeading !== 511 ? pr.TrueHeading : null;
       s.lastSeen = Date.now();
       updateTrail(s, lon, lat);
     }
