@@ -6,7 +6,12 @@ const path = require('path');
 const BASE_URL  = 'https://ll.thespacedevs.com/2.3.0';
 const CACHE_DIR = process.env.CACHE_DIR || '/data';
 const CACHE_FILE = path.join(CACHE_DIR, 'launches.json');
-const CACHE_MAX_AGE = 4 * 60 * 60 * 1000; // 4h (même fréquence que le cron)
+const CACHE_MAX_AGE = 6 * 60 * 60 * 1000; // 6h
+
+// Retry-after : timestamp epoch en ms avant lequel on ne retente pas l'API
+let retryAfterUntil = 0;
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Status ID → display color (Launch Library 2 status IDs)
 const STATUS_COLOR = {
@@ -108,7 +113,14 @@ async function fetchAll() {
     return;
   }
 
-  // Retourner le cache disque si encore frais (évite le 429 au restart)
+  // Toujours essayer de charger depuis le disque d'abord (évite 429 au restart)
+  const disk = loadFromDisk();
+  if (disk) {
+    Object.assign(cache, disk);
+    return;
+  }
+
+  // Retourner le cache mémoire si encore frais
   if (cache.lastUpdate) {
     const age = Date.now() - new Date(cache.lastUpdate).getTime();
     if (age < CACHE_MAX_AGE) {
@@ -116,28 +128,36 @@ async function fetchAll() {
       return;
     }
   }
-  const disk = loadFromDisk();
-  if (disk) {
-    Object.assign(cache, disk);
+
+  // Respecter le Retry-After reçu lors d'un 429 précédent
+  if (retryAfterUntil > Date.now()) {
+    const wait = Math.round((retryAfterUntil - Date.now()) / 60000);
+    console.log(`[launches] skipped — rate-limited, retry in ${wait}min`);
     return;
   }
 
   isFetching = true;
   console.log('[launches] fetching from Launch Library 2...');
 
+  // Helper qui gère le 429 et lit Retry-After
+  async function safeFetch(url, label) {
+    const res = await fetch(url);
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get('Retry-After') || '3600', 10);
+      retryAfterUntil = Date.now() + retryAfter * 1000;
+      throw new Error(`${label} HTTP 429 — retry in ${Math.round(retryAfter / 60)}min`);
+    }
+    if (!res.ok) throw new Error(`${label} HTTP ${res.status}`);
+    return res.json();
+  }
+
   try {
-    // Sequential requests — respect API rate limits (no key = limited quota)
-    const upcomingRes = await fetch(`${BASE_URL}/launches/upcoming/?limit=20&format=json`);
-    if (!upcomingRes.ok) throw new Error(`upcoming HTTP ${upcomingRes.status}`);
-    const upcoming = await upcomingRes.json();
-
-    const previousRes = await fetch(`${BASE_URL}/launches/previous/?limit=5&format=json`);
-    if (!previousRes.ok) throw new Error(`previous HTTP ${previousRes.status}`);
-    const previous = await previousRes.json();
-
-    const eventsRes = await fetch(`${BASE_URL}/events/upcoming/?limit=15&format=json`);
-    if (!eventsRes.ok) throw new Error(`events HTTP ${eventsRes.status}`);
-    const events = await eventsRes.json();
+    // Requêtes séquentielles avec délai 2s pour ne pas saturer le quota free tier
+    const upcoming = await safeFetch(`${BASE_URL}/launches/upcoming/?limit=20&format=json`, 'upcoming');
+    await sleep(2000);
+    const previous = await safeFetch(`${BASE_URL}/launches/previous/?limit=5&format=json`, 'previous');
+    await sleep(2000);
+    const events   = await safeFetch(`${BASE_URL}/events/upcoming/?limit=15&format=json`, 'events');
 
     cache.launches = (upcoming.results || []).map(normalizeLaunch);
     cache.previous = (previous.results || []).map(normalizeLaunch);

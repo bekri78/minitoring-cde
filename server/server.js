@@ -240,8 +240,8 @@ cron.schedule('0 * * * *', () => {
   refresh();
 });
 
-// ── Cron 4h — Launches ────────────────────────────────────────────────────
-cron.schedule('0 */4 * * *', () => {
+// ── Cron 6h — Launches ────────────────────────────────────────────────────
+cron.schedule('0 */6 * * *', () => {
   console.log('[cron-launches] triggered');
   fetchLaunches().catch(err => console.error('[launches-cron]', err.message));
 });
