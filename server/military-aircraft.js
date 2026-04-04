@@ -1,13 +1,18 @@
 'use strict';
 
 // ── Sources ───────────────────────────────────────────────────────────────
-// adsb.fi — agrégateur communautaire, gratuit, sans clé, fonctionne depuis cloud
-// endpoint /mil retourne uniquement les aéronefs militaires identifiés
-const ADSBFI_URL    = 'https://api.adsb.fi/v1/mil';
-const OPENSKY_URL   = 'https://opensky-network.org/api/states/all';  // fallback (bloqué sur certains clouds)
-const CACHE_MAX_AGE = 5 * 60 * 1000;
-const TRAIL_MAX_PTS = 6;
-const TRAIL_EXPIRE  = 40 * 60 * 1000;
+// Plusieurs sources communautaires gratuites, sans clé, testées cloud-friendly
+// Ordre de priorité : airplanes.live > adsb.fi > OpenSky (souvent bloqué datacenter)
+const SOURCES = [
+  { name: 'airplanes.live', url: 'https://api.airplanes.live/v2/mil' },
+  { name: 'adsb.fi',        url: 'https://api.adsb.fi/v1/mil'        },
+  { name: 'opensky',        url: 'https://opensky-network.org/api/states/all' },
+];
+const CACHE_MAX_AGE  = 5  * 60 * 1000;
+const TRAIL_MAX_PTS  = 6;
+const TRAIL_EXPIRE   = 40 * 60 * 1000;
+// Backoff : si toutes les sources échouent, on ne retente qu'après 30min
+let   allFailedUntil = 0;
 
 // ── Plages ICAO hex des aviations militaires connues ─────────────────────
 // Source : ICAO Doc 9303 + bases publiques (OpenSkyDB, ADSB-DB)
@@ -96,101 +101,68 @@ let cache = {
 let isFetching = false;
 
 // ── Fetch OpenSky ─────────────────────────────────────────────────────────
-async function fetchFromOpenSky() {
-  const user = process.env.OPENSKY_USER;
-  const pass = process.env.OPENSKY_PASS;
-  const headers = user && pass
-    ? { 'Authorization': 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64') }
-    : {};
-
-  const resp = await fetch(OPENSKY_URL, {
-    headers,
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (resp.status === 429) throw new Error('OpenSky rate limited (429)');
-  if (!resp.ok) throw new Error(`OpenSky HTTP ${resp.status}`);
-
-  const data   = await resp.json();
-  const states = data.states || [];
-  const aircraft = [];
-
-  for (const s of states) {
-    if (!s || s[8]) continue;              // on_ground
-    if (s[5] == null || s[6] == null) continue;
-
-    const icao24   = (s[0] || '').toLowerCase();
-    const callsign = (s[1] || '').trim();
-    const mil      = detectMilitary(icao24, callsign);
-    if (!mil) continue;
-
-    const lon   = Number(s[5]);
-    const lat   = Number(s[6]);
-    const alt   = s[7]  != null ? Math.round(Number(s[7]))         : null; // mètres
-    const speed = s[9]  != null ? Math.round(Number(s[9]) * 1.944) : null; // m/s → kt
-    const track = s[10] != null ? Number(s[10]) : 0;
-
-    updateTrail(icao24, lon, lat);
-    const trail = trails.get(icao24)?.positions || [];
-
-    aircraft.push({
-      id: icao24, callsign: callsign || icao24.toUpperCase(),
-      country: mil.country, color: mil.color,
-      lon, lat, alt, altFt: alt != null ? Math.round(alt * 3.281) : null,
-      speed, track,
-      trail: trail.map(p => [p.lon, p.lat]),
-    });
-  }
-  console.log(`[military-aircraft] OpenSky ok — ${aircraft.length} aircraft from ${states.length} states`);
-  return aircraft;
-}
-
-// ── Fetch adsb.fi /v1/mil ─────────────────────────────────────────────────
-// Format : { ac: [{ hex, flight, lat, lon, alt_baro, gs, track, ... }] }
-async function fetchFromAdsbFi() {
-  const resp = await fetch(ADSBFI_URL, {
+// ── Fetch depuis une source /mil compatible (airplanes.live / adsb.fi) ───
+// Format commun : { ac: [{ hex, flight, lat, lon, alt_baro, gs, track }] }
+async function fetchFromAcSource(name, url) {
+  const resp = await fetch(url, {
     headers: { 'User-Agent': 'WorldMonitor/1.0' },
-    signal:  AbortSignal.timeout(15000),
+    signal:  AbortSignal.timeout(12000),
   });
-
-  if (resp.status === 429) throw new Error('adsb.fi rate limited (429)');
-  if (!resp.ok) throw new Error(`adsb.fi HTTP ${resp.status}`);
+  if (resp.status === 429) throw new Error(`${name} rate limited (429)`);
+  if (!resp.ok) throw new Error(`${name} HTTP ${resp.status}`);
 
   const data = await resp.json();
-  const ac   = data.ac || [];
+  const ac   = data.ac || data.states || [];  // compat OpenSky states[]
   const aircraft = [];
 
   for (const a of ac) {
     if (!a) continue;
+
+    // ── Format OpenSky (tableau indexé) ──────────────────────────────────
+    if (Array.isArray(a)) {
+      if (!a[5] || !a[6] || a[8]) continue; // pas de pos ou au sol
+      const icao24   = (a[0] || '').toLowerCase();
+      const callsign = (a[1] || '').trim();
+      const mil = detectMilitary(icao24, callsign);
+      if (!mil) continue;
+      const lon = Number(a[5]), lat = Number(a[6]);
+      const alt = a[7] != null ? Math.round(Number(a[7])) : null;
+      const speed = a[9]  != null ? Math.round(Number(a[9]) * 1.944) : null;
+      const track = a[10] != null ? Number(a[10]) : 0;
+      updateTrail(icao24, lon, lat);
+      aircraft.push({ id: icao24, callsign: callsign || icao24.toUpperCase(),
+        country: mil.country, color: mil.color, lon, lat, alt,
+        altFt: alt != null ? Math.round(alt * 3.281) : null,
+        speed, track, trail: (trails.get(icao24)?.positions || []).map(p => [p.lon, p.lat]) });
+      continue;
+    }
+
+    // ── Format airplanes.live / adsb.fi (objet) ──────────────────────────
     if (a.lat == null || a.lon == null) continue;
     if (a.alt_baro === 'ground') continue;
 
-    const icao24   = (a.hex || '').toLowerCase().replace(/^~/, ''); // adsb.fi préfixe ~ pour MLAT
-    const callsign = (a.flight || '').trim();
+    const icao24   = (a.hex || '').toLowerCase().replace(/^~/, '');
+    const callsign = (a.flight || a.r || '').trim();
     const mil      = detectMilitary(icao24, callsign) || { country: 'MIL', color: '#e8f4ff' };
 
     const lon   = Number(a.lon);
     const lat   = Number(a.lat);
     const altFt = a.alt_baro != null && a.alt_baro !== 'ground' ? Math.round(Number(a.alt_baro)) : null;
     const alt   = altFt != null ? Math.round(altFt / 3.281) : null;
-    const speed = a.gs    != null ? Math.round(Number(a.gs))    : null; // déjà en noeuds
+    const speed = a.gs    != null ? Math.round(Number(a.gs))    : null;
     const track = a.track != null ? Number(a.track) : 0;
 
     updateTrail(icao24, lon, lat);
-    const trail = trails.get(icao24)?.positions || [];
-
-    aircraft.push({
-      id: icao24, callsign: callsign || icao24.toUpperCase(),
-      country: mil.country, color: mil.color,
-      lon, lat, alt, altFt, speed, track,
-      trail: trail.map(p => [p.lon, p.lat]),
-    });
+    aircraft.push({ id: icao24, callsign: callsign || icao24.toUpperCase(),
+      country: mil.country, color: mil.color, lon, lat, alt, altFt, speed, track,
+      trail: (trails.get(icao24)?.positions || []).map(p => [p.lon, p.lat]) });
   }
-  console.log(`[military-aircraft] adsb.fi ok — ${aircraft.length} aircraft`);
+
+  console.log(`[military-aircraft] ${name} ok — ${aircraft.length} aircraft`);
   return aircraft;
 }
 
-// ── Fetch principal : adsb.fi (gratuit, cloud-friendly) + OpenSky fallback ─
+// ── Fetch principal : boucle sur SOURCES avec backoff 30min si tout échoue ─
 async function fetchMilitary() {
   if (isFetching) return;
 
@@ -199,25 +171,51 @@ async function fetchMilitary() {
     if (age < CACHE_MAX_AGE) return;
   }
 
+  // Backoff global : toutes les sources ont récemment échoué
+  if (allFailedUntil > Date.now()) {
+    const min = Math.ceil((allFailedUntil - Date.now()) / 60000);
+    console.log(`[military-aircraft] all sources unavailable — retry in ${min}min`);
+    return;
+  }
+
   isFetching = true;
   purgeTrails();
 
   try {
-    let aircraft;
+    let aircraft = null;
 
-    // Priorité 1 : adsb.fi — gratuit, sans clé, fonctionne depuis Railway
-    try {
-      aircraft = await fetchFromAdsbFi();
-    } catch (err) {
-      console.warn(`[military-aircraft] adsb.fi failed: ${err.message} — trying OpenSky fallback`);
-      aircraft = await fetchFromOpenSky();
+    for (const src of SOURCES) {
+      // Pour OpenSky, injecter Basic Auth dans l'URL si dispo
+      let url = src.url;
+      if (src.name === 'opensky') {
+        const user = process.env.OPENSKY_USER;
+        const pass = process.env.OPENSKY_PASS;
+        if (user && pass) {
+          const u = new URL(url);
+          u.username = user;
+          u.password = pass;
+          url = u.toString();
+        }
+      }
+
+      try {
+        aircraft = await fetchFromAcSource(src.name, url);
+        break; // succès → on arrête la boucle
+      } catch (err) {
+        console.warn(`[military-aircraft] ${src.name} failed: ${err.message}`);
+      }
+    }
+
+    if (aircraft === null) {
+      // Toutes les sources ont échoué → backoff 30min
+      allFailedUntil = Date.now() + 30 * 60 * 1000;
+      console.error('[military-aircraft] all sources failed — backoff 30min');
+      return;
     }
 
     cache.aircraft   = aircraft;
     cache.count      = aircraft.length;
     cache.lastUpdate = new Date().toISOString();
-  } catch (err) {
-    console.error(`[military-aircraft] all sources failed: ${err.message} (cause: ${err.cause?.message || err.cause || 'unknown'})`);
   } finally {
     isFetching = false;
   }
