@@ -266,14 +266,14 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
         data: { type: 'FeatureCollection', features: [] },
       });
 
-      // Lucide icons sont async (SVG → canvas → SDF)
-      // Avion Lucide Plane orienté nord (tourne de -45°)
-      // Navire Lucide Ship orienté nord (tourne de 180° car proue = bas dans Lucide)
-      // Fusée Lucide Rocket orientée haut (tourne de -45°)
+      // FA Solid icons → canvas SDF (async car SVG blob → Image)
+      // faPlane  pointe à droite  → -90° pour pointer nord
+      // faShip   pointe à droite  → -90° pour pointer nord
+      // faRocket pointe en diag   → -45° pour pointer nord (pad statique, pas de rotation)
       Promise.all([
-        lucideToMapImage(map, 'aircraft-icon', LUCIDE_PLANE_PATHS,  40, -45),
-        lucideToMapImage(map, 'ship-icon',     LUCIDE_SHIP_PATHS,   40, 180),
-        lucideToMapImage(map, 'rocket-icon',   LUCIDE_ROCKET_PATHS, 40, -45),
+        faToMapImage(map, 'aircraft-icon', faPlane,  40, -90),
+        faToMapImage(map, 'ship-icon',     faShip,   40, -90),
+        faToMapImage(map, 'rocket-icon',   faRocket, 40, -45),
       ]).then(() => {
         addLayers(map);
         bindEvents(map, popupRef.current!, launchesRef);
@@ -398,40 +398,28 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   );
 }
 
-// ── Icônes Lucide (vrais SVG de la librairie, rendus sur canvas pour MapLibre) ─
+// ── Icônes Font Awesome Solid — remplies, nettes, conçues pour les petites tailles ─
+import { faPlane, faShip, faRocket } from '@fortawesome/free-solid-svg-icons';
+import type { IconDefinition } from '@fortawesome/free-solid-svg-icons';
 
-// Chemins SVG Lucide — viewBox 0 0 24 24
-const LUCIDE_PLANE_PATHS = [
-  'M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z',
-];
-const LUCIDE_SHIP_PATHS = [
-  'M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2c1.3 0 1.9.5 2.5 1',
-  'M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.278.483 4.294 1.62 6',
-  'M2 21V7l9-4 9 4v14',
-  'M6 11h12',
-];
-const LUCIDE_ROCKET_PATHS = [
-  'M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z',
-  'M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11A22.35 22.35 0 0 1 15 15z',
-  'M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0',
-  'M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5',
-];
-
-// Rend un SVG Lucide (stroke-based) sur canvas et l'enregistre comme image SDF MapLibre.
-// rotateDeg : rotation appliquée autour du centre (12,12) pour orienter nord = haut.
-function lucideToMapImage(
+// Rend une icône FA Solid sur canvas et l'enregistre comme image SDF MapLibre.
+// rotateDeg : pré-rotation pour orienter l'icône "nord = haut" (base de icon-rotate).
+function faToMapImage(
   map: maplibregl.Map,
   name: string,
-  paths: string[],
+  icon: IconDefinition,
   size: number,
   rotateDeg = 0,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const pathElems = paths.map(d => `<path d="${d}"/>`).join('');
+    const [vbW, vbH, , , pathData] = icon.icon;
+    const paths = Array.isArray(pathData) ? pathData : [pathData];
+    const pathElems = paths.map(d => `<path d="${d}" fill="white"/>`).join('');
+    const cx = vbW / 2, cy = vbH / 2;
     const g = rotateDeg !== 0
-      ? `<g transform="rotate(${rotateDeg} 12 12)">${pathElems}</g>`
+      ? `<g transform="rotate(${rotateDeg} ${cx} ${cy})">${pathElems}</g>`
       : pathElems;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round">${g}</svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${vbW} ${vbH}">${g}</svg>`;
     const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
     const img = new Image(size, size);
     img.onload = () => {
@@ -440,7 +428,7 @@ function lucideToMapImage(
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, 0, 0, size, size);
       URL.revokeObjectURL(url);
-      // Convertit en SDF : tous les pixels non-transparents → blanc
+      // Normalise en SDF blanc sur transparent
       const imgData = ctx.getImageData(0, 0, size, size);
       const d = imgData.data;
       for (let i = 0; i < d.length; i += 4) {
