@@ -71,6 +71,7 @@ const ships    = new Map();
 
 let ws             = null;
 let reconnectTimer = null;
+let wsFirstMsgLogged = false;
 
 // ── Persistance disque ────────────────────────────────────────────────────
 function loadCache() {
@@ -124,12 +125,22 @@ function wsConnect() {
     console.log('[military-ships] WebSocket connecté → abonnement global ShipType=35');
     ws.send(JSON.stringify({
       Apikey:             key,
-      BoundingBoxes:      [[-90, -180], [90, 180]],
+      BoundingBoxes:      [[[-90, -180], [90, 180]]],
       FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
     }));
   });
 
   ws.on('message', (raw) => {
+    // Log du premier message pour diagnostiquer les erreurs d'auth/format
+    if (!wsFirstMsgLogged) {
+      wsFirstMsgLogged = true;
+      try {
+        const preview = JSON.parse(raw);
+        if (preview.error || preview.Error || preview.status === 'error') {
+          console.error('[military-ships] erreur serveur:', JSON.stringify(preview));
+        }
+      } catch {}
+    }
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
@@ -195,6 +206,7 @@ function wsConnect() {
   ws.on('close', (code) => {
     console.warn(`[military-ships] ws fermé (${code}) — reconnexion dans 30s`);
     ws = null;
+    wsFirstMsgLogged = false; // reset pour le prochain connect
     saveCache();
     reconnectTimer = setTimeout(wsConnect, 30_000);
   });
