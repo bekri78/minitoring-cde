@@ -431,23 +431,28 @@ function addLayers(map: maplibregl.Map) {
   map.addLayer({
     id: 'quake-glow', type: 'circle', source: 'earthquakes',
     paint: {
-      'circle-color':   ['get', 'color'],
-      'circle-radius':  ['interpolate', ['linear'], ['get', 'mag'], 4.5, 10, 6.0, 20, 7.0, 34],
-      'circle-opacity': 0.10,
+      'circle-color':        ['get', 'color'],
+      'circle-radius':       ['interpolate', ['linear'], ['get', 'mag'], 5.5, 12, 6.5, 22, 7.5, 38],
+      'circle-opacity':      0.10,
       'circle-stroke-width': 0,
     },
   });
 
-  // Earthquakes — cercle principal
+  // Earthquakes — triangle ▲ (distinct des cercles d'événements)
   map.addLayer({
-    id: 'quake-circles', type: 'circle', source: 'earthquakes',
+    id: 'quake-circles', type: 'symbol', source: 'earthquakes',
+    layout: {
+      'text-field':            '▲',
+      'text-font':             ['Noto Sans Regular'],
+      'text-size':             ['interpolate', ['linear'], ['get', 'mag'], 5.5, 12, 6.5, 18, 7.5, 26],
+      'text-allow-overlap':    true,
+      'text-ignore-placement': true,
+    },
     paint: {
-      'circle-color':        ['get', 'color'],
-      'circle-radius':       ['interpolate', ['linear'], ['get', 'mag'], 4.5, 4, 6.0, 8, 7.0, 13],
-      'circle-opacity':      0.85,
-      'circle-stroke-width': 1,
-      'circle-stroke-color': '#ffffff',
-      'circle-stroke-opacity': 0.25,
+      'text-color':   ['get', 'color'],
+      'text-opacity': 0.92,
+      'text-halo-color': 'rgba(0,0,0,0.55)',
+      'text-halo-width': 1,
     },
   });
 
@@ -459,7 +464,7 @@ function addLayers(map: maplibregl.Map) {
       'text-field':            ['concat', 'M', ['number-format', ['get', 'mag'], { 'min-fraction-digits': 1, 'max-fraction-digits': 1 }]],
       'text-font':             ['Noto Sans Regular'],
       'text-size':             9,
-      'text-offset':           [0, -1.8],
+      'text-offset':           [0, -2.2],
       'text-allow-overlap':    false,
       'text-ignore-placement': false,
     },
