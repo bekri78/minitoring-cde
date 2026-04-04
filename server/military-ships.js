@@ -115,6 +115,7 @@ function wsConnect() {
     console.warn('[military-ships] AISSTREAM_KEY manquante — module désactivé');
     return;
   }
+  console.log(`[military-ships] clé utilisée: ${key.slice(0,8)}...${key.slice(-4)} (longueur: ${key.length})`);
 
   if (ws) { try { ws.terminate(); } catch {} ws = null; }
   clearTimeout(reconnectTimer);
