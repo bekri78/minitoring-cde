@@ -83,8 +83,8 @@ export function useAcledEvents() {
         })
         .filter((e): e is Event => e !== null);
     },
-    refetchInterval: 15 * 60 * 1000,
-    staleTime:       14 * 60 * 1000,
+    refetchInterval: 60 * 60 * 1000,
+    staleTime:       59 * 60 * 1000,
     retry: 1,
   });
 }

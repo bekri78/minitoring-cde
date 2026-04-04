@@ -791,7 +791,7 @@ async function fetchTodayEvents() {
 
 // ── Cache localStorage ────────────────────────────────────────────────────
 const LS_KEY_PREFIX = 'wm_events_';
-const CACHE_MAX_AGE_MS = 15 * 60 * 1000; // 15 min — aligne sur le refresh timer
+const CACHE_MAX_AGE_MS = 60 * 60 * 1000; // 1h — aligne sur le refresh timer
 
 function lsSave(dateStr, events) {
   try {
@@ -925,9 +925,9 @@ function renderEvents(events) {
     refreshCountdownTimer = null;
   }
 
-  nextRefreshTime = Date.now() + 15 * 60 * 1000;
+  nextRefreshTime = Date.now() + 60 * 60 * 1000;
   updateRefreshTimer();
-  refreshTimer = setTimeout(() => loadGdelt(true), 15 * 60 * 1000);
+  refreshTimer = setTimeout(() => loadGdelt(true), 60 * 60 * 1000);
 }
 
 function updateRefreshTimer() {

@@ -156,8 +156,8 @@ app.post('/refresh', (req, res) => {
   refresh(true).catch(err => console.error('[manual-refresh] failed:', err.message));
 });
 
-// ── Cron 15 min — GDELT ───────────────────────────────────────────────────
-cron.schedule('*/15 * * * *', () => {
+// ── Cron 1h — GDELT ───────────────────────────────────────────────────────
+cron.schedule('0 * * * *', () => {
   console.log('[cron] triggered');
   refresh();
 });

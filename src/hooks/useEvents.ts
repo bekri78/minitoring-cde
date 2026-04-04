@@ -31,8 +31,8 @@ export function useEvents() {
       const events = Array.isArray(data.events) ? data.events : [];
       return events.map(normalizeEvent);
     },
-    refetchInterval: 15 * 60 * 1000,
-    staleTime:       14 * 60 * 1000,
+    refetchInterval: 60 * 60 * 1000,
+    staleTime:       59 * 60 * 1000,
     retry: 2,
   });
 }

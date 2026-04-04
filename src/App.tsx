@@ -35,7 +35,7 @@ export default function App() {
 
   // Countdown to next auto-refresh
   useEffect(() => {
-    setNextRefreshTime(Date.now() + 15 * 60 * 1000);
+    setNextRefreshTime(Date.now() + 60 * 60 * 1000);
   }, [gdeltEvents]);
 
   useEffect(() => {

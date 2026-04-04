@@ -62,7 +62,7 @@ export default {
         headers: {
           ...CORS,
           'Content-Type': 'application/json',
-          'Cache-Control': 'public, max-age=900'   // cache 15 min côté CDN
+          'Cache-Control': 'public, max-age=3600'  // cache 1h côté CDN
         }
       });
 
