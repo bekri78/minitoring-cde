@@ -1,10 +1,11 @@
 'use strict';
 
 // ── Sources ───────────────────────────────────────────────────────────────
-// OpenSky bloque les IP des clouds (Railway/GCP/AWS) — fallback sur ADS-B Exchange
-const OPENSKY_URL   = 'https://opensky-network.org/api/states/all';
-const ADSBX_URL     = 'https://adsbexchange-com1.p.rapidapi.com/v2/mil/';  // militaires uniquement
-const CACHE_MAX_AGE = 5 * 60 * 1000;   // 5min
+// adsb.fi — agrégateur communautaire, gratuit, sans clé, fonctionne depuis cloud
+// endpoint /mil retourne uniquement les aéronefs militaires identifiés
+const ADSBFI_URL    = 'https://api.adsb.fi/v1/mil';
+const OPENSKY_URL   = 'https://opensky-network.org/api/states/all';  // fallback (bloqué sur certains clouds)
+const CACHE_MAX_AGE = 5 * 60 * 1000;
 const TRAIL_MAX_PTS = 6;
 const TRAIL_EXPIRE  = 40 * 60 * 1000;
 
@@ -144,31 +145,27 @@ async function fetchFromOpenSky() {
   return aircraft;
 }
 
-// ── Fetch ADS-B Exchange /v2/mil/ (militaires uniquement) ─────────────────
-async function fetchFromAdsbExchange() {
-  const key = process.env.ADSBX_API_KEY;
-  if (!key) throw new Error('ADSBX_API_KEY not set');
-
-  const resp = await fetch(ADSBX_URL, {
-    headers: {
-      'X-RapidAPI-Key':  key,
-      'X-RapidAPI-Host': 'adsbexchange-com1.p.rapidapi.com',
-    },
-    signal: AbortSignal.timeout(15000),
+// ── Fetch adsb.fi /v1/mil ─────────────────────────────────────────────────
+// Format : { ac: [{ hex, flight, lat, lon, alt_baro, gs, track, ... }] }
+async function fetchFromAdsbFi() {
+  const resp = await fetch(ADSBFI_URL, {
+    headers: { 'User-Agent': 'WorldMonitor/1.0' },
+    signal:  AbortSignal.timeout(15000),
   });
 
-  if (resp.status === 429) throw new Error('ADS-B Exchange rate limited (429)');
-  if (!resp.ok) throw new Error(`ADS-B Exchange HTTP ${resp.status}`);
+  if (resp.status === 429) throw new Error('adsb.fi rate limited (429)');
+  if (!resp.ok) throw new Error(`adsb.fi HTTP ${resp.status}`);
 
   const data = await resp.json();
   const ac   = data.ac || [];
   const aircraft = [];
 
   for (const a of ac) {
-    if (!a || a.alt_baro === 'ground') continue;
+    if (!a) continue;
     if (a.lat == null || a.lon == null) continue;
+    if (a.alt_baro === 'ground') continue;
 
-    const icao24   = (a.hex || '').toLowerCase();
+    const icao24   = (a.hex || '').toLowerCase().replace(/^~/, ''); // adsb.fi préfixe ~ pour MLAT
     const callsign = (a.flight || '').trim();
     const mil      = detectMilitary(icao24, callsign) || { country: 'MIL', color: '#e8f4ff' };
 
@@ -176,7 +173,7 @@ async function fetchFromAdsbExchange() {
     const lat   = Number(a.lat);
     const altFt = a.alt_baro != null && a.alt_baro !== 'ground' ? Math.round(Number(a.alt_baro)) : null;
     const alt   = altFt != null ? Math.round(altFt / 3.281) : null;
-    const speed = a.gs    != null ? Math.round(Number(a.gs))    : null; // déjà en kt
+    const speed = a.gs    != null ? Math.round(Number(a.gs))    : null; // déjà en noeuds
     const track = a.track != null ? Number(a.track) : 0;
 
     updateTrail(icao24, lon, lat);
@@ -189,11 +186,11 @@ async function fetchFromAdsbExchange() {
       trail: trail.map(p => [p.lon, p.lat]),
     });
   }
-  console.log(`[military-aircraft] ADS-B Exchange ok — ${aircraft.length} aircraft`);
+  console.log(`[military-aircraft] adsb.fi ok — ${aircraft.length} aircraft`);
   return aircraft;
 }
 
-// ── Fetch principal : ADS-B Exchange si clé dispo, sinon OpenSky ──────────
+// ── Fetch principal : adsb.fi (gratuit, cloud-friendly) + OpenSky fallback ─
 async function fetchMilitary() {
   if (isFetching) return;
 
@@ -208,16 +205,11 @@ async function fetchMilitary() {
   try {
     let aircraft;
 
-    // Priorité 1 : ADS-B Exchange (fonctionne depuis les clouds)
-    if (process.env.ADSBX_API_KEY) {
-      try {
-        aircraft = await fetchFromAdsbExchange();
-      } catch (err) {
-        console.warn(`[military-aircraft] ADS-B Exchange failed: ${err.message} — trying OpenSky fallback`);
-        aircraft = await fetchFromOpenSky();
-      }
-    } else {
-      // Priorité 2 : OpenSky (peut être bloqué sur cloud)
+    // Priorité 1 : adsb.fi — gratuit, sans clé, fonctionne depuis Railway
+    try {
+      aircraft = await fetchFromAdsbFi();
+    } catch (err) {
+      console.warn(`[military-aircraft] adsb.fi failed: ${err.message} — trying OpenSky fallback`);
       aircraft = await fetchFromOpenSky();
     }
 
@@ -225,7 +217,7 @@ async function fetchMilitary() {
     cache.count      = aircraft.length;
     cache.lastUpdate = new Date().toISOString();
   } catch (err) {
-    console.error(`[military-aircraft] fetch failed: ${err.message} (cause: ${err.cause?.message || err.cause || 'unknown'})`);
+    console.error(`[military-aircraft] all sources failed: ${err.message} (cause: ${err.cause?.message || err.cause || 'unknown'})`);
   } finally {
     isFetching = false;
   }
