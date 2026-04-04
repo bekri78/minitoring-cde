@@ -56,12 +56,18 @@ const MID_MAP = {
 
 function countryFromMmsi(mmsi) {
   const s = String(mmsi).padStart(9, '0');
+  // Warship pattern (ITU): MMSI = 0 + MID (3 digits) + 5 digits
+  const isWarshipFormat = s.startsWith('0') && !s.startsWith('00');
+  const lookupStr = isWarshipFormat ? s.slice(1) : s;
   for (let len = 3; len >= 2; len--) {
-    const prefix = s.slice(0, len);
-    if (MID_MAP[prefix]) return MID_MAP[prefix];
+    const prefix = lookupStr.slice(0, len);
+    if (MID_MAP[prefix]) return { ...MID_MAP[prefix], isWarshipFormat };
   }
-  return { country: 'MIL', color: '#e8f4ff' };
+  return null; // MMSI inconnu → pas militaire
 }
+
+// Patterns de noms militaires connus
+const MILITARY_NAME_RE = /^(USS|HMS|HMAS|HDMS|HNLMS|FS |FNS |RFS |INS |ROKS |JS |TCG|ITS |ESPS|NRP|HMCS)/i;
 
 // ── État ──────────────────────────────────────────────────────────────────
 // mmsi (string) → shipMeta : { name, callsign, country, color }
@@ -162,29 +168,30 @@ function wsConnect() {
     const mmsi = String(meta.MMSI || '');
     if (!mmsi) return;
 
-    // ── ShipStaticData → enregistrer/enrichir si ShipType = 35 ──────────
+    // ── ShipStaticData → enregistrer si ShipType=35 OU nom militaire ──────
     if (type === 'ShipStaticData') {
-      const sd = msg.Message?.ShipStaticData || {};
-      if (sd.Type === 35) {
+      const sd  = msg.Message?.ShipStaticData || {};
+      const name = (sd.Name || '').trim().replace(/@+$/, '');
+      const isMilType = sd.Type === 35;
+      const isMilName = name && MILITARY_NAME_RE.test(name);
+      if (isMilType || isMilName) {
         const c = countryFromMmsi(mmsi);
-        shipMeta.set(mmsi, {
-          name:     (sd.Name || '').trim().replace(/@+$/, '') || mmsi,
+        const entry = {
+          name:     name || mmsi,
           callsign: (sd.CallSign || '').trim(),
-          country:  c.country,
-          color:    c.color,
-        });
+          country:  c ? c.country : 'MIL',
+          color:    c ? c.color   : '#e8f4ff',
+          confirmed: true,
+        };
+        shipMeta.set(mmsi, entry);
         // Mettre à jour le navire si déjà connu
         const s = ships.get(mmsi);
-        if (s) {
-          const m = shipMeta.get(mmsi);
-          s.name = m.name; s.callsign = m.callsign;
-        }
+        if (s) { s.name = entry.name; s.callsign = entry.callsign; }
       }
       return;
     }
 
-    // ── PositionReport → identifier par MMSI (MID) directement ──────────
-    // On n'attend plus ShipStaticData — on détecte via le préfixe MMSI
+    // ── PositionReport → accepter seulement les MMSI militaires confirmés ─
     if (type === 'PositionReport') {
       const pr  = msg.Message?.PositionReport || {};
       const lon = pr.Longitude ?? meta.longitude;
@@ -193,16 +200,15 @@ function wsConnect() {
       if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
       if (lat === 0 && lon === 0) return;
 
-      // Est-ce un MMSI militaire connu (déjà reçu via ShipStaticData) ?
+      // 1. Déjà confirmé militaire (ShipType=35 ou nom militaire) ?
       let meta2 = shipMeta.get(mmsi);
 
-      // Sinon : vérifier si le MID correspond à une marine connue
+      // 2. Format MMSI warship ITU (0 + MID connu + 5 chiffres) ?
       if (!meta2) {
         const c = countryFromMmsi(mmsi);
-        // countryFromMmsi retourne 'MIL' + '#e8f4ff' si inconnu — on ignore ces cas
-        if (c.country === 'MIL') return;
-        // MMSI d'une marine connue mais pas encore vu en ShipStaticData
-        meta2 = { name: mmsi, callsign: '', country: c.country, color: c.color };
+        if (!c || !c.isWarshipFormat) return; // non militaire → ignorer
+        // Format warship ITU confirmé pour une marine connue
+        meta2 = { name: mmsi, callsign: '', country: c.country, color: c.color, confirmed: false };
         shipMeta.set(mmsi, meta2);
         milCount++;
       }
