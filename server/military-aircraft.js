@@ -149,20 +149,52 @@ async function fetchMilSource(src) {
     const data = await fetchJson(src.name, src.url);
     const ac   = data.ac || [];
     const out  = [];
+
+    // Rejection counters
+    const rej = { noPos: 0, onGround: 0, civilianCs: 0, noMilMatch: 0 };
+
     for (const a of ac) {
+      // Mirror normalizeAc rejection logic to count causes
+      if (!Array.isArray(a)) {
+        if (a.lat == null || a.lon == null)          { rej.noPos++;      continue; }
+        if (a.alt_baro === 'ground' || a.on_ground)  { rej.onGround++;   continue; }
+        const icao24   = (a.hex || a.icao24 || '').toLowerCase().replace(/^~/, '');
+        const callsign = (a.flight || a.callsign || a.r || '').trim();
+        if (callsign && CIVILIAN_CALLSIGN_RE.test(callsign)) { rej.civilianCs++; continue; }
+        const hexVal = parseInt(icao24, 16);
+        const hexOk  = MIL_HEX_RANGES.some(r => hexVal >= r.lo && hexVal <= r.hi);
+        const csOk   = callsign && MIL_CALLSIGN_RE.test(callsign);
+        if (!hexOk && !csOk)                         { rej.noMilMatch++; continue; }
+      }
       const n = normalizeAc(a);
       if (n) { updateTrail(n.id, n.lon, n.lat); out.push(n); }
     }
+
+    // Country breakdown of accepted aircraft
+    const byCountry = {};
+    for (const n of out) byCountry[n.country] = (byCountry[n.country] || 0) + 1;
+    const countryStr = Object.entries(byCountry)
+      .sort((a, b) => b[1] - a[1])
+      .map(([c, n]) => `${c}=${n}`)
+      .join(' ');
+
     const hexMatches = out.filter(n => {
       const hex = parseInt(n.id, 16);
       return MIL_HEX_RANGES.some(r => hex >= r.lo && hex <= r.hi);
     }).length;
     const csMatches = out.filter(n => MIL_CALLSIGN_RE.test(n.callsign)).length;
     const withType  = out.filter(n => n.type).length;
+
     console.log(
       `[mil-aircraft] ${src.name} raw=${ac.length} accepted=${out.length}` +
       ` hex_match=${hexMatches} callsign_match=${csMatches} with_type=${withType}`
     );
+    console.log(
+      `[mil-aircraft] rejected: noPos=${rej.noPos} onGround=${rej.onGround}` +
+      ` civilianCs=${rej.civilianCs} noMilMatch=${rej.noMilMatch}`
+    );
+    if (countryStr) console.log(`[mil-aircraft] countries: ${countryStr}`);
+
     return out;
   } catch (e) {
     console.warn(`[mil-aircraft] ${src.name} failed: ${e.message}`);
