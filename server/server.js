@@ -13,6 +13,7 @@ const { fetchQuakes, getCache: getQuakeCache }                       = require('
 const { fetchSpaceWeather, getCache: getSwCache }                    = require('./spaceweather');
 const { fetchMilitary, getCache: getMilCache }                       = require('./military-aircraft');
 const { startMilitaryShips, getCache: getShipCache }                 = require('./military-ships');
+const { runPipeline }                                                = require('./pipeline');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -243,6 +244,15 @@ app.get('/military-aircraft', (req, res) => {
 app.get('/military-ships', (req, res) => {
   const c = getShipCache();
   res.json(c);
+});
+
+// ── Unified tracks endpoint (OSINT fusion pipeline) ─────────────────────
+app.get('/tracks', (req, res) => {
+  const { domain, country, minTier } = req.query;
+  const aircraft = getMilCache().aircraft || [];
+  const ships    = getShipCache().ships   || [];
+  const result   = runPipeline({ aircraft, ships, domain, country, minTier });
+  res.json(result);
 });
 
 app.get('/health', (req, res) => {
