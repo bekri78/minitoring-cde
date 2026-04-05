@@ -61,6 +61,10 @@ function normalizeAircraft(raw) {
       milHexMatch: !!milHex,
       icao24:      raw.id,
       callsign:    raw.callsign || '',
+      aircraftType: raw.type || '',
+      altFt:       raw.altFt  ?? null,
+      speed:       raw.speed  ?? null,
+      noCallsign:  !raw.callsign || raw.callsign === raw.id?.toUpperCase(),
     },
   };
 }

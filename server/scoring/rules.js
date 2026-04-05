@@ -1,5 +1,8 @@
 'use strict';
 
+const { isMilitaryType }     = require('../data/military-types');
+const { findClosestAirbase } = require('../data/military-airbases');
+
 // ── Military Detection Rules Engine ──────────────────────────────────────
 // Each rule is a pure function: (track) => { score, reason } | null
 // score is 0-100 weight, reason is human-readable explanation
@@ -75,6 +78,77 @@ const RULES = [
     },
   },
 
+  // ── Known military ICAO aircraft type code ────────────────────────────
+  {
+    id:     'aircraft-type-military',
+    domain: 'air',
+    weight: 60,
+    fn(track) {
+      const t = track._raw?.aircraftType;
+      if (t && isMilitaryType(t)) {
+        return { score: 60, reason: `Military aircraft type: ${t.toUpperCase()}` };
+      }
+      return null;
+    },
+  },
+
+  // ── Proximity to known military airbase (≤250 km) ─────────────────────
+  {
+    id:     'airbase-proximity',
+    domain: 'air',
+    weight: 30,
+    fn(track) {
+      if (track.lat == null || track.lon == null) return null;
+      const ab = findClosestAirbase(track.lat, track.lon, 250);
+      if (ab) {
+        return { score: 30, reason: `Near military airbase: ${ab.name} (${ab.distKm} km)` };
+      }
+      return null;
+    },
+  },
+
+  // ── High cruise altitude (>35 000 ft) — typical military mission ──────
+  {
+    id:     'flight-profile-high-alt',
+    domain: 'air',
+    weight: 15,
+    fn(track) {
+      const alt = track._raw?.altFt;
+      if (alt != null && alt > 35000) {
+        return { score: 15, reason: `High cruise altitude: ${alt} ft` };
+      }
+      return null;
+    },
+  },
+
+  // ── High speed (>450 kts) — typical fast-jet or tanker pattern ────────
+  {
+    id:     'flight-profile-high-speed',
+    domain: 'air',
+    weight: 15,
+    fn(track) {
+      const spd = track._raw?.speed;
+      if (spd != null && spd > 450) {
+        return { score: 15, reason: `High groundspeed: ${spd} kts` };
+      }
+      return null;
+    },
+  },
+
+  // ── PENALTY: no real callsign — only ICAO hex used as identifier ──────
+  // Reduces confidence for borderline hex-range matches
+  {
+    id:     'penalty-no-callsign',
+    domain: 'air',
+    weight: -20,
+    fn(track) {
+      if (track._raw?.noCallsign) {
+        return { score: -20, reason: 'No callsign — hex used as identifier' };
+      }
+      return null;
+    },
+  },
+
   // ── Known navy MID country (from MID_MAP) ─────────────────────────────
   {
     id:     'known-navy-mid',
@@ -108,9 +182,9 @@ function evaluate(track) {
     }
   }
 
-  // Cap at 100
+  // Clamp: penalties can drag below 0, positive signals cap at 100
   return {
-    milScore:   Math.min(totalScore, 100),
+    milScore:   Math.max(0, Math.min(totalScore, 100)),
     milReasons: reasons,
   };
 }

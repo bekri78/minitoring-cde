@@ -47,12 +47,29 @@ function runPipeline({ aircraft = [], ships = [], minTier = 'possible_state', do
   // 7. Strip _raw from output (internal only)
   const clean = tracks.map(({ _raw, ...rest }) => rest);
 
+  const byTier = tier => classified.filter(t => t.milTier === tier).length;
+  console.log(
+    `[pipeline] air raw=${aircraft.length} sea raw=${ships.length}` +
+    ` normalized=${allNormalized.length}` +
+    ` confirmed=${byTier('confirmed_military')}` +
+    ` likely=${byTier('likely_military')}` +
+    ` possible=${byTier('possible_state')}` +
+    ` unknown=${byTier('unknown')}` +
+    ` filtered_out=${classified.length - clean.length}`
+  );
+
   const meta = {
     totalNormalized: allNormalized.length,
     totalClassified: classified.length,
     totalFiltered:   clean.length,
     airCount:        clean.filter(t => t.domain === 'air').length,
     seaCount:        clean.filter(t => t.domain === 'sea').length,
+    tierBreakdown: {
+      confirmed_military: byTier('confirmed_military'),
+      likely_military:    byTier('likely_military'),
+      possible_state:     byTier('possible_state'),
+      unknown:            byTier('unknown'),
+    },
     pipelineMs:      Date.now() - t0,
     timestamp:       new Date().toISOString(),
   };

@@ -128,7 +128,8 @@ function normalizeAc(a) {
     country: mil.country, color: mil.color, lon, lat,
     alt: altFt != null ? Math.round(altFt / 3.281) : null, altFt,
     speed: a.gs != null ? Math.round(Number(a.gs)) : null,
-    track: a.track != null ? Number(a.track) : 0 };
+    track: a.track != null ? Number(a.track) : 0,
+    type: (a.t || a.type || '').trim() };
 }
 
 // ── Fetch une URL avec timeout ────────────────────────────────────────────
@@ -152,7 +153,16 @@ async function fetchMilSource(src) {
       const n = normalizeAc(a);
       if (n) { updateTrail(n.id, n.lon, n.lat); out.push(n); }
     }
-    console.log(`[mil-aircraft] ${src.name} → ${out.length}`);
+    const hexMatches = out.filter(n => {
+      const hex = parseInt(n.id, 16);
+      return MIL_HEX_RANGES.some(r => hex >= r.lo && hex <= r.hi);
+    }).length;
+    const csMatches = out.filter(n => MIL_CALLSIGN_RE.test(n.callsign)).length;
+    const withType  = out.filter(n => n.type).length;
+    console.log(
+      `[mil-aircraft] ${src.name} raw=${ac.length} accepted=${out.length}` +
+      ` hex_match=${hexMatches} callsign_match=${csMatches} with_type=${withType}`
+    );
     return out;
   } catch (e) {
     console.warn(`[mil-aircraft] ${src.name} failed: ${e.message}`);
