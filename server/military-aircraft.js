@@ -3,7 +3,6 @@
 // ── Sources globales /mil (retournent uniquement les militaires) ──────────
 const MIL_SOURCES = [
   { name: 'airplanes.live', url: 'https://api.airplanes.live/v2/mil' },
-  { name: 'adsb.fi',        url: 'https://api.adsb.fi/v1/mil'        },
 ];
 
 // ── Zones géographiques sensibles — requêtes lat/lon/dist sur adsb.one ───
@@ -167,9 +166,9 @@ async function fetchMilSource(src) {
   }
 }
 
-// ── Fetch zone géographique via adsb.one ──────────────────────────────────
+// ── Fetch zone géographique via airplanes.live /v2/point ─────────────────
 async function fetchZone(zone) {
-  const url = `https://api.adsb.one/v2/lat/${zone.lat}/lon/${zone.lon}/dist/${zone.dist}`;
+  const url = `https://api.airplanes.live/v2/point/${zone.lat}/${zone.lon}/${zone.dist}`;
   try {
     const data = await fetchJson(zone.name, url);
     const ac   = data.ac || [];
