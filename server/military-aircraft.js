@@ -173,15 +173,22 @@ async function fetchMilSource(src) {
   }
 }
 
-// ── Fetch zone géographique via airplanes.live /v2/point ─────────────────
+// ── Fetch zone via OpenSky bbox (API différente → pas de conflit 429) ────
+// dist en nautical miles → conversion en degrés
 async function fetchZone(zone) {
-  const url = `https://api.airplanes.live/v2/point/${zone.lat}/${zone.lon}/${zone.dist}`;
+  const R      = 6371;
+  const distKm = zone.dist * 1.852;
+  const dLat   = (distKm / R) * (180 / Math.PI);
+  const dLon   = dLat / Math.cos(zone.lat * Math.PI / 180);
+  const url    = `https://opensky-network.org/api/states/all` +
+    `?lamin=${(zone.lat - dLat).toFixed(2)}&lomin=${(zone.lon - dLon).toFixed(2)}` +
+    `&lamax=${(zone.lat + dLat).toFixed(2)}&lomax=${(zone.lon + dLon).toFixed(2)}`;
   try {
-    const data = await fetchJson(zone.name, url);
-    const ac   = data.ac || [];
-    const out  = [];
-    for (const a of ac) {
-      const n = normalizeAc(a);
+    const data   = await fetchJson(zone.name, url);
+    const states = data.states || [];
+    const out    = [];
+    for (const a of states) {
+      const n = normalizeAc(a); // format OpenSky tableau
       if (n) { updateTrail(n.id, n.lon, n.lat); out.push(n); }
     }
     if (out.length) console.log(`[mil-aircraft] zone ${zone.name} → ${out.length} mil`);
