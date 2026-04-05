@@ -269,8 +269,8 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
       // FA Solid icons → canvas SDF (async car SVG blob → Image)
       // Phosphor fill icons — airplane-tilt pointe NE → -45°, boat symétrique → 0°, rocket → -45°
       Promise.all([
-        phosphorToMapImage(map, 'aircraft-icon', airplaneSvgRaw, 48,   0),
-        phosphorToMapImage(map, 'ship-icon',     boatSvgRaw,     48,   0),
+        phosphorToMapImage(map, 'aircraft-icon', airplaneSvgRaw, 48, -45),
+        phosphorToMapImage(map, 'ship-icon',     boatSvgRaw,     48, -90, 242, 242),
         phosphorToMapImage(map, 'rocket-icon',   rocketSvgRaw,   40, -45),
       ]).then(() => {
         addLayers(map);
@@ -397,10 +397,10 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
 }
 
 // ── Icônes custom — silhouettes top-down style tracker AIS/ADS-B ─────────────
-// Avion vue de dessus, pointant vers le nord (256×256 viewBox)
-const airplaneSvgRaw = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><path fill="currentColor" d="M128,12 L134,72 L134,96 L248,118 L248,136 L140,140 L138,184 L154,202 L170,220 L164,234 L128,226 L92,234 L86,220 L102,202 L118,184 L116,140 L8,136 L8,118 L122,96 L122,72 Z"/></svg>`;
-// Navire vue de dessus, pointant vers le nord (256×256 viewBox)
-const boatSvgRaw     = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><path fill="currentColor" d="M128,20 L162,76 L172,188 L152,214 L128,228 L104,214 L84,188 L94,76 Z"/></svg>`;
+// Plane_icon.svg (Wikimedia Commons) — centré dans 256×256, pointe NE → pré-rotation -45°
+const airplaneSvgRaw = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><g transform="translate(8.77 13.875)"><path fill="currentColor" fill-rule="evenodd" d="M194.67321 0 70.641958 53.625c-10.38227-6.92107-34.20058-21.27539-38.90545-23.44898-39.4400301-18.22079-36.9454001 14.73107-20.34925 24.6052 4.53917 2.70065 27.72352 17.17823 43.47345 26.37502l17.90625 133.9375 22.21875 13.15625 11.531252-120.9375 71.53125 36.6875 3.84375 39.21875 14.53125 8.625 11.09375-42.40625.125.0625 30.8125-31.53125-14.875-8-35.625 16.90625-68.28125-42.4375L217.36071 12.25 194.67321 0z"/></g></svg>`;
+// ship-with-cargo-on-sea-svgrepo-com.svg — pointe vers la droite → pré-rotation -90°
+const boatSvgRaw     = `<svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 484.966 484.966"><g><path style="fill:#010002;" d="M56.838,367.456c15.444-3.78,31.498-6.397,47.95-6.397c7.234,0,14.396,0.512,21.305,1.528c11.445,1.674,22.671,3.772,33.53,5.804c22.963,4.308,44.658,8.372,67.15,8.372c11.266,0,21.785-1.016,32.148-3.113c10.705-2.17,21.484-5.072,32.888-8.145c27.06-7.299,55.307-14.892,83.472-12.274c22.784,2.105,44.276,6.974,64.622,12.981l27.206-92.666c2.227-8.698-3.243-15.753-12.225-15.753h-42H78.265H40.329c-8.982,0-15.152,7.194-13.786,16.07L56.838,367.456z"/><rect x="136.515" y="209.119" style="fill:#010002;" width="59.607" height="35.563"/><rect x="209.672" y="209.119" style="fill:#010002;" width="59.607" height="35.563"/><rect x="63.358" y="209.119" style="fill:#010002;" width="59.607" height="35.563"/><rect x="136.515" y="160.348" style="fill:#010002;" width="59.607" height="35.563"/><rect x="63.358" y="160.348" style="fill:#010002;" width="59.607" height="35.563"/><rect x="209.672" y="160.348" style="fill:#010002;" width="59.607" height="35.563"/><rect x="136.515" y="111.576" style="fill:#010002;" width="59.607" height="35.563"/><rect x="63.358" y="111.576" style="fill:#010002;" width="59.607" height="35.563"/><path style="fill:#010002;" d="M312.637,200.991h29.807h8.129v8.129v35.563h89.414V158.99h18.289v-20.321h-18.289V102.09h-36.579V46.548h-18.964v55.543h-71.808v36.579h-18.289v20.321h18.289V200.991z M326.862,130.54v-12.193c0-2.243,1.829-4.064,4.064-4.064h12.193c2.235,0,4.064,1.821,4.064,4.064v12.193c0,2.243-1.829,4.064-4.064,4.064h-12.193C328.69,134.605,326.862,132.784,326.862,130.54z M408.147,130.54v-12.193c0-2.243,1.829-4.064,4.064-4.064h12.193c2.235,0,4.064,1.821,4.064,4.064v12.193c0,2.243-1.829,4.064-4.064,4.064h-12.193C409.976,134.605,408.147,132.784,408.147,130.54z M367.504,130.54v-12.193c0-2.243,1.829-4.064,4.064-4.064h12.193c0.244,0,0.447,0.098,0.675,0.138c1.902,0.333,3.39,1.926,3.39,3.926v12.193c0,2-1.479,3.593-3.39,3.926c-0.228,0.041-0.439,0.138-0.675,0.138h-12.193C369.333,134.605,367.504,132.784,367.504,130.54z"/><polygon style="fill:#010002;" points="342.444,244.682 342.444,209.119 312.637,209.119 282.829,209.119 282.829,244.682 312.637,244.682"/><path style="fill:#010002;" d="M17,438.418c2.17,0,4.495-0.423,6.909-1.252c28.702-9.892,54.803-18.086,83.684-18.086c10.234,0,20.143,1.016,30.303,3.097c32.571,6.69,65.963,13.55,102.062,11.144c27.385-1.845,54.868-8.95,81.448-15.81c6.617-1.707,13.233-3.422,19.834-5.048c8.031-1.983,16.623-2.991,25.54-2.991c29.369,0,59.022,10.787,85.179,20.305l9.291,3.365c2.471,0.878,4.837,1.333,7.039,1.333c9.307,0,14.892-8.202,16.306-16.33c1.488-8.535-1.211-20.094-13.697-24.556c-11.461-4.105-23.321-8.137-35.571-11.754c-19.5-5.755-39.993-10.413-61.533-12.404c-25.54-2.333-52.015,4.845-77.734,11.786c-11.152,3.008-22.679,6.121-33.904,8.389c-11.437,2.317-23.012,3.438-35.367,3.438c-24.004,0-47.471-4.398-70.158-8.649c-10.689-2.008-21.76-4.072-32.88-5.698c-6.129-0.894-12.51-1.357-18.956-1.357c-14.485,0-28.889,2.317-42.919,5.682c-16.655,3.991-32.774,9.486-47.788,14.664c-12.412,4.276-15.168,15.647-13.754,24.085C1.71,430.046,7.409,438.418,17,438.418z"/></g></svg>`;
 import rocketSvgRaw   from '@phosphor-icons/core/assets/fill/rocket-launch-fill.svg?raw';
 
 // Rend un SVG Phosphor (fill="currentColor") sur canvas et l'enregistre comme SDF MapLibre.
@@ -411,15 +411,18 @@ function phosphorToMapImage(
   svgRaw: string,
   size: number,
   rotateDeg = 0,
+  cx = 128,
+  cy = 128,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    // Remplace currentColor par white, ajoute dimensions
+    // Remplace currentColor et style="fill:..." par white, ajoute dimensions
     let svg = svgRaw
       .replace(/fill="currentColor"/g, 'fill="white"')
+      .replace(/style="fill:[^"]*"/g, 'fill="white"')
       .replace('<svg ', `<svg width="${size}" height="${size}" `);
-    // Applique la pré-rotation autour du centre 128 128 (viewBox 256x256)
+    // Applique la pré-rotation autour du centre du viewBox
     if (rotateDeg !== 0) {
-      svg = svg.replace(/<svg([^>]*)>/, `<svg$1><g transform="rotate(${rotateDeg} 128 128)">`).replace('</svg>', '</g></svg>');
+      svg = svg.replace(/<svg([^>]*)>/, `<svg$1><g transform="rotate(${rotateDeg} ${cx} ${cy})">`).replace('</svg>', '</g></svg>');
     }
     const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
     const img = new Image(size, size);
@@ -631,24 +634,14 @@ function addLayers(map: maplibregl.Map) {
     paint: { 'text-color': ['get', 'color'], 'text-opacity': 0.9 },
   });
 
-  // Military ships — traînée
-  map.addLayer({
-    id: 'mil-ship-trail-lines', type: 'line', source: 'mil-ship-trails',
-    layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: {
-      'line-color':   ['get', 'color'],
-      'line-opacity': 0.3,
-      'line-width':   2,
-    },
-  });
 
   // Military ships — silhouette navire SDF orientée selon le COG
   map.addLayer({
     id: 'mil-ships', type: 'symbol', source: 'mil-ships',
     layout: {
       'icon-image':              'ship-icon',
-      'icon-size':               0.32,
-      'icon-rotate':             ['get', 'cog'],
+      'icon-size':               0.38,
+      'icon-rotate':             ['-', ['get', 'cog'], ['*', ['floor', ['/', ['get', 'cog'], 180]], 180]],
       'icon-rotation-alignment': 'map',
       'icon-allow-overlap':      true,
       'icon-ignore-placement':   true,
