@@ -156,6 +156,7 @@ async function fetchMilSource(src) {
     const rej = { noPos: 0, onGround: 0, civilianCs: 0, noMilMatch: 0 };
 
     const noPosCountries = {};
+    const noPosUnkHex   = [];
     for (const a of ac) {
       // Mirror normalizeAc rejection logic to count causes
       if (!Array.isArray(a)) {
@@ -167,6 +168,7 @@ async function fetchMilSource(src) {
           const range  = MIL_HEX_RANGES.find(r => hexVal >= r.lo && hexVal <= r.hi);
           const cty    = range ? range.country : 'UNK';
           noPosCountries[cty] = (noPosCountries[cty] || 0) + 1;
+          if (!range) noPosUnkHex.push(icao24); // unknown hex range — log for investigation
           continue;
         }
         if (a.alt_baro === 'ground' || a.on_ground)  { rej.onGround++;   continue; }
@@ -182,6 +184,7 @@ async function fetchMilSource(src) {
       if (n) { updateTrail(n.id, n.lon, n.lat); out.push(n); }
     }
     const noPosStr = Object.entries(noPosCountries).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`${c}=${n}`).join(' ');
+    if (noPosUnkHex.length) console.log(`[mil-aircraft] ${src.name} UNK noPos hex: ${noPosUnkHex.join(' ')}`);
 
 
     // Country breakdown of accepted aircraft
