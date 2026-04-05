@@ -269,8 +269,8 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
       // FA Solid icons → canvas SDF (async car SVG blob → Image)
       // Phosphor fill icons — airplane-tilt pointe NE → -45°, boat symétrique → 0°, rocket → -45°
       Promise.all([
-        phosphorToMapImage(map, 'aircraft-icon', airplaneSvgRaw, 40, -45),
-        phosphorToMapImage(map, 'ship-icon',     boatSvgRaw,     40,   0),
+        phosphorToMapImage(map, 'aircraft-icon', airplaneSvgRaw, 48,   0),
+        phosphorToMapImage(map, 'ship-icon',     boatSvgRaw,     48,   0),
         phosphorToMapImage(map, 'rocket-icon',   rocketSvgRaw,   40, -45),
       ]).then(() => {
         addLayers(map);
@@ -396,9 +396,11 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   );
 }
 
-// ── Icônes Phosphor Fill — SVG assets importés directement depuis le package ─
-import airplaneSvgRaw from '@phosphor-icons/core/assets/fill/airplane-tilt-fill.svg?raw';
-import boatSvgRaw     from '@phosphor-icons/core/assets/fill/boat-fill.svg?raw';
+// ── Icônes custom — silhouettes top-down style tracker AIS/ADS-B ─────────────
+// Avion vue de dessus, pointant vers le nord (256×256 viewBox)
+const airplaneSvgRaw = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><path fill="currentColor" d="M128,12 L134,72 L134,96 L248,118 L248,136 L140,140 L138,184 L154,202 L170,220 L164,234 L128,226 L92,234 L86,220 L102,202 L118,184 L116,140 L8,136 L8,118 L122,96 L122,72 Z"/></svg>`;
+// Navire vue de dessus, pointant vers le nord (256×256 viewBox)
+const boatSvgRaw     = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><path fill="currentColor" d="M128,20 L162,76 L172,188 L152,214 L128,228 L104,214 L84,188 L94,76 Z"/></svg>`;
 import rocketSvgRaw   from '@phosphor-icons/core/assets/fill/rocket-launch-fill.svg?raw';
 
 // Rend un SVG Phosphor (fill="currentColor") sur canvas et l'enregistre comme SDF MapLibre.
@@ -645,7 +647,7 @@ function addLayers(map: maplibregl.Map) {
     id: 'mil-ships', type: 'symbol', source: 'mil-ships',
     layout: {
       'icon-image':              'ship-icon',
-      'icon-size':               0.55,
+      'icon-size':               0.32,
       'icon-rotate':             ['get', 'cog'],
       'icon-rotation-alignment': 'map',
       'icon-allow-overlap':      true,
@@ -685,7 +687,7 @@ function addLayers(map: maplibregl.Map) {
     id: 'mil-aircraft', type: 'symbol', source: 'mil-aircraft',
     layout: {
       'icon-image':              'aircraft-icon',
-      'icon-size':               0.6,
+      'icon-size':               0.45,
       'icon-rotate':             ['get', 'track'],
       'icon-rotation-alignment': 'map',
       'icon-allow-overlap':      true,

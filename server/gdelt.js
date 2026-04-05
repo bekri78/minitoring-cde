@@ -2,6 +2,45 @@
 
 const JSZip = require('jszip');
 
+// ── Table CAMEO EventCode → subEventType ──────────────────────────────────
+const CAMEO_SUBTYPE = {
+  '130':'Threaten','131':'Threaten with non-force','132':'Threaten with administrative sanctions',
+  '133':'Threaten with political exclusion','134':'Threaten with military force',
+  '135':'Threaten with arrest','136':'Threaten with repression','137':'Threaten with sanctions',
+  '138':'Threaten with embargo or expulsion','139':'Threaten with military attack',
+  '140':'Engage in political dissent','141':'Demonstrate or rally','142':'Conduct hunger strike',
+  '143':'Conduct strike or boycott','144':'Obstruct or block','145':'Protest violently, riot',
+  '150':'Demonstrate military or police power','151':'Increase police alert status',
+  '152':'Increase military alert status','153':'Mobilize or increase police power',
+  '154':'Mobilize or increase armed forces','155':'Mobilize cyber forces',
+  '160':'Reduce relations','161':'Reduce or break diplomatic relations',
+  '162':'Accuse','163':'Halt negotiations','164':'Halt mediation',
+  '165':'Expel or recall ambassadors','170':'Coerce','171':'Seize or damage property',
+  '172':'Arrest, detain, or charge','173':'Expel or deport individuals',
+  '174':'Impose administrative sanctions','175':'Impose political restrictions',
+  '176':'Impose curfew','180':'Use conventional military force',
+  '181':'Abduct, hijack, or take hostage','182':'Physically assault',
+  '1821':'Sexually assault','1822':'Torture','1823':'Kill by physical assault',
+  '183':'Conduct bombing','1831':'Carry out suicide bombing','1832':'Carry out car bombing',
+  '1833':'Carry out IED attack','184':'Use conventional weapons',
+  '185':'Employ aerial weapons','186':'Violate ceasefire',
+  '190':'Fight','191':'Impose blockade, restrict movement','192':'Occupy territory',
+  '193':'Fight with small arms and light weapons','194':'Fight with artillery and tanks',
+  '195':'Employ aerial weapons','196':'Violate ceasefire',
+  '200':'Engage in mass violence','201':'Engage in mass expulsion',
+  '202':'Engage in mass killings','2021':'Commit atrocities',
+  '203':'Engage in ethnic cleansing','204':'Use weapons of mass destruction',
+};
+
+function getSubEventType(eventCode) {
+  if (!eventCode) return 'Unknown';
+  // Cherche le code exact d'abord (ex: "1823"), puis code court (ex: "182", "18")
+  if (CAMEO_SUBTYPE[eventCode]) return CAMEO_SUBTYPE[eventCode];
+  if (eventCode.length > 3 && CAMEO_SUBTYPE[eventCode.slice(0, 3)]) return CAMEO_SUBTYPE[eventCode.slice(0, 3)];
+  if (eventCode.length > 2 && CAMEO_SUBTYPE[eventCode.slice(0, 2)]) return CAMEO_SUBTYPE[eventCode.slice(0, 2)];
+  return 'Unknown';
+}
+
 // ── Codes CAMEO retenus ───────────────────────────────────────────────────
 // QuadClass 4 (Material Conflict) — tous ces codes sont retenus
 const MATERIAL_CONFLICT_CODES = new Set([
@@ -277,9 +316,11 @@ function parseLine(line) {
     const c = line.split('\t');
     if (c.length < 61) return null;
 
-    const eventCode = (c[26] || '').trim();  // EventCode complet (col 26)
-    const rootCode  = (c[28] || '').trim();  // EventRootCode (col 28)
-    const quadClass = (c[29] || '').trim();  // QuadClass (col 29)
+    const eventCode  = (c[26] || '').trim();  // EventCode complet (col 26)
+    const rootCode   = (c[28] || '').trim();  // EventRootCode (col 28)
+    const quadClass  = (c[29] || '').trim();  // QuadClass (col 29)
+    const actor1Name = (c[6]  || '').trim();  // Actor1Name (col 6)
+    const actor2Name = (c[16] || '').trim();  // Actor2Name (col 16)
     const goldstein = parseFloat(c[30]);
     // ActionGeo = où l'événement s'est produit (pas Actor1Geo qui est le pays d'origine)
     const geoType   = c[51];               // ActionGeo_Type
@@ -343,6 +384,10 @@ function parseLine(line) {
       country:       geoName || c[36] || '',
       countryCode,
       rootCode,
+      eventCode,
+      actor1:        actor1Name || null,
+      actor2:        actor2Name || null,
+      subEventType:  getSubEventType(eventCode),
       lat,
       lon,
       tone:          goldstein,

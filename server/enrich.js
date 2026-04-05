@@ -67,10 +67,10 @@ async function enrichBatch(events, attempt = 0) {
 CRITICAL: The "source_country" field is GDELT's automated extraction of the NEWS ARTICLE'S PUBLICATION LOCATION — it is NOT the event location and is frequently wrong (e.g., an Australian newspaper reporting on Ukraine will show Australia). You MUST infer the true event location exclusively from the "title" content. Ignore source_country for location purposes.
 
 Events:
-${events.map(e => `{"id":"${e.id}","title":"${e.title}","source_country":"${e.country}"}`).join('\n')}
+${events.map(e => `{"id":"${e.id}","title":"${e.title}","source_country":"${e.country}","actor1":${JSON.stringify(e.actor1||null)},"actor2":${JSON.stringify(e.actor2||null)},"subEventType":${JSON.stringify(e.subEventType||null)}}`).join('\n')}
 
 Required output format for each event:
-{"id":"...","keep":true/false,"relevance":0-100,"title_fr":"titre français ≤12 mots","location":"Ville ou Pays réel de l'événement (inféré du titre uniquement)","category":"military|conflict|terrorism|protest|cyber|strategic|crisis|critical_incident|discard"}`;
+{"id":"...","keep":true/false,"relevance":0-100,"title_fr":"titre français ≤12 mots","headline":"English headline ≤15 words","notes":"brief operational summary ≤20 words (what happened, where, who)","location":"Ville ou Pays réel de l'événement (inféré du titre uniquement)","category":"military|conflict|terrorism|protest|cyber|strategic|crisis|critical_incident|discard"}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000);
@@ -142,10 +142,12 @@ Required output format for each event:
 
       return {
         ...e,
-        title:     r.title_fr  || e.title,
-        country:   aiLocation  || e.country,
-        category:  r.category  || e.category,
-        relevance: r.relevance || 0,
+        title:        r.title_fr  || e.title,
+        headline:     r.headline  || null,
+        notes:        r.notes     || null,
+        country:      aiLocation  || e.country,
+        category:     r.category  || e.category,
+        relevance:    r.relevance || 0,
         lat, lon,
         rawLat: lat, rawLon: lon
       };

@@ -14,6 +14,8 @@ const { fetchSpaceWeather, getCache: getSwCache }                    = require('
 const { fetchMilitary, getCache: getMilCache }                       = require('./military-aircraft');
 const { startMilitaryShips, getCache: getShipCache }                 = require('./military-ships');
 const { runPipeline }                                                = require('./pipeline');
+const { fetchAircraftPhoto }                                         = require('./planespotters');
+const { attachNearbyEvents }                                         = require('./proximity');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -246,12 +248,22 @@ app.get('/military-ships', (req, res) => {
   res.json(c);
 });
 
+// ── Photo avion via planespotters.net ─────────────────────────────────────
+app.get('/flights/aircraft', async (req, res) => {
+  const { icao24 } = req.query;
+  if (!icao24) return res.status(400).json({ error: 'icao24 required' });
+  const photo = await fetchAircraftPhoto(icao24);
+  res.json(photo || {});
+});
+
 // ── Unified tracks endpoint (OSINT fusion pipeline) ─────────────────────
 app.get('/tracks', (req, res) => {
   const { domain, country, minTier } = req.query;
   const aircraft = getMilCache().aircraft || [];
   const ships    = getShipCache().ships   || [];
   const result   = runPipeline({ aircraft, ships, domain, country, minTier });
+  const radius   = req.query.radius ? Number(req.query.radius) : 300;
+  result.tracks  = attachNearbyEvents(result.tracks, cache.events, radius);
   res.json(result);
 });
 
