@@ -71,6 +71,10 @@ const MIL_HEX_RANGES = [
 // Callsigns militaires connus
 const MIL_CALLSIGN_RE = /^(RCH|SAM|REACH|DUKE|MAGMA|COBRA|VIPER|HAWK|NATO|BAF|GAF|IAF|NAVY|USAF|CNV|TOPGUN|JOLLY|SPAR|EVAC|JAKE|SWIFT|KING|VALOR|BOXER|ATLAS|BLADE|BONE|GHOST|LANCER|FURY|RAVEN|IRON|STEEL|BRONZE|SILVER|GOLD|EAGLE|FALCON|THUNDER|STORM|WOLF|BEAR|TIGER|SHARK|LION|BORT|CCCP|PLAAF|PLANAF|IRGC)\d*/i;
 
+// Callsigns de compagnies CIVILES connues → exclusion explicite
+// Evite les faux positifs sur les plages hex larges (Chine, Russie, Iran)
+const CIVILIAN_CALLSIGN_RE = /^(CCA|CES|CSN|CHH|CXA|CSZ|CSC|CDG|DKH|HXA|CQH|GCR|OKA|EPA|AXM|JAL|ANA|KAL|AAR|JJA|TWB|ABL|MAS|SIA|PAL|CPA|EVA|MXA|THA|GIA|GAR|AIC|EIN|BAW|AFR|DLH|KLM|IBE|AZA|TAP|SAS|UAL|AAL|DAL|SWA|FFT|SKW|ASA|JBU|HAL|AFL|SBI|UTN|SVR|TYA|VKO|IRM|IRC|IRA|JST|QFA|VOZ|TGW)\d+/i;
+
 // ── Trail ─────────────────────────────────────────────────────────────────
 const trails = new Map();
 
@@ -89,6 +93,9 @@ function purgeTrails() {
 
 // ── Détection militaire ───────────────────────────────────────────────────
 function detectMilitary(icao24hex, callsign) {
+  // Exclure les compagnies civiles connues avant toute détection hex
+  if (callsign && CIVILIAN_CALLSIGN_RE.test(callsign.trim())) return null;
+
   const hex = parseInt(icao24hex, 16);
   for (const r of MIL_HEX_RANGES) {
     if (hex >= r.lo && hex <= r.hi) return { country: r.country, color: r.color };
