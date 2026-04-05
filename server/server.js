@@ -15,6 +15,7 @@ const { fetchMilitary, getCache: getMilCache }                       = require('
 const { startMilitaryShips, getCache: getShipCache }                 = require('./military-ships');
 const { runPipeline }                                                = require('./pipeline');
 const { fetchAircraftPhoto }                                         = require('./planespotters');
+const { fetchShipPhoto }                                             = require('./shipphotos');
 const { attachNearbyEvents }                                         = require('./proximity');
 
 const app      = express();
@@ -254,6 +255,14 @@ app.get('/flights/aircraft', async (req, res) => {
   if (!icao24) return res.status(400).json({ error: 'icao24 required' });
   const photo = await fetchAircraftPhoto(icao24);
   res.json(photo || {});
+});
+
+// ── Photo / infos navire via MarineTraffic + flagcdn ──────────────────────
+app.get('/ships/vessel', async (req, res) => {
+  const { mmsi, country } = req.query;
+  if (!mmsi) return res.status(400).json({ error: 'mmsi required' });
+  const info = await fetchShipPhoto(mmsi, country || '');
+  res.json(info || {});
 });
 
 // ── Unified tracks endpoint (OSINT fusion pipeline) ─────────────────────

@@ -6,11 +6,12 @@ import type { LaunchPad } from '../types/launch';
 import type { DecayObject } from '../types/decay';
 import type { TipObject } from '../types/tip';
 import type { Quake } from '../types/earthquake';
-import type { MilAircraft } from '../types/aircraft';
-import type { MilShip }    from '../types/ship';
+import type { Track } from '../types/track';
 import { buildGeoJSON } from '../utils/geo';
 import { getColor, getCategoryColor, getCategoryLabel, getSeverityLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
+
+const RAILWAY_URL = 'https://minitoring-cde-production.up.railway.app';
 
 interface Props {
   events:        Event[];
@@ -19,8 +20,8 @@ interface Props {
   decayObjects?: DecayObject[];
   tipObjects?:   TipObject[];
   quakes?:       Quake[];
-  milAircraft?:  MilAircraft[];
-  milShips?:     MilShip[];
+  airTracks?:    Track[];
+  seaTracks?:    Track[];
   launches?:     import('../types/launch').Launch[];
 }
 
@@ -113,61 +114,56 @@ function buildPadsGeoJSON(pads: LaunchPad[]): GeoJSON.FeatureCollection {
   };
 }
 
-function buildShipTrailsGeoJSON(ships: MilShip[]): GeoJSON.FeatureCollection {
+function buildAirTracksGeoJSON(tracks: Track[]): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
-    features: ships
-      .filter(s => s.trail.length >= 2)
-      .map(s => ({
-        type:     'Feature' as const,
-        geometry: { type: 'LineString' as const, coordinates: s.trail },
-        properties: { id: s.id, color: s.color },
-      })),
-  };
-}
-
-function buildShipPointsGeoJSON(ships: MilShip[]): GeoJSON.FeatureCollection {
-  return {
-    type: 'FeatureCollection',
-    features: ships.map(s => ({
+    features: tracks.map(t => ({
       type:     'Feature' as const,
-      geometry: { type: 'Point' as const, coordinates: [s.lon, s.lat] },
+      geometry: { type: 'Point' as const, coordinates: [t.lon, t.lat] },
       properties: {
-        id:      s.id,
-        name:    s.name,
-        callsign: s.callsign,
-        country: s.country,
-        color:   s.color,
-        cog:     s.cog,
-        sog:     s.sog,
-        heading: s.heading,
+        id:           t.id,
+        name:         t.name,
+        callsign:     t.callsign,
+        country:      t.country,
+        color:        t.color,
+        alt:          t.alt,
+        altFt:        t.altFt,
+        speed:        t.speed,
+        track:        t.heading,
+        milTier:      t.milTier,
+        milScore:     t.milScore,
+        milReasons:   JSON.stringify(t.milReasons || []),
+        nearbyEvents: JSON.stringify((t as any).nearbyEvents || []),
       },
     })),
   };
 }
 
-
-function buildMilPointsGeoJSON(aircraft: MilAircraft[]): GeoJSON.FeatureCollection {
+function buildSeaTracksGeoJSON(tracks: Track[]): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
-    features: aircraft.map(a => ({
+    features: tracks.map(t => ({
       type:     'Feature' as const,
-      geometry: { type: 'Point' as const, coordinates: [a.lon, a.lat] },
+      geometry: { type: 'Point' as const, coordinates: [t.lon, t.lat] },
       properties: {
-        id:       a.id,
-        callsign: a.callsign,
-        country:  a.country,
-        color:    a.color,
-        alt:      a.alt,
-        altFt:    a.altFt,
-        speed:    a.speed,
-        track:    a.track,
+        id:           t.id,
+        name:         t.name,
+        callsign:     t.callsign,
+        country:      t.country,
+        color:        t.color,
+        cog:          t.cog,
+        sog:          t.sog,
+        heading:      t.heading,
+        milTier:      t.milTier,
+        milScore:     t.milScore,
+        milReasons:   JSON.stringify(t.milReasons || []),
+        nearbyEvents: JSON.stringify((t as any).nearbyEvents || []),
       },
     })),
   };
 }
 
-export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObjects = [], quakes = [], milAircraft = [], milShips = [], launches = [] }: Props) {
+export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObjects = [], quakes = [], airTracks = [], seaTracks = [], launches = [] }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<maplibregl.Map | null>(null);
   const popupRef      = useRef<maplibregl.Popup | null>(null);
@@ -177,9 +173,9 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   const decayRef      = useRef<DecayObject[]>(decayObjects);
   const tipRef        = useRef<TipObject[]>(tipObjects);
   const quakesRef     = useRef<Quake[]>(quakes);
-  const milAircraftRef = useRef<MilAircraft[]>(milAircraft);
-  const milShipsRef    = useRef<MilShip[]>(milShips);
-  const launchesRef    = useRef<import('../types/launch').Launch[]>(launches);
+  const airTracksRef  = useRef<Track[]>(airTracks);
+  const seaTracksRef  = useRef<Track[]>(seaTracks);
+  const launchesRef   = useRef<import('../types/launch').Launch[]>(launches);
 
   // Keep refs current so the load handler can access latest data
   useEffect(() => { eventsRef.current = events;             }, [events]);
@@ -187,8 +183,8 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   useEffect(() => { decayRef.current  = decayObjects;       }, [decayObjects]);
   useEffect(() => { tipRef.current    = tipObjects;         }, [tipObjects]);
   useEffect(() => { quakesRef.current = quakes;             }, [quakes]);
-  useEffect(() => { milAircraftRef.current = milAircraft;   }, [milAircraft]);
-  useEffect(() => { milShipsRef.current    = milShips;      }, [milShips]);
+  useEffect(() => { airTracksRef.current = airTracks; }, [airTracks]);
+  useEffect(() => { seaTracksRef.current = seaTracks; }, [seaTracks]);
   useEffect(() => { launchesRef.current    = launches;      }, [launches]);
 
   // Initialize MapLibre once
@@ -256,11 +252,6 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
         data: { type: 'FeatureCollection', features: [] },
       });
 
-      map.addSource('mil-ship-trails', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      });
-
       map.addSource('mil-ships', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
@@ -298,15 +289,13 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
           (map.getSource('earthquakes') as maplibregl.GeoJSONSource)
             .setData(buildQuakeGeoJSON(quakesRef.current));
         }
-        if (milAircraftRef.current.length > 0) {
+        if (airTracksRef.current.length > 0) {
           (map.getSource('mil-aircraft') as maplibregl.GeoJSONSource)
-            .setData(buildMilPointsGeoJSON(milAircraftRef.current));
+            .setData(buildAirTracksGeoJSON(airTracksRef.current));
         }
-        if (milShipsRef.current.length > 0) {
-          (map.getSource('mil-ship-trails') as maplibregl.GeoJSONSource)
-            .setData(buildShipTrailsGeoJSON(milShipsRef.current));
+        if (seaTracksRef.current.length > 0) {
           (map.getSource('mil-ships') as maplibregl.GeoJSONSource)
-            .setData(buildShipPointsGeoJSON(milShipsRef.current));
+            .setData(buildSeaTracksGeoJSON(seaTracksRef.current));
         }
       });
     });
@@ -362,16 +351,15 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current) return;
-    (map.getSource('mil-aircraft') as maplibregl.GeoJSONSource | undefined)?.setData(buildMilPointsGeoJSON(milAircraft));
-  }, [milAircraft]);
+    (map.getSource('mil-aircraft') as maplibregl.GeoJSONSource | undefined)?.setData(buildAirTracksGeoJSON(airTracks));
+  }, [airTracks]);
 
-  // Update military ships layers
+  // Update sea tracks layer
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current) return;
-    (map.getSource('mil-ship-trails') as maplibregl.GeoJSONSource | undefined)?.setData(buildShipTrailsGeoJSON(milShips));
-    (map.getSource('mil-ships')       as maplibregl.GeoJSONSource | undefined)?.setData(buildShipPointsGeoJSON(milShips));
-  }, [milShips]);
+    (map.getSource('mil-ships') as maplibregl.GeoJSONSource | undefined)?.setData(buildSeaTracksGeoJSON(seaTracks));
+  }, [seaTracks]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -1014,74 +1002,128 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup, launchesRef: M
   map.on('mouseenter', 'quake-circles',   () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'quake-circles',   () => { map.getCanvas().style.cursor = ''; });
 
+  // ── Helpers popup ────────────────────────────────────────────────────────
+  function tierLabel(tier: string) {
+    const map: Record<string, string> = {
+      confirmed_military: '⬛ CONFIRMED MIL', likely_military: '▪ LIKELY MIL',
+      possible_state: '◦ POSSIBLE STATE', unknown: '? UNKNOWN',
+    };
+    return map[tier] || tier;
+  }
+  function tierColor(tier: string) {
+    return { confirmed_military: '#ff2244', likely_military: '#ff8800', possible_state: '#ffdd55', unknown: '#4a6a7a' }[tier] || '#4a6a7a';
+  }
+  function nearbyEventsHtml(raw: string) {
+    try {
+      const evts = JSON.parse(raw || '[]');
+      if (!evts.length) return '';
+      return `<div style="margin-top:8px;border-top:1px solid #1a2a3a;padding-top:6px;">
+        <div style="color:#4a6a7a;font-size:8px;letter-spacing:1px;margin-bottom:4px;">ÉVÉNEMENTS PROCHES</div>
+        ${evts.slice(0,3).map((ev: any) => `
+          <div style="margin-bottom:4px;padding:4px;background:#0a1520;border-left:2px solid #ff2244;">
+            <div style="color:#ffaa44;font-size:8px;">${escapeHtml(ev.subEventType || ev.category || '')} · ${ev.distanceKm}km</div>
+            <div style="color:#c8d8e8;font-size:9px;">${escapeHtml(ev.headline || ev.title || '')}</div>
+            ${ev.actor1 ? `<div style="color:#4a6a7a;font-size:8px;">${escapeHtml(ev.actor1)}${ev.actor2 ? ' → '+escapeHtml(ev.actor2) : ''}</div>` : ''}
+          </div>`).join('')}
+      </div>`;
+    } catch { return ''; }
+  }
+
   // Military aircraft click
-  map.on('click', 'mil-aircraft', e => {
+  map.on('click', 'mil-aircraft', async e => {
     const feature = e.features?.[0];
     if (!feature) return;
     const p      = feature.properties || {};
     const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
-    const color  = p.color || '#4a9eff';
-    const altStr = p.altFt  != null ? `${Number(p.altFt).toLocaleString()} ft` : '—';
-    const spdStr = p.speed  != null ? `${p.speed} kt` : '—';
-    const capStr = p.track  != null ? `${Math.round(p.track)}°` : '—';
+    const tc     = tierColor(p.milTier);
+    const altStr = p.altFt != null ? `${Number(p.altFt).toLocaleString()} ft` : '—';
+    const spdStr = p.speed != null ? `${p.speed} kt` : '—';
+    const capStr = p.track != null ? `${Math.round(p.track)}°` : '—';
+
+    // Affichage immédiat avec placeholder photo
     popup.setLngLat(coords).setHTML(`
-      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:260px;">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
-          <span style="padding:2px 8px;font-size:9px;background:${color}18;color:${color};border:1px solid ${color}44;letter-spacing:1px;">
-            ✈ MILITAIRE
-          </span>
-          <span style="padding:2px 8px;font-size:9px;background:#1a2a3a;color:#c8d8e8;border:1px solid #2a3a4a;">
-            ${escapeHtml(p.country)}
-          </span>
+      <div id="ac-popup-${p.id}" style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:290px;max-width:340px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+          <span style="padding:2px 8px;font-size:9px;background:${tc}22;color:${tc};border:1px solid ${tc}55;">${tierLabel(p.milTier)}</span>
+          <span style="padding:2px 8px;font-size:9px;background:#1a2a3a;color:#c8d8e8;border:1px solid #2a3a4a;">${escapeHtml(p.country)}</span>
+          <span style="margin-left:auto;font-size:9px;color:#4a6a7a;">${p.milScore ?? ''}%</span>
         </div>
-        <p style="color:#e8f4ff;margin:0 0 10px 0;font-size:13px;letter-spacing:2px;">${escapeHtml(p.callsign)}</p>
+        <p style="color:#e8f4ff;margin:0 0 6px 0;font-size:13px;letter-spacing:2px;">${escapeHtml(p.callsign || p.name)}</p>
+        <div id="ac-photo-${p.id}" style="margin-bottom:6px;"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:9px;border-top:1px solid #1a2a3a;padding-top:8px;">
           <div><span style="color:#4a6a7a;">ALTITUDE</span><br><span style="color:#c8d8e8;">${altStr}</span></div>
           <div><span style="color:#4a6a7a;">VITESSE</span><br><span style="color:#c8d8e8;">${spdStr}</span></div>
           <div><span style="color:#4a6a7a;">CAP</span><br><span style="color:#c8d8e8;">${capStr}</span></div>
         </div>
-        <div style="margin-top:8px;font-size:9px;color:#4a6a7a;">
-          ${Number(coords[1]).toFixed(3)}°, ${Number(coords[0]).toFixed(3)}° — ICAO ${escapeHtml(p.id)}
-        </div>
+        <div style="margin-top:6px;font-size:9px;color:#4a6a7a;">${Number(coords[1]).toFixed(3)}°, ${Number(coords[0]).toFixed(3)}° — ICAO ${escapeHtml(p.id)}</div>
+        ${nearbyEventsHtml(p.nearbyEvents)}
       </div>
     `).addTo(map);
+
+    // Fetch photo async
+    try {
+      const resp = await fetch(`${RAILWAY_URL}/flights/aircraft?icao24=${p.id}`);
+      const photo = await resp.json();
+      const el = document.getElementById(`ac-photo-${p.id}`);
+      if (el && photo?.thumbnail) {
+        el.innerHTML = `<a href="${escapeHtml(photo.photoLink || '#')}" target="_blank" rel="noopener">
+          <img src="${escapeHtml(photo.thumbnail)}" style="width:100%;border-radius:3px;border:1px solid #1a2a3a;" alt="photo"/>
+          <div style="font-size:8px;color:#4a6a7a;margin-top:2px;">${escapeHtml(photo.aircraftType || '')} · ${escapeHtml(photo.registration || '')} · © ${escapeHtml(photo.photographer || '')}</div>
+        </a>`;
+      }
+    } catch { /* photo non dispo */ }
   });
 
   map.on('mouseenter', 'mil-aircraft', () => { map.getCanvas().style.cursor = 'pointer'; });
   map.on('mouseleave', 'mil-aircraft', () => { map.getCanvas().style.cursor = ''; });
 
   // Military ships click
-  map.on('click', 'mil-ships', e => {
+  map.on('click', 'mil-ships', async e => {
     const feature = e.features?.[0];
     if (!feature) return;
     const p      = feature.properties || {};
     const coords = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
-    const color  = p.color || '#4a9eff';
-    const sogStr = p.sog   != null ? `${Number(p.sog).toFixed(1)} kt` : '—';
-    const cogStr = p.cog   != null ? `${Math.round(p.cog)}°` : '—';
+    const tc     = tierColor(p.milTier);
+    const sogStr = p.sog     != null ? `${Number(p.sog).toFixed(1)} kt` : '—';
+    const cogStr = p.cog     != null ? `${Math.round(p.cog)}°` : '—';
     const hdgStr = p.heading != null ? `${Math.round(p.heading)}°` : '—';
+
     popup.setLngLat(coords).setHTML(`
-      <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:260px;">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
-          <span style="padding:2px 8px;font-size:9px;background:${color}18;color:${color};border:1px solid ${color}44;letter-spacing:1px;">
-            ⚓ NAVIRE MIL
-          </span>
-          <span style="padding:2px 8px;font-size:9px;background:#1a2a3a;color:#c8d8e8;border:1px solid #2a3a4a;">
-            ${escapeHtml(p.country)}
-          </span>
+      <div id="sh-popup-${p.id}" style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:290px;max-width:340px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+          <span style="padding:2px 8px;font-size:9px;background:${tc}22;color:${tc};border:1px solid ${tc}55;">${tierLabel(p.milTier)}</span>
+          <span style="padding:2px 8px;font-size:9px;background:#1a2a3a;color:#c8d8e8;border:1px solid #2a3a4a;">${escapeHtml(p.country)}</span>
+          <span style="margin-left:auto;font-size:9px;color:#4a6a7a;">${p.milScore ?? ''}%</span>
         </div>
         <p style="color:#e8f4ff;margin:0 0 4px 0;font-size:13px;letter-spacing:1px;">${escapeHtml(p.name)}</p>
-        ${p.callsign ? `<p style="color:#8ab4c8;margin:0 0 10px 0;font-size:10px;">MMSI ${escapeHtml(p.id)} • ${escapeHtml(p.callsign)}</p>` : `<p style="color:#4a6a7a;margin:0 0 10px 0;font-size:9px;">MMSI ${escapeHtml(p.id)}</p>`}
+        ${p.callsign ? `<p style="color:#8ab4c8;margin:0 0 8px 0;font-size:10px;">MMSI ${escapeHtml(p.id)} · ${escapeHtml(p.callsign)}</p>` : `<p style="color:#4a6a7a;margin:0 0 8px 0;font-size:9px;">MMSI ${escapeHtml(p.id)}</p>`}
+        <div id="sh-photo-${p.id}" style="margin-bottom:6px;"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:9px;border-top:1px solid #1a2a3a;padding-top:8px;">
           <div><span style="color:#4a6a7a;">VITESSE</span><br><span style="color:#c8d8e8;">${sogStr}</span></div>
           <div><span style="color:#4a6a7a;">ROUTE</span><br><span style="color:#c8d8e8;">${cogStr}</span></div>
           <div><span style="color:#4a6a7a;">CAP VRAI</span><br><span style="color:#c8d8e8;">${hdgStr}</span></div>
         </div>
-        <div style="margin-top:8px;font-size:9px;color:#4a6a7a;">
-          ${Number(coords[1]).toFixed(3)}°, ${Number(coords[0]).toFixed(3)}°
-        </div>
+        <div style="margin-top:6px;font-size:9px;color:#4a6a7a;">${Number(coords[1]).toFixed(3)}°, ${Number(coords[0]).toFixed(3)}°</div>
+        ${nearbyEventsHtml(p.nearbyEvents)}
       </div>
     `).addTo(map);
+
+    // Fetch photo async (MarineTraffic avec fallback drapeau)
+    try {
+      const resp = await fetch(`${RAILWAY_URL}/ships/vessel?mmsi=${p.id}&country=${p.country || ''}`);
+      const info = await resp.json();
+      const el = document.getElementById(`sh-photo-${p.id}`);
+      if (el && (info?.thumbnail || info?.flagUrl)) {
+        const imgSrc   = info.thumbnail || info.flagUrl;
+        const fallback = info.flagUrl || '';
+        el.innerHTML = `<a href="${escapeHtml(info.photoLink || '#')}" target="_blank" rel="noopener">
+          <img src="${escapeHtml(imgSrc)}"
+               onerror="this.onerror=null;this.src='${escapeHtml(fallback)}';this.style.height='40px';this.style.width='auto';"
+               style="width:100%;border-radius:3px;border:1px solid #1a2a3a;" alt="vessel"/>
+          <div style="font-size:8px;color:#4a6a7a;margin-top:2px;">📷 MarineTraffic</div>
+        </a>`;
+      }
+    } catch { /* photo non dispo */ }
   });
 
   map.on('mouseenter', 'mil-ships', () => { map.getCanvas().style.cursor = 'pointer'; });
