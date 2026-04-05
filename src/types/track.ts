@@ -17,7 +17,8 @@ export interface Track {
   cog:        number;              // course over ground
   sog:        number;              // speed over ground
   lastSeen:   number;              // timestamp ms
-  trail:      [number, number][];  // [[lon,lat], …]
+  trail:        [number, number][];  // [[lon,lat], …]
+  isHelicopter: boolean;             // true if ICAO type is a rotorcraft
   milScore:   number;              // 0-100 confidence score
   milTier:    MilTier;             // classification tier
   milReasons: string[];            // explainable reasons

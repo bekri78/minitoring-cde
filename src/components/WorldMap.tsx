@@ -134,6 +134,7 @@ function buildAirTracksGeoJSON(tracks: Track[]): GeoJSON.FeatureCollection {
         milScore:     t.milScore,
         milReasons:   JSON.stringify(t.milReasons || []),
         nearbyEvents: JSON.stringify((t as any).nearbyEvents || []),
+        isHelicopter: t.isHelicopter ?? false,
       },
     })),
   };
@@ -260,9 +261,10 @@ export function WorldMap({ events, loading, pads = [], decayObjects = [], tipObj
       // FA Solid icons → canvas SDF (async car SVG blob → Image)
       // Phosphor fill icons — airplane-tilt pointe NE → -45°, boat symétrique → 0°, rocket → -45°
       Promise.all([
-        phosphorToMapImage(map, 'aircraft-icon', airplaneSvgRaw, 48, -45),
-        phosphorToMapImage(map, 'ship-icon',     boatSvgRaw,     48, -90, 242, 242),
-        phosphorToMapImage(map, 'rocket-icon',   rocketSvgRaw,   40, -45),
+        phosphorToMapImage(map, 'aircraft-icon',   airplaneSvgRaw,   48, -45),
+        phosphorToMapImage(map, 'helicopter-icon', helicopterSvgRaw, 48,   0),
+        phosphorToMapImage(map, 'ship-icon',       boatSvgRaw,       48, -90, 242, 242),
+        phosphorToMapImage(map, 'rocket-icon',     rocketSvgRaw,     40, -45),
       ]).then(() => {
         addLayers(map);
         bindEvents(map, popupRef.current!, launchesRef);
@@ -390,6 +392,19 @@ const airplaneSvgRaw = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256
 // ship-with-cargo-on-sea-svgrepo-com.svg — pointe vers la droite → pré-rotation -90°
 const boatSvgRaw     = `<svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 484.966 484.966"><g><path style="fill:#010002;" d="M56.838,367.456c15.444-3.78,31.498-6.397,47.95-6.397c7.234,0,14.396,0.512,21.305,1.528c11.445,1.674,22.671,3.772,33.53,5.804c22.963,4.308,44.658,8.372,67.15,8.372c11.266,0,21.785-1.016,32.148-3.113c10.705-2.17,21.484-5.072,32.888-8.145c27.06-7.299,55.307-14.892,83.472-12.274c22.784,2.105,44.276,6.974,64.622,12.981l27.206-92.666c2.227-8.698-3.243-15.753-12.225-15.753h-42H78.265H40.329c-8.982,0-15.152,7.194-13.786,16.07L56.838,367.456z"/><rect x="136.515" y="209.119" style="fill:#010002;" width="59.607" height="35.563"/><rect x="209.672" y="209.119" style="fill:#010002;" width="59.607" height="35.563"/><rect x="63.358" y="209.119" style="fill:#010002;" width="59.607" height="35.563"/><rect x="136.515" y="160.348" style="fill:#010002;" width="59.607" height="35.563"/><rect x="63.358" y="160.348" style="fill:#010002;" width="59.607" height="35.563"/><rect x="209.672" y="160.348" style="fill:#010002;" width="59.607" height="35.563"/><rect x="136.515" y="111.576" style="fill:#010002;" width="59.607" height="35.563"/><rect x="63.358" y="111.576" style="fill:#010002;" width="59.607" height="35.563"/><path style="fill:#010002;" d="M312.637,200.991h29.807h8.129v8.129v35.563h89.414V158.99h18.289v-20.321h-18.289V102.09h-36.579V46.548h-18.964v55.543h-71.808v36.579h-18.289v20.321h18.289V200.991z M326.862,130.54v-12.193c0-2.243,1.829-4.064,4.064-4.064h12.193c2.235,0,4.064,1.821,4.064,4.064v12.193c0,2.243-1.829,4.064-4.064,4.064h-12.193C328.69,134.605,326.862,132.784,326.862,130.54z M408.147,130.54v-12.193c0-2.243,1.829-4.064,4.064-4.064h12.193c2.235,0,4.064,1.821,4.064,4.064v12.193c0,2.243-1.829,4.064-4.064,4.064h-12.193C409.976,134.605,408.147,132.784,408.147,130.54z M367.504,130.54v-12.193c0-2.243,1.829-4.064,4.064-4.064h12.193c0.244,0,0.447,0.098,0.675,0.138c1.902,0.333,3.39,1.926,3.39,3.926v12.193c0,2-1.479,3.593-3.39,3.926c-0.228,0.041-0.439,0.138-0.675,0.138h-12.193C369.333,134.605,367.504,132.784,367.504,130.54z"/><polygon style="fill:#010002;" points="342.444,244.682 342.444,209.119 312.637,209.119 282.829,209.119 282.829,244.682 312.637,244.682"/><path style="fill:#010002;" d="M17,438.418c2.17,0,4.495-0.423,6.909-1.252c28.702-9.892,54.803-18.086,83.684-18.086c10.234,0,20.143,1.016,30.303,3.097c32.571,6.69,65.963,13.55,102.062,11.144c27.385-1.845,54.868-8.95,81.448-15.81c6.617-1.707,13.233-3.422,19.834-5.048c8.031-1.983,16.623-2.991,25.54-2.991c29.369,0,59.022,10.787,85.179,20.305l9.291,3.365c2.471,0.878,4.837,1.333,7.039,1.333c9.307,0,14.892-8.202,16.306-16.33c1.488-8.535-1.211-20.094-13.697-24.556c-11.461-4.105-23.321-8.137-35.571-11.754c-19.5-5.755-39.993-10.413-61.533-12.404c-25.54-2.333-52.015,4.845-77.734,11.786c-11.152,3.008-22.679,6.121-33.904,8.389c-11.437,2.317-23.012,3.438-35.367,3.438c-24.004,0-47.471-4.398-70.158-8.649c-10.689-2.008-21.76-4.072-32.88-5.698c-6.129-0.894-12.51-1.357-18.956-1.357c-14.485,0-28.889,2.317-42.919,5.682c-16.655,3.991-32.774,9.486-47.788,14.664c-12.412,4.276-15.168,15.647-13.754,24.085C1.71,430.046,7.409,438.418,17,438.418z"/></g></svg>`;
 import rocketSvgRaw   from '@phosphor-icons/core/assets/fill/rocket-launch-fill.svg?raw';
+
+// ── Icône hélicoptère top-down (silhouette, pointe vers le nord / haut) ──────
+// Nez en haut, pale de rotor principal horizontal, rotor de queue en bas.
+const helicopterSvgRaw = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <path fill="currentColor" d="
+    M128,38 C110,38 96,56 96,90 L96,188 C96,200 110,212 128,212
+             C146,212 160,200 160,188 L160,90 C160,56 146,38 128,38 Z
+  "/>
+  <rect fill="currentColor" x="8" y="106" width="240" height="18" rx="9"/>
+  <circle fill="currentColor" cx="128" cy="115" r="14"/>
+  <rect fill="currentColor" x="121" y="208" width="14" height="36" rx="5"/>
+  <rect fill="currentColor" x="100" y="234" width="56" height="12" rx="6"/>
+</svg>`;
 
 // Rend un SVG Phosphor (fill="currentColor") sur canvas et l'enregistre comme SDF MapLibre.
 // rotateDeg : pré-rotation pour orienter l'icône "nord = haut" (base de icon-rotate).
@@ -663,11 +678,11 @@ function addLayers(map: maplibregl.Map) {
     },
   });
 
-  // Military aircraft — silhouette avion (image SDF canvas, teinté par icon-color)
+  // Military aircraft — silhouette avion ou hélico selon isHelicopter
   map.addLayer({
     id: 'mil-aircraft', type: 'symbol', source: 'mil-aircraft',
     layout: {
-      'icon-image':              'aircraft-icon',
+      'icon-image': ['case', ['==', ['get', 'isHelicopter'], true], 'helicopter-icon', 'aircraft-icon'],
       'icon-size':               0.45,
       'icon-rotate':             ['get', 'track'],
       'icon-rotation-alignment': 'map',

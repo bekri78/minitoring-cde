@@ -63,4 +63,45 @@ function isMilitaryType(typeCode) {
   return false;
 }
 
-module.exports = { MILITARY_TYPE_CODES, isMilitaryType };
+// ── Helicopter type codes (ICAO Doc 8643 rotorcraft) ─────────────────────
+const HELICOPTER_TYPE_CODES = new Set([
+  // US military rotorcraft
+  'H60','UH60','MH60','SH60','HH60','CH60',
+  'CH47','MH47','HH47',
+  'CH53','MH53','HH53','CH53E',
+  'AH64','AH1','UH1','HH1',
+  'OH58','RAH66',
+  'H1','H60','H47','H53',
+  // NATO / European
+  'NH90','EC665','TIGR','AS532','AS332','AS365',
+  'EC725','EC135','EC145','EC225',
+  'AW159','AW101','AW149',
+  'SA341','SA342',         // Gazelle
+  'LYNX','HLYNX',
+  'SEA','SEAKNG',          // Sea King
+  'S70','S61','S76','S92',
+  // Russian / Soviet
+  'KA27','KA28','KA31','KA52',
+  'MI8','MI14','MI17','MI24','MI25','MI26','MI28','MI35',
+  // Chinese
+  'Z8','Z9','Z10','Z15','Z18','Z19','Z20',
+  // Tiltrotor (treated as helicopter for icon purposes)
+  'V22','MV22','CV22',
+  // Generic codes used by some feeds
+  'HELI','H2','H3',
+]);
+
+/**
+ * Returns true if the ICAO type code designates a rotorcraft.
+ * Covers military and some dual-use helicopter types.
+ */
+function isHelicopterType(typeCode) {
+  if (!typeCode) return false;
+  const t = typeCode.toUpperCase().trim();
+  if (HELICOPTER_TYPE_CODES.has(t)) return true;
+  // Russian rotorcraft prefix families
+  if (t.startsWith('MI') || t.startsWith('KA') || t.startsWith('KA5')) return true;
+  return false;
+}
+
+module.exports = { MILITARY_TYPE_CODES, isMilitaryType, HELICOPTER_TYPE_CODES, isHelicopterType };

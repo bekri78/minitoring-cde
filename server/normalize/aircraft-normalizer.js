@@ -1,5 +1,7 @@
 'use strict';
 
+const { isHelicopterType } = require('../data/military-types');
+
 // ── ICAO hex ranges (duplicated from military-aircraft.js for normalizer isolation) ──
 const MIL_HEX_RANGES = [
   { lo: 0xADF7C8, hi: 0xAFFFFF, country: 'USA',  color: '#4a9eff' },
@@ -53,8 +55,9 @@ function normalizeAircraft(raw) {
     heading:   raw.track ?? null,              // degrees
     cog:       raw.track ?? 0,
     sog:       raw.speed ?? 0,
-    lastSeen:  Date.now(),
-    trail:     raw.trail || [],
+    lastSeen:    Date.now(),
+    trail:       raw.trail || [],
+    isHelicopter: isHelicopterType(raw.type || ''),
     // _raw carries source-specific data for rule evaluation
     _raw: {
       source:      'adsb',
