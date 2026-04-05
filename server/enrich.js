@@ -9,9 +9,84 @@ async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // ── Geocoding Nominatim (OpenStreetMap) ───────────────────────────────────
 const geocodeCache = new Map();
 
+// Centroïdes de repli pour les régions/pays souvent mal géocodés
+const REGION_CENTROIDS = {
+  'iran':            { lat: 32.4,  lon: 53.7  },
+  'iraq':            { lat: 33.2,  lon: 43.7  },
+  'gulf states':     { lat: 24.5,  lon: 54.4  },
+  'persian gulf':    { lat: 26.5,  lon: 52.0  },
+  'saudi arabia':    { lat: 23.9,  lon: 45.1  },
+  'yemen':           { lat: 15.6,  lon: 48.5  },
+  'syria':           { lat: 34.8,  lon: 38.9  },
+  'lebanon':         { lat: 33.9,  lon: 35.5  },
+  'russia':          { lat: 61.5,  lon: 90.0  },
+  'ukraine':         { lat: 49.0,  lon: 32.0  },
+  'china':           { lat: 35.9,  lon: 104.2 },
+  'north korea':     { lat: 40.3,  lon: 127.5 },
+  'south korea':     { lat: 36.5,  lon: 127.8 },
+  'taiwan':          { lat: 23.7,  lon: 121.0 },
+  'israel':          { lat: 31.5,  lon: 34.9  },
+  'gaza':            { lat: 31.4,  lon: 34.3  },
+  'west bank':       { lat: 31.9,  lon: 35.2  },
+  'pakistan':        { lat: 30.4,  lon: 69.3  },
+  'afghanistan':     { lat: 33.9,  lon: 67.7  },
+  'sudan':           { lat: 15.6,  lon: 32.5  },
+  'ethiopia':        { lat: 9.1,   lon: 40.5  },
+  'somalia':         { lat: 5.2,   lon: 46.2  },
+  'libya':           { lat: 26.3,  lon: 17.2  },
+};
+
+// Boîtes englobantes régionales — valide que Nominatim n'a pas dérivé
+const REGION_BOUNDS = [
+  { keys: ['iran','iraq','persian gulf','gulf states','saudi','kuwait','bahrain','qatar','uae','oman','yemen'],
+    latMin: 12, latMax: 42, lonMin: 35, lonMax: 65 },
+  { keys: ['russia','moscow','kremlin'],
+    latMin: 41, latMax: 82, lonMin: 19, lonMax: 180 },
+  { keys: ['ukraine','kyiv','kharkiv','zaporizhzhia','donbas','crimea'],
+    latMin: 44, latMax: 53, lonMin: 22, lonMax: 41 },
+  { keys: ['china','beijing','taiwan','hong kong','south china sea'],
+    latMin: 15, latMax: 55, lonMin: 70, lonMax: 138 },
+  { keys: ['north korea','pyongyang','dprk'],
+    latMin: 37, latMax: 43, lonMin: 124, lonMax: 131 },
+  { keys: ['israel','gaza','west bank','palestine','tel aviv','jerusalem'],
+    latMin: 29, latMax: 34, lonMin: 33, lonMax: 36 },
+  { keys: ['syria','damascus','aleppo','idlib'],
+    latMin: 32, latMax: 38, lonMin: 35, lonMax: 43 },
+  { keys: ['afghanistan','kabul'],
+    latMin: 29, latMax: 39, lonMin: 60, lonMax: 75 },
+  { keys: ['somalia','ethiopia','sudan','libya','sahel','mali','niger'],
+    latMin: -5, latMax: 25, lonMin: -5, lonMax: 52 },
+];
+
+function getCentroid(location) {
+  const loc = location.toLowerCase();
+  for (const [key, coords] of Object.entries(REGION_CENTROIDS)) {
+    if (loc.includes(key)) return coords;
+  }
+  return null;
+}
+
+function isCoordsPlausible(location, lat, lon) {
+  const loc = location.toLowerCase();
+  for (const bound of REGION_BOUNDS) {
+    if (bound.keys.some(k => loc.includes(k))) {
+      return lat >= bound.latMin && lat <= bound.latMax &&
+             lon >= bound.lonMin && lon <= bound.lonMax;
+    }
+  }
+  return true; // pas de règle connue → on accepte
+}
+
 async function geocode(location) {
   if (!location) return null;
   if (geocodeCache.has(location)) return geocodeCache.get(location);
+
+  // Centroïde connu ? → on bypasse Nominatim pour les régions à risque
+  const centroid = getCentroid(location);
+  if (centroid) {
+    geocodeCache.set(location, centroid);
+    return centroid;
+  }
 
   try {
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
@@ -22,7 +97,17 @@ async function geocode(location) {
     if (!resp.ok) return null;
     const data = await resp.json();
     if (!data?.[0]) return null;
-    const coords = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+
+    const lat = parseFloat(data[0].lat);
+    const lon = parseFloat(data[0].lon);
+
+    // Valide que les coords sont géographiquement cohérentes
+    if (!isCoordsPlausible(location, lat, lon)) {
+      console.warn(`[enrich] geocode drift detected for "${location}" → (${lat},${lon}) rejected`);
+      return null;
+    }
+
+    const coords = { lat, lon };
     geocodeCache.set(location, coords);
     return coords;
   } catch {
