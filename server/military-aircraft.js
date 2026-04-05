@@ -5,19 +5,6 @@ const MIL_SOURCES = [
   { name: 'airplanes.live', url: 'https://api.airplanes.live/v2/mil' },
 ];
 
-// ── Zones géographiques sensibles — requêtes lat/lon/dist sur adsb.one ───
-// Retournent TOUS les avions dans la zone → filtrés ensuite par detectMilitary
-// dist en nautical miles
-const HOT_ZONES = [
-  { name: 'Russia-Ukraine',  lat:  50.0, lon:  35.0, dist: 900 },
-  { name: 'Black-Sea',       lat:  45.0, lon:  34.0, dist: 600 },
-  { name: 'Taiwan-Strait',   lat:  24.0, lon: 121.0, dist: 500 },
-  { name: 'South-China-Sea', lat:  15.0, lon: 115.0, dist: 900 },
-  { name: 'Persian-Gulf',    lat:  27.0, lon:  54.0, dist: 700 },
-  { name: 'Korea-Japan',     lat:  37.0, lon: 127.0, dist: 600 },
-  { name: 'Baltic-North',    lat:  58.0, lon:  20.0, dist: 700 },
-  { name: 'Syria-Lebanon',   lat:  34.5, lon:  37.0, dist: 500 },
-];
 
 const CACHE_MAX_AGE = 5  * 60 * 1000;
 const TRAIL_MAX_PTS = 6;
@@ -173,31 +160,6 @@ async function fetchMilSource(src) {
   }
 }
 
-// ── Fetch zone via OpenSky bbox (API différente → pas de conflit 429) ────
-// dist en nautical miles → conversion en degrés
-async function fetchZone(zone) {
-  const R      = 6371;
-  const distKm = zone.dist * 1.852;
-  const dLat   = (distKm / R) * (180 / Math.PI);
-  const dLon   = dLat / Math.cos(zone.lat * Math.PI / 180);
-  const url    = `https://opensky-network.org/api/states/all` +
-    `?lamin=${(zone.lat - dLat).toFixed(2)}&lomin=${(zone.lon - dLon).toFixed(2)}` +
-    `&lamax=${(zone.lat + dLat).toFixed(2)}&lomax=${(zone.lon + dLon).toFixed(2)}`;
-  try {
-    const data   = await fetchJson(zone.name, url);
-    const states = data.states || [];
-    const out    = [];
-    for (const a of states) {
-      const n = normalizeAc(a); // format OpenSky tableau
-      if (n) { updateTrail(n.id, n.lon, n.lat); out.push(n); }
-    }
-    if (out.length) console.log(`[mil-aircraft] zone ${zone.name} → ${out.length} mil`);
-    return out;
-  } catch (e) {
-    console.warn(`[mil-aircraft] zone ${zone.name} failed: ${e.message}`);
-    return [];
-  }
-}
 
 // ── Cache ─────────────────────────────────────────────────────────────────
 let cache = { aircraft: [], count: 0, lastUpdate: null };
@@ -215,15 +177,12 @@ async function fetchMilitary() {
   purgeTrails();
 
   try {
-    // Lancer toutes les sources et toutes les zones en parallèle
-    const [milResults, zoneResults] = await Promise.all([
-      Promise.all(MIL_SOURCES.map(fetchMilSource)),
-      Promise.all(HOT_ZONES.map(fetchZone)),
-    ]);
+    // Lancer toutes les sources /mil en parallèle
+    const milResults = await Promise.all(MIL_SOURCES.map(fetchMilSource));
 
-    // Merger + déduplication par icao24 (priorité aux sources /mil)
+    // Merger + déduplication par icao24
     const seen = new Map();
-    for (const list of [...milResults, ...zoneResults]) {
+    for (const list of milResults) {
       for (const ac of list) {
         if (!seen.has(ac.id)) seen.set(ac.id, ac);
       }
