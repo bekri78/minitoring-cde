@@ -1,8 +1,10 @@
 'use strict';
 
 // ── Sources globales /mil (retournent uniquement les militaires) ──────────
+// adsb.fi : réseau finlandais, meilleure couverture Baltique / Est-Europe / bordure russe
 const MIL_SOURCES = [
   { name: 'airplanes.live', url: 'https://api.airplanes.live/v2/mil' },
+  { name: 'adsb.fi',        url: 'https://opendata.adsb.fi/api/v2/mil' },
 ];
 
 
