@@ -153,10 +153,20 @@ async function fetchMilSource(src) {
     // Rejection counters
     const rej = { noPos: 0, onGround: 0, civilianCs: 0, noMilMatch: 0 };
 
+    const noPosCountries = {};
     for (const a of ac) {
       // Mirror normalizeAc rejection logic to count causes
       if (!Array.isArray(a)) {
-        if (a.lat == null || a.lon == null)          { rej.noPos++;      continue; }
+        if (a.lat == null || a.lon == null) {
+          rej.noPos++;
+          // Track inferred country of positionless aircraft
+          const icao24 = (a.hex || a.icao24 || '').toLowerCase().replace(/^~/, '');
+          const hexVal = parseInt(icao24, 16);
+          const range  = MIL_HEX_RANGES.find(r => hexVal >= r.lo && hexVal <= r.hi);
+          const cty    = range ? range.country : 'UNK';
+          noPosCountries[cty] = (noPosCountries[cty] || 0) + 1;
+          continue;
+        }
         if (a.alt_baro === 'ground' || a.on_ground)  { rej.onGround++;   continue; }
         const icao24   = (a.hex || a.icao24 || '').toLowerCase().replace(/^~/, '');
         const callsign = (a.flight || a.callsign || a.r || '').trim();
@@ -169,6 +179,8 @@ async function fetchMilSource(src) {
       const n = normalizeAc(a);
       if (n) { updateTrail(n.id, n.lon, n.lat); out.push(n); }
     }
+    const noPosStr = Object.entries(noPosCountries).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`${c}=${n}`).join(' ');
+
 
     // Country breakdown of accepted aircraft
     const byCountry = {};
@@ -191,7 +203,8 @@ async function fetchMilSource(src) {
     );
     console.log(
       `[mil-aircraft] rejected: noPos=${rej.noPos} onGround=${rej.onGround}` +
-      ` civilianCs=${rej.civilianCs} noMilMatch=${rej.noMilMatch}`
+      ` civilianCs=${rej.civilianCs} noMilMatch=${rej.noMilMatch}` +
+      (noPosStr ? ` noPos_countries: ${noPosStr}` : '')
     );
     if (countryStr) console.log(`[mil-aircraft] countries: ${countryStr}`);
 
