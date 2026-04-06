@@ -132,16 +132,29 @@ export function WorldMap({
 
     // ── Layer groups ───────────────────────────────────────────────────────
     const eventsCluster = (L as any).markerClusterGroup({
-      maxClusterRadius: 40,
+      // Rayon de regroupement petit → les clusters s'éclatent dès qu'on zoome
+      maxClusterRadius: (zoom: number) => {
+        if (zoom <= 3)  return 80;
+        if (zoom <= 5)  return 50;
+        if (zoom <= 7)  return 30;
+        if (zoom <= 9)  return 20;
+        return 10;
+      },
       showCoverageOnHover: false,
+      // Désactive le zoom animé sur clic cluster → éclatement immédiat
+      zoomToBoundsOnClick: true,
+      spiderfyOnMaxZoom:   true,
       iconCreateFunction: (cluster: any) => {
         const count = cluster.getChildCount();
+        // Taille proportionnelle au count : 18px (2) → 36px (50+)
+        const size  = count >= 50 ? 36 : count >= 20 ? 30 : count >= 10 ? 26 : count >= 3 ? 22 : 18;
         const color = count >= 30 ? '#ff2244' : count >= 10 ? '#ff6600' : count >= 3 ? '#ff8800' : '#ffaa00';
+        const fs    = size <= 20 ? 9 : size <= 26 ? 10 : 12;
         return L.divIcon({
-          html: `<div style="width:32px;height:32px;border-radius:50%;background:${color}ee;border:1px solid ${color};display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:11px;color:#fff;box-shadow:0 0 8px ${color}44;">${count}</div>`,
+          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color}cc;border:1px solid ${color};display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:${fs}px;color:#fff;box-shadow:0 0 6px ${color}55;">${count}</div>`,
           className: '',
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
+          iconSize:   [size, size],
+          iconAnchor: [size / 2, size / 2],
         });
       },
     });
