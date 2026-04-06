@@ -36,7 +36,8 @@ export default function App() {
 
   // Combine sources
   const allEvents  = useMemo<Event[]>(() => gdeltEvents || [], [gdeltEvents]);
-  const airTracks  = useMemo(() => tracksData?.tracks.filter(t => t.domain === 'air') ?? [], [tracksData]);
+  const airTracks  = useMemo(() => (tracksData?.tracks.filter(t => t.domain === 'air') ?? [])
+    .filter(t => t.country !== 'USA' || (t as any).milScore === 100), [tracksData]);
   const seaTracks  = useMemo(() => tracksData?.tracks.filter(t => t.domain === 'sea') ?? [], [tracksData]);
 
   // Apply filters
