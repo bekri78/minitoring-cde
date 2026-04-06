@@ -1,6 +1,6 @@
 'use strict';
 
-const JSZip = require('jszip');
+const { BigQuery } = require('@google-cloud/bigquery');
 
 // ── Table CAMEO EventCode → subEventType ──────────────────────────────────
 const CAMEO_SUBTYPE = {
@@ -34,35 +34,11 @@ const CAMEO_SUBTYPE = {
 
 function getSubEventType(eventCode) {
   if (!eventCode) return 'Unknown';
-  // Cherche le code exact d'abord (ex: "1823"), puis code court (ex: "182", "18")
   if (CAMEO_SUBTYPE[eventCode]) return CAMEO_SUBTYPE[eventCode];
   if (eventCode.length > 3 && CAMEO_SUBTYPE[eventCode.slice(0, 3)]) return CAMEO_SUBTYPE[eventCode.slice(0, 3)];
   if (eventCode.length > 2 && CAMEO_SUBTYPE[eventCode.slice(0, 2)]) return CAMEO_SUBTYPE[eventCode.slice(0, 2)];
   return 'Unknown';
 }
-
-// ── Codes CAMEO retenus ───────────────────────────────────────────────────
-// QuadClass 4 (Material Conflict) — tous ces codes sont retenus
-const MATERIAL_CONFLICT_CODES = new Set([
-  '13', // THREATEN — menaces militaires, ultimatums, WMD
-  '14', // PROTEST  — émeutes, manifestations violentes
-  '15', // EXHIBIT FORCE POSTURE — mobilisation, alerte militaire
-  '16', // REDUCE RELATIONS — sanctions, ruptures, expulsions
-  '17', // COERCE — arrestations, état d'urgence, répression violente
-  '18', // ASSAULT — attentats, prises d'otages, assassinats
-  '19', // FIGHT — combats, frappes, occupation de territoire
-  '20'  // UNCONVENTIONAL MASS VIOLENCE — massacres, armes de destruction massive
-]);
-
-// QuadClass 3 (Verbal Conflict) — seulement les codes à fort impact opérationnel
-const VERBAL_CONFLICT_CODES = new Set([
-  '13', // Menaces militaires directes
-  '15', // Démonstration de force
-  '17', // Coercition
-  '18', // Assault (verbal reporting)
-  '19', // Combat (verbal reporting)
-  '20'  // Violence de masse
-]);
 
 // ── Bruit à exclure ───────────────────────────────────────────────────────
 const NOISE_KEYWORDS = [
@@ -93,8 +69,6 @@ const NOISE_KEYWORDS = [
   'memorial service', 'tribute to', 'in memory of',
   'explainer', 'fact check', 'what to know', 'opinion:', 'op-ed',
   'health tips', 'weight loss', 'diet', 'fitness', 'wellness',
-
-  // ── Violences civiles non-opérationnelles (crime ordinaire) ───────────────
   'stroller', 'baby killed', 'child killed in shooting', 'teen shot',
   'man shot', 'woman shot', 'killed in shooting', 'shooting in brooklyn',
   'shooting in chicago', 'shooting in los angeles', 'shooting in philadelphia',
@@ -114,28 +88,20 @@ const NOISE_DOMAINS = new Set([
 ]);
 
 // ── Boost de score pour les sources étatiques stratégiques ─────────────────
-// Ces sources ont des URL sans slug anglais (ex: tass.ru/armiya-i-opk/20388435)
-// → titleFromUrl extrait un numérique → score 0 sans ce boost
 const PRIORITY_DOMAIN_BOOST = {
-  // Russie
   'tass.ru': 65, 'tass.com': 65, 'ria.ru': 60, 'rt.com': 55,
   'sputniknews.com': 55, 'sputnikglobe.com': 55, 'interfax.ru': 60,
-  // Chine
   'xinhuanet.com': 65, 'news.cn': 65, 'globaltimes.cn': 60,
   'chinadaily.com.cn': 55, 'cgtn.com': 55, 'china.org.cn': 55,
-  // Corée du Nord
   'kcna.kp': 70, 'kcna.co.jp': 70, 'rodong.rep.kp': 70,
-  // Iran
   'presstv.ir': 60, 'presstv.com': 60, 'irna.ir': 60, 'tasnimnews.com': 60,
   'farsnews.ir': 55, 'mehrnews.com': 55,
-  // Pays arabes / autres zones sous-représentées
   'almayadeen.net': 55, 'aljazeera.net': 50, 'alarabiya.net': 50,
   'yonhapnews.co.kr': 55,
 };
 
-// Codes pays FIPS pour les zones stratégiques sous-représentées dans GDELT english
 const STRATEGIC_COUNTRY_CODES = new Set(['RS', 'CH', 'KN', 'IR', 'SY', 'UP', 'IZ']);
-const STRATEGIC_MIN_EVENTS = 60; // slots réservés dans le top 800
+const STRATEGIC_MIN_EVENTS = 60;
 
 // ── Mots-clés opérationnels ────────────────────────────────────────────────
 const MILITARY_CRISIS_KEYWORDS = [
@@ -245,13 +211,11 @@ function safeDomainFromUrl(url) {
 }
 
 function classifyEvent(text, eventCode = '') {
-  // Priorité 1 : classification par code CAMEO exact
   for (const cat of CATEGORY_RULES) {
     if (cat.cameo && cat.cameo.some(c => eventCode.startsWith(c))) {
       return cat.key;
     }
   }
-  // Priorité 2 : classification par mots-clés
   const normalized = normalizeText(text);
   for (const cat of CATEGORY_RULES) {
     if (cat.keywords.some(k => normalized.includes(normalizeText(k)))) {
@@ -275,7 +239,6 @@ function scoreEvent(text, tone, domain) {
   for (const [word, bonus] of Object.entries(bonuses)) {
     if (normalized.includes(word)) score += bonus;
   }
-  // Boost pour les sources étatiques stratégiques (URL sans slug anglais)
   if (domain && PRIORITY_DOMAIN_BOOST[domain]) {
     score += PRIORITY_DOMAIN_BOOST[domain];
   }
@@ -284,13 +247,8 @@ function scoreEvent(text, tone, domain) {
 
 function isNoiseEvent(title, url, domain) {
   if (NOISE_DOMAINS.has(domain)) return true;
-  const text = `${title} ${url} ${domain}`;
-  return containsAnyKeyword(text, NOISE_KEYWORDS);
-}
-
-function isOperationalEvent(title, url) {
   const text = `${title} ${url}`;
-  return containsAnyKeyword(text, MILITARY_CRISIS_KEYWORDS);
+  return containsAnyKeyword(text, NOISE_KEYWORDS);
 }
 
 function getSeverityLabel(tone) {
@@ -310,162 +268,294 @@ function getColor(tone) {
   return '#00d4ff';
 }
 
-// ── Parser une ligne GDELT ────────────────────────────────────────────────
-function parseLine(line) {
-  try {
-    const c = line.split('\t');
-    if (c.length < 61) return null;
+// ── BigQuery client (singleton) ───────────────────────────────────────────
+let _bqClient = null;
 
-    const eventCode  = (c[26] || '').trim();  // EventCode complet (col 26)
-    const rootCode   = (c[28] || '').trim();  // EventRootCode (col 28)
-    const quadClass  = (c[29] || '').trim();  // QuadClass (col 29)
-    const actor1Name = (c[6]  || '').trim();  // Actor1Name (col 6)
-    const actor2Name = (c[16] || '').trim();  // Actor2Name (col 16)
-    const goldstein = parseFloat(c[30]);
-    // ActionGeo = où l'événement s'est produit (pas Actor1Geo qui est le pays d'origine)
-    const geoType   = c[51];               // ActionGeo_Type
-    const geoName   = c[52] || '';         // ActionGeo_FullName
-    const latRaw    = parseFloat(c[56]);   // ActionGeo_Lat
-    const lonRaw    = parseFloat(c[57]);   // ActionGeo_Long
-    const url       = (c[60] || '').trim();
+function getBigQueryClient() {
+  if (_bqClient) return _bqClient;
 
-    // ── Filtre QuadClass : uniquement conflits verbaux et matériels ──────
-    if (quadClass !== '3' && quadClass !== '4') return null;
+  const credJson   = process.env.GOOGLE_CREDENTIALS_JSON;
+  const projectId  = process.env.BIGQUERY_PROJECT_ID;
 
-    // ── Filtre codes CAMEO selon le type de conflit ──────────────────────
-    if (quadClass === '4' && !MATERIAL_CONFLICT_CODES.has(rootCode)) return null;
-    if (quadClass === '3' && !VERBAL_CONFLICT_CODES.has(rootCode)) return null;
+  if (credJson) {
+    let credentials;
+    try {
+      credentials = JSON.parse(credJson);
+    } catch (err) {
+      throw new Error(`[gdelt-bq] GOOGLE_CREDENTIALS_JSON is not valid JSON: ${err.message}`);
+    }
+    _bqClient = new BigQuery({
+      projectId: credentials.project_id || projectId,
+      credentials,
+    });
+    return _bqClient;
+  }
 
-    // ── Filtre Goldstein différencié ─────────────────────────────────────
-    // Material Conflict : seuil -1 (événements violents réels)
-    // Verbal Conflict   : seuil -5 (seulement les menaces très sérieuses)
-    const goldsteinThreshold = quadClass === '4' ? -1 : -5;
-    if (isNaN(goldstein) || goldstein > goldsteinThreshold) return null;
+  if (!projectId) {
+    throw new Error(
+      '[gdelt-bq] Missing BigQuery configuration. ' +
+      'Set GOOGLE_CREDENTIALS_JSON (service account JSON) ' +
+      'or GOOGLE_APPLICATION_CREDENTIALS + BIGQUERY_PROJECT_ID.'
+    );
+  }
 
-    // Accepter tous les niveaux de géolocalisation
-    // 1=Country, 2=US State, 3=US City, 4=World City, 5=World State
-    // GeoType 1 et 2 sont imprécis mais indispensables pour Russie, Chine, Corée, Amérique du Sud
-    if (!geoType || geoType === '0') return null;
-    if (!url) return null;
+  // Falls back to GOOGLE_APPLICATION_CREDENTIALS file path (standard GCP ADC)
+  _bqClient = new BigQuery({ projectId });
+  return _bqClient;
+}
 
-    let lat = latRaw;
-    let lon = lonRaw;
+// ── BigQuery SQL — recent events (equivalent to recent_events_raw_24h view)
+// Queries the public GDELT v2 dataset directly.
+// Partition pruning via _PARTITIONTIME keeps scan costs low (~1-2 GB/query).
+// If you have pre-created the views in your own dataset, set:
+//   GDELT_EVENTS_VIEW=<project>.<dataset>.recent_events_raw_24h
+// and the module will query that view instead.
+const RECENT_EVENTS_SQL = (() => {
+  const view = process.env.GDELT_EVENTS_VIEW;
+  if (view) {
+    return `
+      SELECT
+        CAST(id AS STRING)           AS id,
+        CAST(event_timestamp AS STRING) AS date,
+        location,
+        country_code,
+        IFNULL(Actor1Name, '')       AS actor1,
+        IFNULL(Actor2Name, '')       AS actor2,
+        IFNULL(EventCode, '')        AS event_code,
+        CAST(NULL AS STRING)         AS root_code,
+        CAST(NULL AS INT64)          AS quad_class,
+        GoldsteinScale               AS goldstein,
+        NumMentions                  AS num_mentions,
+        NumSources                   AS num_sources,
+        NumArticles                  AS num_articles,
+        AvgTone                      AS avg_tone,
+        CAST(NULL AS STRING)         AS geo_type,
+        latitude,
+        longitude,
+        SOURCEURL                    AS source_url,
+        layer_type
+      FROM \`${view}\`
+    `;
+  }
 
-    if (isNaN(lat) || isNaN(lon)) return null;
+  // Default: query the public GDELT v2 events table directly
+  return `
+    SELECT
+      CAST(GlobalEventID AS STRING)     AS id,
+      CAST(SQLDATE AS STRING)           AS date,
+      IFNULL(ActionGeo_FullName, '')    AS location,
+      IFNULL(ActionGeo_CountryCode, '') AS country_code,
+      IFNULL(Actor1Name, '')            AS actor1,
+      IFNULL(Actor2Name, '')            AS actor2,
+      IFNULL(EventCode, '')             AS event_code,
+      IFNULL(EventRootCode, '')         AS root_code,
+      QuadClass                         AS quad_class,
+      GoldsteinScale                    AS goldstein,
+      NumMentions                       AS num_mentions,
+      NumSources                        AS num_sources,
+      NumArticles                       AS num_articles,
+      AvgTone                           AS avg_tone,
+      CAST(ActionGeo_Type AS STRING)    AS geo_type,
+      ActionGeo_Lat                     AS latitude,
+      ActionGeo_Long                    AS longitude,
+      SOURCEURL                         AS source_url,
+      CASE
+        WHEN EventRootCode IN ('18','19','20') THEN 'hard_events'
+        WHEN EventRootCode = '14'              THEN 'protests'
+        WHEN EventRootCode IN ('03','04','05') THEN 'diplomacy'
+        ELSE 'other'
+      END AS layer_type
+    FROM \`gdelt-bq.gdeltv2.events\`
+    WHERE
+      _PARTITIONTIME >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 26 HOUR)
+      AND ActionGeo_Lat  IS NOT NULL
+      AND ActionGeo_Long IS NOT NULL
+      AND ActionGeo_Lat  != 0
+      AND ActionGeo_Long != 0
+      AND SOURCEURL IS NOT NULL
+      AND SOURCEURL != ''
+      AND QuadClass IN (3, 4)
+      AND EventRootCode IN ('03','04','05','13','14','15','16','17','18','19','20')
+      AND (
+        (QuadClass = 4 AND GoldsteinScale <= -1.0)
+        OR
+        (QuadClass = 3 AND GoldsteinScale <= -5.0)
+      )
+    ORDER BY GoldsteinScale ASC
+    LIMIT 5000
+  `;
+})();
 
-    // Jitter pour les centroïdes pays (type 1) et états US (type 2) — évite l'empilement visuel
-    if (geoType === '1') {
-      lat += (Math.random() - 0.5) * 6;
-      lon += (Math.random() - 0.5) * 6;
-    } else if (geoType === '2') {
-      lat += (Math.random() - 0.5) * 2;
-      lon += (Math.random() - 0.5) * 2;
+// ── In-memory hotspot index (equivalent to signal_hotspots_24h view) ──────
+// Groups events into 0.5° grid cells and computes a signal score per cluster.
+// Used to boost individual event scores when they fall in a high-activity zone.
+function buildHotspotIndex(rows) {
+  const grid = new Map();
+
+  for (const row of rows) {
+    const lat = parseFloat(row.latitude);
+    const lon = parseFloat(row.longitude);
+    if (isNaN(lat) || isNaN(lon)) continue;
+
+    // 0.5° grid cell key — ~55 km resolution at the equator
+    const gridLat = Math.round(lat * 2) / 2;
+    const gridLon = Math.round(lon * 2) / 2;
+    const key = `${gridLat},${gridLon}`;
+
+    // Base severity per CAMEO root code (mirrors signal_hotspots_24h logic)
+    const rootCode = (row.root_code || '').trim();
+    const baseSeverity =
+      rootCode === '19' ? 100 :
+      rootCode === '18' || rootCode === '20' ? 80 :
+      rootCode === '14' ? 50 : 20;
+
+    // Logarithmic media score — prevents major-outlet events dominating
+    const mediaScore = Math.log1p(
+      (Number(row.num_mentions) || 0) +
+      (Number(row.num_sources)  || 0) * 2 +
+      (Number(row.num_articles) || 0)
+    ) * 5;
+
+    if (!grid.has(key)) {
+      grid.set(key, { count: 0, maxSeverity: 0, maxMedia: 0, layerType: row.layer_type });
     }
 
-    const title  = titleFromUrl(url);
-    const domain = safeDomainFromUrl(url);
-
-    // isNoiseEvent filtre le bruit — isOperationalEvent SUPPRIMÉ car il rejette
-    // toutes les sources non-anglophones (TASS, Xinhua, Itar-TASS, RT.ru, Yonhap KO)
-    // Le filtre CAMEO + Goldstein est suffisant pour garantir la pertinence
-    if (isNoiseEvent(title, url, domain)) return null;
-
-    const text        = `${title} ${url}`;
-    const category    = classifyEvent(text, eventCode);
-    const countryCode = (c[53] || '').trim(); // ActionGeo_CountryCode (FIPS)
-    const score       = scoreEvent(text, goldstein, domain);
-
-    return {
-      id:            c[0] || `gdelt_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      title,
-      url,
-      domain,
-      date:          c[1] || '',
-      country:       geoName || c[36] || '',
-      countryCode,
-      rootCode,
-      eventCode,
-      actor1:        actor1Name || null,
-      actor2:        actor2Name || null,
-      subEventType:  getSubEventType(eventCode),
-      lat,
-      lon,
-      tone:          goldstein,
-      color:         getColor(goldstein),
-      severity:      getSeverityLabel(goldstein),
-      category,
-      score,
-      dataSource:    'gdelt'
-    };
-  } catch {
-    return null;
+    const cell = grid.get(key);
+    cell.count++;
+    cell.maxSeverity = Math.max(cell.maxSeverity, baseSeverity);
+    cell.maxMedia    = Math.max(cell.maxMedia, mediaScore);
   }
+
+  return grid;
 }
 
-// ── Fetch ZIP GDELT ───────────────────────────────────────────────────────
-async function fetchZip(url) {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`ZIP fetch failed (${resp.status})`);
-  const buf = await resp.arrayBuffer();
-  const zip = await JSZip.loadAsync(buf);
-  const files = Object.values(zip.files).filter(f => !f.dir);
-  if (!files.length) throw new Error('ZIP empty');
-  const target = files.find(f => /\.csv$/i.test(f.name)) || files[0];
-  return target.async('string');
+function getHotspotBoost(lat, lon, hotspotIndex) {
+  const key = `${Math.round(lat * 2) / 2},${Math.round(lon * 2) / 2}`;
+  const cell = hotspotIndex.get(key);
+  if (!cell || cell.count < 2) return 0; // single events don't get a cluster bonus
+
+  // Cluster bonus: up to +40 for dense activity zones
+  const clusterBonus  = Math.min(40, cell.count * 2);
+  // Severity bonus: extra weight for combat/mass-violence zones
+  const severityBonus = cell.maxSeverity >= 80 ? 15 : cell.maxSeverity >= 50 ? 8 : 0;
+
+  return clusterBonus + severityBonus;
 }
 
-// ── Fetch tous les événements du jour ─────────────────────────────────────
+// ── Map one BigQuery row → existing event schema ──────────────────────────
+function rowToEvent(row, hotspotIndex) {
+  const url = (row.source_url || '').trim();
+  if (!url) return null;
+
+  const rootCode  = (row.root_code  || '').trim();
+  const eventCode = (row.event_code || '').trim();
+  const goldstein = parseFloat(row.goldstein);
+  const quadClass = String(row.quad_class ?? '');
+  const geoType   = String(row.geo_type   ?? '0');
+
+  // Re-apply Goldstein thresholds (the SQL already filters, but views may not)
+  if (isNaN(goldstein)) return null;
+  if (quadClass === '4' && goldstein > -1) return null;
+  if (quadClass === '3' && goldstein > -5) return null;
+  // For rows from a pre-created view with no quad_class, accept any negative value
+  if (!quadClass && goldstein >= 0) return null;
+
+  let lat = parseFloat(row.latitude);
+  let lon = parseFloat(row.longitude);
+  if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) return null;
+
+  // Jitter for country centroids (geoType 1) and US state centroids (geoType 2)
+  // — prevents visual stacking on the map, same as original gdelt.js
+  if (geoType === '1') {
+    lat += (Math.random() - 0.5) * 6;
+    lon += (Math.random() - 0.5) * 6;
+  } else if (geoType === '2') {
+    lat += (Math.random() - 0.5) * 2;
+    lon += (Math.random() - 0.5) * 2;
+  }
+
+  const domain = safeDomainFromUrl(url);
+  const title  = titleFromUrl(url);
+
+  if (isNoiseEvent(title, url, domain)) return null;
+
+  const text     = `${title} ${url}`;
+  const category = classifyEvent(text, eventCode);
+  const base     = scoreEvent(text, goldstein, domain);
+
+  // Media score bonus — logarithmic scaling prevents major-outlet bias
+  const mediaBonus = Math.min(25, Math.log1p(
+    (Number(row.num_mentions) || 0) +
+    (Number(row.num_sources)  || 0) * 2 +
+    (Number(row.num_articles) || 0)
+  ) * 3);
+
+  // Geographic hotspot cluster boost
+  const hotspotBonus = hotspotIndex ? getHotspotBoost(lat, lon, hotspotIndex) : 0;
+
+  return {
+    id:           row.id || `gdelt_bq_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    title,
+    url,
+    domain,
+    date:         String(row.date || ''),
+    country:      row.location || '',
+    countryCode:  (row.country_code || '').trim(),
+    rootCode,
+    eventCode,
+    actor1:       row.actor1 || null,
+    actor2:       row.actor2 || null,
+    subEventType: getSubEventType(eventCode),
+    lat,
+    lon,
+    tone:         goldstein,
+    color:        getColor(goldstein),
+    severity:     getSeverityLabel(goldstein),
+    category,
+    score:        base + mediaBonus + hotspotBonus,
+    dataSource:   'gdelt-bq',
+  };
+}
+
+// ── Main fetch function ───────────────────────────────────────────────────
 async function fetchTodayEvents() {
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const bq = getBigQueryClient();
 
-  console.log(`[gdelt] fetching masterfilelist for ${today}`);
-  const masterResp = await fetch('http://data.gdeltproject.org/gdeltv2/masterfilelist.txt');
-  if (!masterResp.ok) throw new Error(`masterfilelist failed (${masterResp.status})`);
+  console.log('[gdelt-bq] querying BigQuery — last 24h GDELT events...');
 
-  const masterText = await masterResp.text();
-  const todayUrls = masterText
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => l && l.includes(`/${today}`) && l.includes('.export.CSV.zip'))
-    .map(l => l.split(/\s+/)[2])
-    .filter(Boolean);
+  const [rows] = await bq.query({
+    query:        RECENT_EVENTS_SQL,
+    location:     'US',
+    useLegacySql: false,
+  });
 
-  console.log(`[gdelt] ${todayUrls.length} files for ${today}`);
-  if (!todayUrls.length) throw new Error(`No files for ${today}`);
+  console.log(`[gdelt-bq] received ${rows.length} rows from BigQuery`);
 
-  const BATCH_SIZE = 8;
+  // Build in-memory hotspot index for cluster score boosting
+  const hotspotIndex = buildHotspotIndex(rows);
+  console.log(`[gdelt-bq] hotspot grid: ${hotspotIndex.size} cells`);
+
+  // Parse, filter, and deduplicate (keep highest-scoring URL)
   const dedupMap = new Map();
-  let ok = 0, fail = 0;
+  for (const row of rows) {
+    const ev = rowToEvent(row, hotspotIndex);
+    if (!ev) continue;
 
-  for (let i = 0; i < todayUrls.length; i += BATCH_SIZE) {
-    const batch = todayUrls.slice(i, i + BATCH_SIZE);
-    const results = await Promise.allSettled(batch.map(fetchZip));
-
-    for (const result of results) {
-      if (result.status !== 'fulfilled') { fail++; continue; }
-      ok++;
-
-      for (const line of result.value.split('\n')) {
-        const ev = parseLine(line);
-        if (!ev) continue;
-
-        const key = ev.url;
-        const existing = dedupMap.get(key);
-        if (!existing || ev.score > existing.score) {
-          dedupMap.set(key, ev);
-        }
-      }
+    const existing = dedupMap.get(ev.url);
+    if (!existing || ev.score > existing.score) {
+      dedupMap.set(ev.url, ev);
     }
-
-    console.log(`[gdelt] ${i + batch.length}/${todayUrls.length} — ${dedupMap.size} events — ${ok} OK / ${fail} fail`);
   }
 
-  // ── Diversité géographique : réserver des slots pour les zones stratégiques ──
-  // Russie (RS), Chine (CH), Corée du Nord (KN), Iran (IR), Syrie (SY),
-  // Ukraine (UP), Irak (IZ) ont des sources aux URL sans slug anglais → scores bas
-  const allSorted  = Array.from(dedupMap.values()).sort((a, b) => b.score - a.score);
-  const strategic  = allSorted.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode));
-  const others     = allSorted.filter(e => !STRATEGIC_COUNTRY_CODES.has(e.countryCode));
+  console.log(`[gdelt-bq] ${dedupMap.size} unique events after dedup and noise filter`);
+
+  // ── Geographic diversity — reserve slots for strategic regions ────────
+  // Russia (RS), China (CH), North Korea (KN), Iran (IR),
+  // Syria (SY), Ukraine (UP), Iraq (IZ) often score lower due to
+  // non-English URLs (same rationale as original gdelt.js)
+  const allSorted      = Array.from(dedupMap.values()).sort((a, b) => b.score - a.score);
+  const strategic      = allSorted.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode));
+  const others         = allSorted.filter(e => !STRATEGIC_COUNTRY_CODES.has(e.countryCode));
 
   const strategicSlice = strategic.slice(0, STRATEGIC_MIN_EVENTS);
   const othersSlice    = others.slice(0, 800 - strategicSlice.length);
@@ -475,7 +565,7 @@ async function fetchTodayEvents() {
     .slice(0, 800);
 
   const strategicCount = events.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)).length;
-  console.log(`[gdelt] done — ${events.length} events (${strategicCount} strategic) from ${ok}/${todayUrls.length} files`);
+  console.log(`[gdelt-bq] done — ${events.length} events (${strategicCount} strategic)`);
   return events;
 }
 
