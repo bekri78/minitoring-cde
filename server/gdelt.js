@@ -367,8 +367,7 @@ const RECENT_EVENTS_SQL = (() => {
       END AS layer_type
     FROM \`gdelt-bq.gdeltv2.events\`
     WHERE
-      _PARTITIONTIME >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 26 HOUR)
-      AND ActionGeo_Lat  IS NOT NULL
+      ActionGeo_Lat  IS NOT NULL
       AND ActionGeo_Long IS NOT NULL
       AND ActionGeo_Lat  != 0
       AND ActionGeo_Long != 0
@@ -381,6 +380,7 @@ const RECENT_EVENTS_SQL = (() => {
         OR
         (QuadClass = 3 AND GoldsteinScale <= -5.0)
       )
+      AND SQLDATE >= CAST(FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)) AS INT64)
     ORDER BY GoldsteinScale ASC
     LIMIT 5000
   `;
