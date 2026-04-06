@@ -35,7 +35,9 @@ export default function App() {
   const [nextRefreshTime, setNextRefreshTime] = useState(0);
 
   // Combine sources
-  const allEvents = useMemo<Event[]>(() => gdeltEvents || [], [gdeltEvents]);
+  const allEvents  = useMemo<Event[]>(() => gdeltEvents || [], [gdeltEvents]);
+  const airTracks  = useMemo(() => tracksData?.tracks.filter(t => t.domain === 'air') ?? [], [tracksData]);
+  const seaTracks  = useMemo(() => tracksData?.tracks.filter(t => t.domain === 'sea') ?? [], [tracksData]);
 
   // Apply filters
   const filteredEvents = useMemo(() => allEvents.filter(e => {
@@ -73,7 +75,7 @@ export default function App() {
         onRefresh={handleRefresh}
       />
       <div style={{ position: 'relative', overflow: 'hidden' }}>
-        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} quakes={quakeData?.quakes} airTracks={tracksData?.tracks.filter(t => t.domain === 'air')} seaTracks={tracksData?.tracks.filter(t => t.domain === 'sea')} launches={launchData?.launches} />
+        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} quakes={quakeData?.quakes} airTracks={airTracks} seaTracks={seaTracks} launches={launchData?.launches} />
         <FilterPanel />
         <SpacePanel data={launchData} decay={decayData} tip={tipData} loading={launchStatus === 'pending'} />
         <TrendPanel data={historyData?.history ?? []} />
