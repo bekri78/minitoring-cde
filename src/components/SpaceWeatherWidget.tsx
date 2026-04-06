@@ -57,7 +57,7 @@ export function SpaceWeatherWidget({ data }: Props) {
       position:  'absolute',
       bottom:    '10px',
       right:     '10px',
-      zIndex:    300,
+      zIndex:    1000,
       fontFamily:"'Share Tech Mono', monospace",
     }}>
       {/* Panneau détaillé */}
