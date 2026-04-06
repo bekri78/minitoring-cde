@@ -22,13 +22,11 @@ const CACHE_TTL_MS   = 60_000;
 const CONCURRENCY    = 2;       // max requêtes simultanées
 
 // Zones OpenSky à sonder (bounding boxes [lamin, lomin, lamax, lomax])
-// Couvrent Europe de l'Est, Baltique, Moyen-Orient, Mer de Chine, Arctique
+// Limité à 2 zones pour rester sous le rate-limit anonyme (10 req/min)
+// Priorité aux zones de conflit actif non couvertes par /mil endpoints
 const OPENSKY_BOXES = [
-  { name: 'europe-east', lamin: 44, lomin: 20, lamax: 60, lomax: 45 },
-  { name: 'baltic',      lamin: 53, lomin: 15, lamax: 65, lomax: 30 },
-  { name: 'middle-east', lamin: 20, lomin: 30, lamax: 42, lomax: 65 },
-  { name: 'china-sea',   lamin: 10, lomin: 105, lamax: 45, lomax: 135 },
-  { name: 'arctic',      lamin: 65, lomin: -20, lamax: 85, lomax: 60 },
+  { name: 'eastern-europe', lamin: 44, lomin: 20, lamax: 62, lomax: 50 },
+  { name: 'middle-east',    lamin: 20, lomin: 30, lamax: 42, lomax: 65 },
 ];
 
 // ── Cache mémoire par source ───────────────────────────────────────────────
@@ -93,77 +91,8 @@ function toNum(v) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// SOURCE 1 — airplanes.live  /v2/mil
-// ══════════════════════════════════════════════════════════════════════════
-async function fetchAirplanesLive() {
-  const cached = getCached('airplanes.live');
-  if (cached) return cached;
-
-  const SOURCE = 'airplanes.live';
-  const url    = 'https://api.airplanes.live/v2/mil';
-
-  const data = await fetchPool(() =>
-    fetchWithRetry(url, { headers: { 'User-Agent': 'WorldMonitor/1.0' } })
-  );
-
-  const raw = data?.ac || [];
-  const out = raw
-    .filter(a => a.lat != null && a.lon != null && a.alt_baro !== 'ground' && !a.on_ground)
-    .map(a => ({
-      hex:      clean((a.hex || '').toLowerCase().replace(/^~/, '')),
-      flight:   clean(a.flight || a.r),
-      lat:      toNum(a.lat),
-      lon:      toNum(a.lon),
-      alt_baro: a.alt_baro != null && a.alt_baro !== 'ground' ? Math.round(toNum(a.alt_baro)) : null,
-      gs:       a.gs   != null ? Math.round(toNum(a.gs))   : null,
-      track:    a.track != null ? toNum(a.track)            : null,
-      t:        clean(a.t || a.type),
-      source:   SOURCE,
-    }))
-    .filter(a => a.hex);
-
-  console.log(`[mil-aircraft] ${SOURCE} raw=${raw.length} accepted=${out.length}`);
-  setCache(SOURCE, out);
-  return out;
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// SOURCE 2 — adsb.fi  /api/v2/mil
-// ══════════════════════════════════════════════════════════════════════════
-async function fetchAdsbFi() {
-  const cached = getCached('adsb.fi');
-  if (cached) return cached;
-
-  const SOURCE = 'adsb.fi';
-  const url    = 'https://opendata.adsb.fi/api/v2/mil';
-
-  const data = await fetchPool(() =>
-    fetchWithRetry(url, { headers: { 'User-Agent': 'WorldMonitor/1.0' } })
-  );
-
-  const raw = data?.ac || [];
-  const out = raw
-    .filter(a => a.lat != null && a.lon != null && a.alt_baro !== 'ground' && !a.on_ground)
-    .map(a => ({
-      hex:      clean((a.hex || '').toLowerCase().replace(/^~/, '')),
-      flight:   clean(a.flight || a.r),
-      lat:      toNum(a.lat),
-      lon:      toNum(a.lon),
-      alt_baro: a.alt_baro != null && a.alt_baro !== 'ground' ? Math.round(toNum(a.alt_baro)) : null,
-      gs:       a.gs    != null ? Math.round(toNum(a.gs))  : null,
-      track:    a.track != null ? toNum(a.track)           : null,
-      t:        clean(a.t || a.type),
-      source:   SOURCE,
-    }))
-    .filter(a => a.hex);
-
-  console.log(`[mil-aircraft] ${SOURCE} raw=${raw.length} accepted=${out.length}`);
-  setCache(SOURCE, out);
-  return out;
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// SOURCE 3 — OpenSky Network  /api/states/all
+// SOURCE — OpenSky Network  /api/states/all
+// airplanes.live et adsb.fi sont gérés par military-aircraft.js (MIL_SOURCES)
 // ══════════════════════════════════════════════════════════════════════════
 
 // Mapping du tableau OpenSky :
@@ -224,52 +153,6 @@ async function fetchOpenSky() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// SOURCE 4 — Airframes.io  (ACARS / HFDL)
-// ══════════════════════════════════════════════════════════════════════════
-function normalizeAirframesMessage(msg) {
-  // Garder uniquement les messages avec coordonnées
-  const lat = toNum(msg.lat  ?? msg.position?.lat);
-  const lon = toNum(msg.lon  ?? msg.position?.lon ?? msg.position?.lng);
-  if (lat == null || lon == null) return null;
-
-  return {
-    hex:      null,                                // ACARS ne fournit pas toujours l'ICAO
-    flight:   clean(msg.callsign || msg.flight || msg.tail),
-    lat,
-    lon,
-    alt_baro: msg.altitude != null ? Math.round(toNum(msg.altitude)) : null,
-    gs:       null,
-    track:    null,
-    t:        clean(msg.aircraft_type || msg.type),
-    source:   'airframes',
-  };
-}
-
-async function fetchAirframes() {
-  const cached = getCached('airframes');
-  if (cached) return cached;
-
-  const SOURCE = 'airframes';
-  const url    = 'https://api.airframes.io/v1/messages';
-
-  const data = await fetchPool(() =>
-    fetchWithRetry(url, {
-      headers: {
-        'User-Agent': 'WorldMonitor/1.0',
-        'Accept':     'application/json',
-      },
-    })
-  );
-
-  const raw = Array.isArray(data) ? data : (data?.messages || []);
-  const out = raw.map(normalizeAirframesMessage).filter(Boolean);
-
-  console.log(`[mil-aircraft] ${SOURCE} raw=${raw.length} accepted=${out.length}`);
-  setCache(SOURCE, out);
-  return out;
-}
-
-// ══════════════════════════════════════════════════════════════════════════
 // FETCH SOURCES — point d'entrée unique
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -279,11 +162,11 @@ async function fetchAirframes() {
  * Les erreurs individuelles sont absorbées (warn) — les autres sources continuent.
  */
 async function fetchSources() {
+  // airplanes.live et adsb.fi sont déjà gérés par le pipeline legacy (fetchMilSource)
+  // avec filtre militaire strict — les redoubler ici causerait des 429.
+  // airFetcher apporte uniquement les sources complémentaires.
   const fetchers = [
-    { name: 'airplanes.live', fn: fetchAirplanesLive },
-    { name: 'adsb.fi',        fn: fetchAdsbFi        },
-    { name: 'opensky',        fn: fetchOpenSky        },
-    { name: 'airframes',      fn: fetchAirframes      },
+    { name: 'opensky', fn: fetchOpenSky },
   ];
 
   const results = await Promise.allSettled(fetchers.map(f => f.fn()));
@@ -331,9 +214,5 @@ function mergeTracksByHex(tracks) {
 module.exports = {
   fetchSources,
   mergeTracksByHex,
-  // Exports individuels utiles pour les tests
-  fetchAirplanesLive,
-  fetchAdsbFi,
-  fetchOpenSky,
-  fetchAirframes,
+  fetchOpenSky, // export pour tests
 };
