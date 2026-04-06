@@ -16,23 +16,43 @@ body {
 
 #root { height: 100vh; }
 
-/* MapLibre popup overrides */
-.maplibregl-popup-content {
+/* Leaflet popup overrides — dark theme */
+.leaflet-popup-content-wrapper {
   background: #0d1520 !important;
   border: 1px solid #1a2a3a !important;
   border-radius: 4px !important;
-  padding: 14px 16px !important;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.8) !important;
-  max-width: 380px !important;
-  min-width: 320px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.85) !important;
+  color: #c8d8e8 !important;
+  padding: 0 !important;
 }
 
-.maplibregl-popup-tip { display: none !important; }
+.leaflet-popup-content {
+  margin: 14px 16px !important;
+  color: #c8d8e8 !important;
+}
 
-.maplibregl-popup-close-button {
+.leaflet-popup-tip-container { display: none !important; }
+
+.leaflet-popup-close-button {
   color: #4a6a7a !important;
-  font-size: 16px !important;
-  padding: 4px 6px !important;
+  font-size: 18px !important;
+  padding: 4px 8px !important;
+  background: transparent !important;
+  top: 4px !important;
+  right: 4px !important;
+}
+
+.leaflet-popup-close-button:hover {
+  color: #c8d8e8 !important;
+  background: transparent !important;
+}
+
+/* Cluster group dark override */
+.marker-cluster {
+  background: transparent !important;
+}
+.marker-cluster div {
+  background: transparent !important;
 }
 
 @keyframes pulse {
