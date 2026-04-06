@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "npm install --omit=dev"
+buildCommand = "npm install --omit=dev && npm install --prefix server --omit=dev"
 
 [deploy]
 startCommand = "node server/server.js"
