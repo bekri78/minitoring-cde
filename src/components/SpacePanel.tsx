@@ -50,6 +50,14 @@ function NextLaunchCard({ launch, tick }: { launch: Launch; tick: number }) {
       background: 'rgba(0,212,255,0.04)',
       border:     `1px solid ${launch.status.color}44`,
     }}>
+      {launch.image && (
+        <img
+          src={launch.image}
+          alt={launch.name}
+          style={{ width: '100%', borderRadius: '3px', marginBottom: '8px', border: '1px solid #1a2a3a', display: 'block' }}
+          onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+        />
+      )}
       <div style={{ fontSize: '22px', color: launch.status.color, letterSpacing: '2px', fontVariantNumeric: 'tabular-nums' }}>
         T− {formatCountdown(launch.net)}
       </div>
@@ -125,6 +133,14 @@ function LaunchRow({ launch }: { launch: Launch }) {
       </div>
       {expanded && (
         <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid #0e1a24' }}>
+          {launch.image && (
+            <img
+              src={launch.image}
+              alt={launch.name}
+              style={{ width: '100%', borderRadius: '3px', marginBottom: '6px', border: '1px solid #1a2a3a', display: 'block' }}
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+          )}
           {(launch.mission.type || launch.mission.orbit) && (
             <div style={{ color: '#4a6a7a', fontSize: '9px', marginBottom: '3px' }}>
               {launch.rocket}{launch.mission.type ? ` · ${launch.mission.type}` : ''}{launch.mission.orbit ? ` · ${launch.mission.orbit}` : ''}
@@ -147,8 +163,12 @@ function LaunchRow({ launch }: { launch: Launch }) {
 }
 
 function EventRow({ event }: { event: SpaceEvent }) {
+  const [expanded, setExpanded] = useState(false);
   return (
-    <div style={{ padding: '8px 12px', borderTop: '1px solid #0e1a24' }}>
+    <div
+      style={{ padding: '8px 12px', borderTop: '1px solid #0e1a24', cursor: 'pointer' }}
+      onClick={() => setExpanded(e => !e)}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
         {event.type && (
           <span style={{
@@ -165,11 +185,29 @@ function EventRow({ event }: { event: SpaceEvent }) {
         <span style={{ color: '#c8d8e8', fontSize: '10px', flex: 1, minWidth: 0 }}>
           {truncate(event.name, 36)}
         </span>
+        <span style={{ color: '#2a5a6a', fontSize: '9px' }}>{expanded ? '▴' : '▾'}</span>
       </div>
       <div style={{ color: '#4a6a7a', fontSize: '9px', paddingLeft: '2px', display: 'flex', justifyContent: 'space-between' }}>
         <span>{truncate(event.location, 22)}</span>
         <span>{formatDate(event.date)}</span>
       </div>
+      {expanded && (
+        <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid #0e1a24' }}>
+          {event.image && (
+            <img
+              src={event.image}
+              alt={event.name}
+              style={{ width: '100%', borderRadius: '3px', marginBottom: '6px', border: '1px solid #1a2a3a', display: 'block' }}
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+          )}
+          {event.description && (
+            <div style={{ color: '#6a8a9a', fontSize: '9px', lineHeight: 1.6 }}>
+              {truncate(event.description, 200)}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
