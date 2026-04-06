@@ -1028,8 +1028,9 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup, launchesRef: M
   function tierColor(tier: string) {
     return { confirmed_military: '#ff2244', likely_military: '#ff8800', possible_state: '#ffdd55', unknown: '#4a6a7a' }[tier] || '#4a6a7a';
   }
-  // Military aircraft click
+  // Military aircraft click — preventDefault stops map zoom on double-click
   map.on('click', 'mil-aircraft', async e => {
+    e.preventDefault();
     const feature = e.features?.[0];
     if (!feature) return;
     const p      = feature.properties || {};
@@ -1077,6 +1078,7 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup, launchesRef: M
 
   // Military ships click
   map.on('click', 'mil-ships', async e => {
+    e.preventDefault();
     const feature = e.features?.[0];
     if (!feature) return;
     const p      = feature.properties || {};
