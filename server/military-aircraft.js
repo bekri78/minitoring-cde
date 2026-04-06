@@ -299,10 +299,18 @@ async function fetchMilitary() {
       };
     });
 
+    // Log pays après déduplication (chiffres réels uniques)
+    const byCountry = {};
+    for (const ac of aircraft) byCountry[ac.country] = (byCountry[ac.country] || 0) + 1;
+    const countryStr = Object.entries(byCountry)
+      .sort((a, b) => b[1] - a[1])
+      .map(([c, n]) => `${c}=${n}`)
+      .join(' ');
+
     cache.aircraft   = aircraft;
     cache.count      = aircraft.length;
     cache.lastUpdate = new Date().toISOString();
-    console.log(`[mil-aircraft] total merged: ${aircraft.length} aircraft`);
+    console.log(`[mil-aircraft] merged unique=${aircraft.length} countries: ${countryStr}`);
   } finally {
     isFetching = false;
   }
