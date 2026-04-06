@@ -112,6 +112,10 @@ export function WorldMap({
   const tipLayerRef       = useRef<L.LayerGroup | null>(null);
   const quakesLayerRef    = useRef<L.LayerGroup | null>(null);
 
+  // Track currently open popup so we can re-open after layer refresh
+  const openAircraftIdRef = useRef<string | null>(null);
+  const openShipIdRef     = useRef<string | null>(null);
+
   // ── Init map once ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -257,7 +261,12 @@ export function WorldMap({
   useEffect(() => {
     const layer = aircraftLayerRef.current;
     if (!layer) return;
+
+    // Sauvegarder l'ID du popup ouvert avant de vider la couche
+    const wasOpenId = openAircraftIdRef.current;
     layer.clearLayers();
+
+    const markerById = new Map<string, L.Marker>();
 
     airTracks.forEach(t => {
       if (t.lat == null || t.lon == null) return;
@@ -289,8 +298,9 @@ export function WorldMap({
         <div style="margin-top:6px;font-size:9px;color:#4a6a7a;">${t.lat.toFixed(3)}°, ${t.lon.toFixed(3)}° — ICAO ${escapeHtml(t.id)}</div>
       `), { maxWidth: 360 });
 
-      // Fetch photo after popup opens
+      // Suivre quel popup est ouvert pour le ré-ouvrir après refresh
       marker.on('popupopen', async () => {
+        openAircraftIdRef.current = t.id;
         try {
           const res   = await fetch(`${RAILWAY_URL}/flights/aircraft?icao24=${t.id}`);
           const photo = await res.json();
@@ -303,16 +313,28 @@ export function WorldMap({
           }
         } catch { /* pas de photo */ }
       });
+      marker.on('popupclose', () => { openAircraftIdRef.current = null; });
 
       layer.addLayer(marker);
+      markerById.set(t.id, marker);
     });
+
+    // Ré-ouvrir le popup si la couche a été vidée pendant qu'il était ouvert
+    if (wasOpenId) {
+      const m = markerById.get(wasOpenId);
+      if (m) setTimeout(() => m.openPopup(), 0);
+    }
   }, [airTracks]);
 
   // ── Update military ships ─────────────────────────────────────────────────
   useEffect(() => {
     const layer = shipsLayerRef.current;
     if (!layer) return;
+
+    const wasOpenId = openShipIdRef.current;
     layer.clearLayers();
+
+    const markerById = new Map<string, L.Marker>();
 
     seaTracks.forEach(t => {
       if (t.lat == null || t.lon == null) return;
@@ -343,6 +365,7 @@ export function WorldMap({
       `), { maxWidth: 360 });
 
       marker.on('popupopen', async () => {
+        openShipIdRef.current = t.id;
         try {
           const res  = await fetch(`${RAILWAY_URL}/ships/vessel?mmsi=${t.id}&country=${t.country || ''}`);
           const info = await res.json();
@@ -356,9 +379,16 @@ export function WorldMap({
           }
         } catch { /* pas de photo */ }
       });
+      marker.on('popupclose', () => { openShipIdRef.current = null; });
 
       layer.addLayer(marker);
+      markerById.set(t.id, marker);
     });
+
+    if (wasOpenId) {
+      const m = markerById.get(wasOpenId);
+      if (m) setTimeout(() => m.openPopup(), 0);
+    }
   }, [seaTracks]);
 
   // ── Update launch pads ────────────────────────────────────────────────────
