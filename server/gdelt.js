@@ -304,141 +304,163 @@ function getBigQueryClient() {
   return _bqClient;
 }
 
-// ── BigQuery SQL — recent events (equivalent to recent_events_raw_24h view)
-// Queries the public GDELT v2 dataset directly.
-// Partition pruning via _PARTITIONTIME keeps scan costs low (~1-2 GB/query).
-// If you have pre-created the views in your own dataset, set:
-//   GDELT_EVENTS_VIEW=<project>.<dataset>.recent_events_raw_24h
-// and the module will query that view instead.
-const RECENT_EVENTS_SQL = (() => {
-  const view = process.env.GDELT_EVENTS_VIEW;
-  if (view) {
-    return `
-      SELECT
-        CAST(id AS STRING)           AS id,
-        CAST(event_timestamp AS STRING) AS date,
-        location,
-        country_code,
-        IFNULL(Actor1Name, '')       AS actor1,
-        IFNULL(Actor2Name, '')       AS actor2,
-        IFNULL(EventCode, '')        AS event_code,
-        CAST(NULL AS STRING)         AS root_code,
-        CAST(NULL AS INT64)          AS quad_class,
-        GoldsteinScale               AS goldstein,
-        NumMentions                  AS num_mentions,
-        NumSources                   AS num_sources,
-        NumArticles                  AS num_articles,
-        AvgTone                      AS avg_tone,
-        CAST(NULL AS STRING)         AS geo_type,
-        latitude,
-        longitude,
-        SOURCEURL                    AS source_url,
-        layer_type
-      FROM \`${view}\`
-    `;
+// ── Filtre temporel DATEADDED ─────────────────────────────────────────────
+// DATEADDED est un INT64 au format YYYYMMDDHHMMSS (ex: 20260406143025).
+// C'est la seule colonne GDELT avec une résolution à la seconde → fenêtre 24h exacte.
+// SQLDATE est quotidien (YYYYMMDD) et ne convient pas pour une fenêtre glissante.
+const DATEADDED_FILTER = (hours) =>
+  `DATEADDED >= CAST(FORMAT_DATETIME('%Y%m%d%H%M%S', DATETIME_SUB(CURRENT_DATETIME(), INTERVAL ${hours} HOUR)) AS INT64)`;
+
+// ── Couche 1 — recent_events_raw_24h ─────────────────────────────────────
+// Événements individuels des dernières 24h, avec score composite BigQuery.
+const RECENT_EVENTS_SQL = `
+  SELECT
+    CAST(GlobalEventID AS STRING)     AS id,
+    CAST(SQLDATE AS STRING)           AS date,
+    DATEADDED                         AS date_added,
+    IFNULL(ActionGeo_FullName, '')    AS location,
+    IFNULL(ActionGeo_CountryCode, '') AS country_code,
+    IFNULL(Actor1Name, '')            AS actor1,
+    IFNULL(Actor2Name, '')            AS actor2,
+    IFNULL(EventCode, '')             AS event_code,
+    IFNULL(EventRootCode, '')         AS root_code,
+    QuadClass                         AS quad_class,
+    GoldsteinScale                    AS goldstein,
+    NumMentions                       AS num_mentions,
+    NumSources                        AS num_sources,
+    NumArticles                       AS num_articles,
+    AvgTone                           AS avg_tone,
+    CAST(ActionGeo_Type AS STRING)    AS geo_type,
+    ActionGeo_Lat                     AS latitude,
+    ActionGeo_Long                    AS longitude,
+    SOURCEURL                         AS source_url,
+    CASE
+      WHEN EventRootCode IN ('18','19','20') THEN 'hard_events'
+      WHEN EventRootCode = '14'             THEN 'protests'
+      WHEN EventRootCode IN ('03','04','05') THEN 'diplomacy'
+      ELSE 'other'
+    END AS layer_type,
+    -- Score composite BigQuery : sévérité + médias + bonus récence
+    ROUND(
+      ABS(GoldsteinScale) * 10
+      + LN(1 + NumMentions)  * 3
+      + LN(1 + NumSources)   * 5
+      + LN(1 + NumArticles)  * 2
+      + CASE
+          WHEN ${DATEADDED_FILTER(2)}  THEN 20
+          WHEN ${DATEADDED_FILTER(6)}  THEN 10
+          ELSE 0
+        END
+    ) AS bq_signal_score
+  FROM \`gdelt-bq.gdeltv2.events\`
+  WHERE
+    ${DATEADDED_FILTER(24)}
+    AND ActionGeo_Lat  IS NOT NULL
+    AND ActionGeo_Long IS NOT NULL
+    AND ActionGeo_Lat  != 0
+    AND ActionGeo_Long != 0
+    AND SOURCEURL IS NOT NULL
+    AND SOURCEURL != ''
+    AND QuadClass IN (3, 4)
+    AND EventRootCode IN ('03','04','05','14','18','19','20')
+    AND (
+      (QuadClass = 4 AND GoldsteinScale <= -1.0)
+      OR
+      (QuadClass = 3 AND GoldsteinScale <= -5.0)
+    )
+  ORDER BY bq_signal_score DESC
+  LIMIT 5000
+`;
+
+// ── Couche 2 — signal_hotspots_24h ───────────────────────────────────────
+// Événements agrégés par cellule géographique (0.5°).
+// Produit : event_count, severity_score, media_score, final_signal_score.
+const HOTSPOTS_SQL = `
+  SELECT
+    ROUND(ActionGeo_Lat  * 2) / 2                          AS latitude,
+    ROUND(ActionGeo_Long * 2) / 2                          AS longitude,
+    ANY_VALUE(ActionGeo_FullName)                           AS location_name,
+    ANY_VALUE(ActionGeo_CountryCode)                        AS country_code,
+    CASE
+      WHEN COUNTIF(EventRootCode IN ('18','19','20')) > 0  THEN 'hard_events'
+      WHEN COUNTIF(EventRootCode = '14') > 0               THEN 'protests'
+      ELSE 'diplomacy'
+    END                                                     AS layer_type,
+    COUNT(*)                                                AS event_count,
+    SUM(NumMentions)                                        AS total_mentions,
+    SUM(NumSources)                                         AS total_sources,
+    SUM(NumArticles)                                        AS total_articles,
+    ROUND(AVG(GoldsteinScale), 2)                          AS avg_goldstein_scale,
+    ROUND(AVG(AvgTone), 2)                                 AS avg_tone,
+    -- Sévérité : code le plus grave dans la cellule
+    MAX(CASE EventRootCode
+      WHEN '19' THEN 100
+      WHEN '18' THEN 80
+      WHEN '20' THEN 80
+      WHEN '14' THEN 50
+      ELSE 20
+    END)                                                    AS severity_score,
+    -- Score médias (log pour éviter la surreprésentation des grands médias)
+    ROUND(LN(1 + SUM(NumMentions) + SUM(NumSources) * 2 + SUM(NumArticles)) * 5) AS media_score,
+    -- Poids récence : 1.5 si < 2h, 1.2 si < 6h, 1.0 sinon
+    MAX(CASE
+      WHEN ${DATEADDED_FILTER(2)} THEN 1.5
+      WHEN ${DATEADDED_FILTER(6)} THEN 1.2
+      ELSE 1.0
+    END)                                                    AS recency_weight,
+    -- Score final plafonné à 200
+    LEAST(200, ROUND(
+      MAX(CASE EventRootCode
+        WHEN '19' THEN 100 WHEN '18' THEN 80 WHEN '20' THEN 80 WHEN '14' THEN 50 ELSE 20
+      END)
+      * MAX(CASE
+          WHEN ${DATEADDED_FILTER(2)} THEN 1.5
+          WHEN ${DATEADDED_FILTER(6)} THEN 1.2
+          ELSE 1.0
+        END)
+      + LN(1 + SUM(NumMentions) + SUM(NumSources) * 2 + SUM(NumArticles)) * 5
+      + COUNT(*) * 2
+    ))                                                      AS final_signal_score
+  FROM \`gdelt-bq.gdeltv2.events\`
+  WHERE
+    ${DATEADDED_FILTER(24)}
+    AND ActionGeo_Lat  IS NOT NULL
+    AND ActionGeo_Long IS NOT NULL
+    AND ActionGeo_Lat  != 0
+    AND ActionGeo_Long != 0
+    AND QuadClass IN (3, 4)
+    AND EventRootCode IN ('03','04','05','14','18','19','20')
+    AND (
+      (QuadClass = 4 AND GoldsteinScale <= -1.0)
+      OR
+      (QuadClass = 3 AND GoldsteinScale <= -5.0)
+    )
+  GROUP BY latitude, longitude
+  HAVING event_count > 1 OR severity_score >= 80
+  ORDER BY final_signal_score DESC
+  LIMIT 500
+`;
+
+// ── Index hotspot depuis les résultats BigQuery (signal_hotspots_24h) ────
+// Construit une Map lat/lon → hotspot à partir des lignes agrégées.
+function buildHotspotIndex(hotspotRows) {
+  const index = new Map();
+  for (const h of hotspotRows) {
+    const key = `${h.latitude},${h.longitude}`;
+    index.set(key, h);
   }
-
-  // Default: query the public GDELT v2 events table directly
-  return `
-    SELECT
-      CAST(GlobalEventID AS STRING)     AS id,
-      CAST(SQLDATE AS STRING)           AS date,
-      IFNULL(ActionGeo_FullName, '')    AS location,
-      IFNULL(ActionGeo_CountryCode, '') AS country_code,
-      IFNULL(Actor1Name, '')            AS actor1,
-      IFNULL(Actor2Name, '')            AS actor2,
-      IFNULL(EventCode, '')             AS event_code,
-      IFNULL(EventRootCode, '')         AS root_code,
-      QuadClass                         AS quad_class,
-      GoldsteinScale                    AS goldstein,
-      NumMentions                       AS num_mentions,
-      NumSources                        AS num_sources,
-      NumArticles                       AS num_articles,
-      AvgTone                           AS avg_tone,
-      CAST(ActionGeo_Type AS STRING)    AS geo_type,
-      ActionGeo_Lat                     AS latitude,
-      ActionGeo_Long                    AS longitude,
-      SOURCEURL                         AS source_url,
-      CASE
-        WHEN EventRootCode IN ('18','19','20') THEN 'hard_events'
-        WHEN EventRootCode = '14'              THEN 'protests'
-        WHEN EventRootCode IN ('03','04','05') THEN 'diplomacy'
-        ELSE 'other'
-      END AS layer_type
-    FROM \`gdelt-bq.gdeltv2.events\`
-    WHERE
-      ActionGeo_Lat  IS NOT NULL
-      AND ActionGeo_Long IS NOT NULL
-      AND ActionGeo_Lat  != 0
-      AND ActionGeo_Long != 0
-      AND SOURCEURL IS NOT NULL
-      AND SOURCEURL != ''
-      AND QuadClass IN (3, 4)
-      AND EventRootCode IN ('03','04','05','13','14','15','16','17','18','19','20')
-      AND (
-        (QuadClass = 4 AND GoldsteinScale <= -1.0)
-        OR
-        (QuadClass = 3 AND GoldsteinScale <= -5.0)
-      )
-      AND SQLDATE >= CAST(FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)) AS INT64)
-    ORDER BY GoldsteinScale ASC
-    LIMIT 5000
-  `;
-})();
-
-// ── In-memory hotspot index (equivalent to signal_hotspots_24h view) ──────
-// Groups events into 0.5° grid cells and computes a signal score per cluster.
-// Used to boost individual event scores when they fall in a high-activity zone.
-function buildHotspotIndex(rows) {
-  const grid = new Map();
-
-  for (const row of rows) {
-    const lat = parseFloat(row.latitude);
-    const lon = parseFloat(row.longitude);
-    if (isNaN(lat) || isNaN(lon)) continue;
-
-    // 0.5° grid cell key — ~55 km resolution at the equator
-    const gridLat = Math.round(lat * 2) / 2;
-    const gridLon = Math.round(lon * 2) / 2;
-    const key = `${gridLat},${gridLon}`;
-
-    // Base severity per CAMEO root code (mirrors signal_hotspots_24h logic)
-    const rootCode = (row.root_code || '').trim();
-    const baseSeverity =
-      rootCode === '19' ? 100 :
-      rootCode === '18' || rootCode === '20' ? 80 :
-      rootCode === '14' ? 50 : 20;
-
-    // Logarithmic media score — prevents major-outlet events dominating
-    const mediaScore = Math.log1p(
-      (Number(row.num_mentions) || 0) +
-      (Number(row.num_sources)  || 0) * 2 +
-      (Number(row.num_articles) || 0)
-    ) * 5;
-
-    if (!grid.has(key)) {
-      grid.set(key, { count: 0, maxSeverity: 0, maxMedia: 0, layerType: row.layer_type });
-    }
-
-    const cell = grid.get(key);
-    cell.count++;
-    cell.maxSeverity = Math.max(cell.maxSeverity, baseSeverity);
-    cell.maxMedia    = Math.max(cell.maxMedia, mediaScore);
-  }
-
-  return grid;
+  return index;
 }
 
 function getHotspotBoost(lat, lon, hotspotIndex) {
   const key = `${Math.round(lat * 2) / 2},${Math.round(lon * 2) / 2}`;
-  const cell = hotspotIndex.get(key);
-  if (!cell || cell.count < 2) return 0; // single events don't get a cluster bonus
+  const h = hotspotIndex.get(key);
+  if (!h) return 0;
 
-  // Cluster bonus: up to +40 for dense activity zones
-  const clusterBonus  = Math.min(40, cell.count * 2);
-  // Severity bonus: extra weight for combat/mass-violence zones
-  const severityBonus = cell.maxSeverity >= 80 ? 15 : cell.maxSeverity >= 50 ? 8 : 0;
-
+  // Bonus plafonné à 55 : cluster dense + zone sévère
+  const clusterBonus  = Math.min(40, Number(h.event_count || 0) * 2);
+  const severityBonus = Number(h.severity_score || 0) >= 80 ? 15
+                      : Number(h.severity_score || 0) >= 50 ? 8 : 0;
   return clusterBonus + severityBonus;
 }
 
@@ -481,16 +503,13 @@ function rowToEvent(row, hotspotIndex) {
 
   const text     = `${title} ${url}`;
   const category = classifyEvent(text, eventCode);
-  const base     = scoreEvent(text, goldstein, domain);
+  const base = scoreEvent(text, goldstein, domain);
 
-  // Media score bonus — logarithmic scaling prevents major-outlet bias
-  const mediaBonus = Math.min(25, Math.log1p(
-    (Number(row.num_mentions) || 0) +
-    (Number(row.num_sources)  || 0) * 2 +
-    (Number(row.num_articles) || 0)
-  ) * 3);
+  // bq_signal_score : score composite calculé dans BigQuery
+  // (ABS(goldstein)*10 + log mentions/sources/articles + bonus récence)
+  const bqBonus = Math.min(50, Number(row.bq_signal_score || 0));
 
-  // Geographic hotspot cluster boost
+  // Boost géographique depuis les hotspots agrégés
   const hotspotBonus = hotspotIndex ? getHotspotBoost(lat, lon, hotspotIndex) : 0;
 
   return {
@@ -512,7 +531,7 @@ function rowToEvent(row, hotspotIndex) {
     color:        getColor(goldstein),
     severity:     getSeverityLabel(goldstein),
     category,
-    score:        base + mediaBonus + hotspotBonus,
+    score:        base + bqBonus + hotspotBonus,
     dataSource:   'gdelt-bq',
   };
 }
@@ -520,24 +539,28 @@ function rowToEvent(row, hotspotIndex) {
 // ── Main fetch function ───────────────────────────────────────────────────
 async function fetchTodayEvents() {
   const bq = getBigQueryClient();
+  const opts = { location: 'US', useLegacySql: false };
 
-  console.log('[gdelt-bq] querying BigQuery — last 24h GDELT events...');
+  console.log('[gdelt-bq] querying BigQuery — recent_events_raw_24h + signal_hotspots_24h...');
 
-  const [rows] = await bq.query({
-    query:        RECENT_EVENTS_SQL,
-    location:     'US',
-    useLegacySql: false,
-  });
+  // Les deux requêtes tournent en parallèle pour minimiser la latence
+  const [[rawRows], [hotspotRows]] = await Promise.all([
+    bq.query({ query: RECENT_EVENTS_SQL, ...opts }),
+    bq.query({ query: HOTSPOTS_SQL,      ...opts }).catch(err => {
+      console.warn('[gdelt-bq] hotspots query failed, proceeding without boost:', err.message);
+      return [[]];
+    }),
+  ]);
 
-  console.log(`[gdelt-bq] received ${rows.length} rows from BigQuery`);
+  console.log(`[gdelt-bq] ${rawRows.length} raw events — ${hotspotRows.length} hotspot cells`);
 
-  // Build in-memory hotspot index for cluster score boosting
-  const hotspotIndex = buildHotspotIndex(rows);
+  // Index hotspot depuis les résultats BigQuery (signal_hotspots_24h)
+  const hotspotIndex = buildHotspotIndex(hotspotRows);
   console.log(`[gdelt-bq] hotspot grid: ${hotspotIndex.size} cells`);
 
   // Parse, filter, and deduplicate (keep highest-scoring URL)
   const dedupMap = new Map();
-  for (const row of rows) {
+  for (const row of rawRows) {
     const ev = rowToEvent(row, hotspotIndex);
     if (!ev) continue;
 
