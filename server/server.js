@@ -244,6 +244,29 @@ app.get('/military-aircraft', (req, res) => {
   });
 });
 
+// ── Avions militaires enrichis avec activité détectée ─────────────────────
+app.get('/api/aircraft/military', (req, res) => {
+  const c = getMilCache();
+  const aircraft = (c.aircraft || []).map(ac => ({
+    hex:                  ac.id,
+    flight:               ac.callsign,
+    lat:                  ac.lat,
+    lon:                  ac.lon,
+    alt_baro:             ac.altFt,
+    gs:                   ac.speed,
+    track:                ac.track,
+    t:                    ac.type,
+    activity:             ac.activity             ?? null,
+    activity_confidence:  ac.activity_confidence  ?? 0,
+  }));
+  res.json({
+    aircraft,
+    count:      aircraft.length,
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  });
+});
+
 app.get('/military-ships', (req, res) => {
   const c = getShipCache();
   res.json(c);

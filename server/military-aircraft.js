@@ -1,5 +1,8 @@
 'use strict';
 
+const { updateHistory, purgeHistory, classifyActivity } = require('./airActivityDetector');
+const { fetchSources, mergeTracksByHex }               = require('./airFetcher');
+
 // ── Sources globales /mil (retournent uniquement les militaires) ──────────
 // adsb.fi : réseau finlandais, meilleure couverture Baltique / Est-Europe / bordure russe
 const MIL_SOURCES = [
@@ -235,24 +238,66 @@ async function fetchMilitary() {
 
   isFetching = true;
   purgeTrails();
+  purgeHistory();
 
   try {
-    // Lancer toutes les sources /mil en parallèle
+    // ── Étape 1 : sources legacy /mil (airplanes.live + adsb.fi via fetchMilSource)
+    //   → filtrage militaire strict par hex range + callsign
     const milResults = await Promise.all(MIL_SOURCES.map(fetchMilSource));
-
-    // Merger + déduplication par icao24
-    const seen = new Map();
+    const legacyMap  = new Map();
     for (const list of milResults) {
       for (const ac of list) {
-        if (!seen.has(ac.id)) seen.set(ac.id, ac);
+        if (!legacyMap.has(ac.id)) legacyMap.set(ac.id, ac);
       }
     }
 
-    // Attacher les trails
-    const aircraft = Array.from(seen.values()).map(ac => ({
-      ...ac,
-      trail: (trails.get(ac.id)?.positions || []).map(p => [p.lon, p.lat]),
-    }));
+    // ── Étape 2 : sources supplémentaires via airFetcher (schéma { hex, flight, ... })
+    //   → convertir vers format interne avant fusion
+    const extraRaw    = await fetchSources();
+    const extraMerged = mergeTracksByHex(extraRaw);
+
+    // Convertir le schéma airFetcher → schéma military-aircraft (id, callsign, altFt…)
+    // et filtrer par détection militaire pour ne pas injecter du trafic civil
+    for (const t of extraMerged) {
+      const icao24   = (t.hex  || '').toLowerCase();
+      const callsign = (t.flight || '').trim();
+      if (legacyMap.has(icao24)) continue;            // déjà présent via source legacy
+
+      const mil = detectMilitary(icao24, callsign);
+      if (!mil && t.source !== 'airframes') continue; // filtre militaire strict
+
+      legacyMap.set(icao24, {
+        id:       icao24,
+        callsign: callsign || icao24.toUpperCase(),
+        country:  mil?.country  || 'UNKNOWN',
+        color:    mil?.color    || '#e8f4ff',
+        lon:      t.lon,
+        lat:      t.lat,
+        altFt:    t.alt_baro,
+        alt:      t.alt_baro != null ? Math.round(t.alt_baro / 3.281) : null,
+        speed:    t.gs,
+        track:    t.track || 0,
+        type:     t.t || '',
+      });
+    }
+
+    // ── Étape 3 : historique + classification activité
+    const aircraft = Array.from(legacyMap.values()).map(ac => {
+      updateHistory(ac);
+      const { activity, activity_confidence } = classifyActivity(ac);
+      if (activity) {
+        console.log(
+          `[mil-aircraft] ${activity} detected hex=${ac.id}` +
+          ` type=${ac.type || '?'} confidence=${activity_confidence}`
+        );
+      }
+      return {
+        ...ac,
+        trail:               (trails.get(ac.id)?.positions || []).map(p => [p.lon, p.lat]),
+        activity,
+        activity_confidence,
+      };
+    });
 
     cache.aircraft   = aircraft;
     cache.count      = aircraft.length;
