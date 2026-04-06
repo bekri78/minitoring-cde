@@ -48,8 +48,10 @@ function makeSvgIcon(
     .replace(/COLOR/g, color)
     .replace('<svg ', `<svg width="${size}" height="${size}" `);
 
+  // pointer-events:none sur le SVG → le div externe intercepte le clic Leaflet
+  const svgNoEvents = svg.replace('<svg ', '<svg style="pointer-events:none;" ');
   return L.divIcon({
-    html: `<div style="width:${size}px;height:${size}px;transform:rotate(${rotateDeg}deg);transform-origin:center;filter:drop-shadow(0 0 2px rgba(0,0,0,0.8));">${svg}</div>`,
+    html: `<div style="width:${size}px;height:${size}px;transform:rotate(${rotateDeg}deg);transform-origin:center;filter:drop-shadow(0 0 2px rgba(0,0,0,0.8));cursor:pointer;">${svgNoEvents}</div>`,
     className: '',
     iconSize:   [size, size],
     iconAnchor: [size / 2, size / 2],
@@ -115,12 +117,13 @@ export function WorldMap({
     if (!containerRef.current || mapRef.current) return;
 
     const map = L.map(containerRef.current, {
-      center:  [20, 20],
-      zoom:    2,
-      minZoom: 2,
-      maxZoom: 16,
-      zoomControl: false,
-      doubleClickZoom: false,
+      center:           [20, 20],
+      zoom:             2,
+      minZoom:          2,
+      maxZoom:          16,
+      zoomControl:      false,
+      doubleClickZoom:  false,
+      closePopupOnClick: false, // empêche la map de fermer le popup au clic
     });
 
     L.tileLayer('https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
@@ -294,7 +297,7 @@ export function WorldMap({
           const el    = document.getElementById(`${popId}-photo`);
           if (el && photo?.thumbnail) {
             el.innerHTML = `<a href="${escapeHtml(photo.photoLink || '#')}" target="_blank" rel="noopener">
-              <img src="${escapeHtml(photo.thumbnail)}" style="width:100%;border-radius:3px;border:1px solid #1a2a3a;" alt="photo"/>
+              <img src="${escapeHtml(photo.thumbnail)}" style="width:100%;max-height:110px;object-fit:cover;border-radius:3px;border:1px solid #1a2a3a;" alt="photo"/>
               <div style="font-size:8px;color:#4a6a7a;margin-top:2px;">${escapeHtml(photo.aircraftType || '')} · ${escapeHtml(photo.registration || '')} · © ${escapeHtml(photo.photographer || '')}</div>
             </a>`;
           }
@@ -347,7 +350,7 @@ export function WorldMap({
           if (el && (info?.thumbnail || info?.flagUrl)) {
             const imgSrc = info.thumbnail || info.flagUrl;
             el.innerHTML = `<a href="${escapeHtml(info.photoLink || '#')}" target="_blank" rel="noopener">
-              <img src="${escapeHtml(imgSrc)}" style="width:100%;border-radius:3px;border:1px solid #1a2a3a;" alt="navire"/>
+              <img src="${escapeHtml(imgSrc)}" style="width:100%;max-height:110px;object-fit:cover;border-radius:3px;border:1px solid #1a2a3a;" alt="navire"/>
               ${info.vesselName ? `<div style="font-size:8px;color:#4a6a7a;margin-top:2px;">${escapeHtml(info.vesselName)} · ${escapeHtml(info.flag || '')}</div>` : ''}
             </a>`;
           }
@@ -380,7 +383,7 @@ export function WorldMap({
             ${launch.webcastLive ? '<span style="font-size:9px;color:#ff2244">● LIVE</span>' : ''}
             <span style="font-size:9px;color:${launch.status.color};margin-left:auto;">${countdown(launch.net)}</span>
           </div>
-          ${launch.image ? `<img src="${escapeHtml(launch.image)}" style="width:100%;border-radius:3px;margin-bottom:6px;border:1px solid #1a2a3a;" onerror="this.style.display='none'"/>` : ''}
+          ${launch.image ? `<img src="${escapeHtml(launch.image)}" style="width:100%;max-height:110px;object-fit:cover;border-radius:3px;margin-bottom:6px;border:1px solid #1a2a3a;" onerror="this.style.display='none'"/>` : ''}
           <div style="color:#c8d8e8;font-size:10px;margin-bottom:4px;">${escapeHtml(launch.name)}</div>
           <div style="color:#4a6a7a;font-size:9px;">${escapeHtml(launch.rocket)}${launch.mission.type ? ' · ' + escapeHtml(launch.mission.type) : ''}${launch.mission.orbit ? ' · ' + escapeHtml(launch.mission.orbit) : ''}</div>
           ${launch.mission.desc ? `<div style="margin-top:6px;color:#6a8a9a;font-size:9px;line-height:1.6;">${escapeHtml(launch.mission.desc.slice(0, 220))}${launch.mission.desc.length > 220 ? '…' : ''}</div>` : ''}
