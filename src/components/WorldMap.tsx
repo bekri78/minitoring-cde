@@ -139,18 +139,21 @@ export function WorldMap({
 
     // ── Layer groups ───────────────────────────────────────────────────────
     const eventsCluster = (L as any).markerClusterGroup({
-      // Rayon de regroupement petit → les clusters s'éclatent dès qu'on zoome
+      // Rayon réduit agressivement par zoom → dispersion rapide dès zoom 4-5
       maxClusterRadius: (zoom: number) => {
-        if (zoom <= 3)  return 80;
-        if (zoom <= 5)  return 50;
-        if (zoom <= 7)  return 30;
-        if (zoom <= 9)  return 20;
-        return 10;
+        if (zoom <= 2)  return 60;
+        if (zoom <= 3)  return 40;
+        if (zoom <= 4)  return 25;
+        if (zoom <= 5)  return 15;
+        if (zoom <= 6)  return 10;
+        return 5;
       },
       showCoverageOnHover: false,
-      // Désactive le zoom animé sur clic cluster → éclatement immédiat
       zoomToBoundsOnClick: true,
       spiderfyOnMaxZoom:   true,
+      spiderfyDistanceMultiplier: 2,   // markers plus espacés au spiderfy
+      animate:             true,
+      animateAddingMarkers: false,     // pas d'animation à l'ajout → plus rapide
       iconCreateFunction: (cluster: any) => {
         const count = cluster.getChildCount();
         // Taille proportionnelle au count : 18px (2) → 36px (50+)
