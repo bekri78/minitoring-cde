@@ -151,8 +151,10 @@ async function enrichBatch(events, attempt = 0) {
 
 CRITICAL: The "source_country" field is GDELT's automated extraction of the NEWS ARTICLE'S PUBLICATION LOCATION — it is NOT the event location and is frequently wrong (e.g., an Australian newspaper reporting on Ukraine will show Australia). You MUST infer the true event location exclusively from the "title" content. Ignore source_country for location purposes.
 
+IMPORTANT: The "domain" field indicates the news source. State media domains (tass.ru, ria.ru, xinhuanet.com, news.cn, kcna.kp, presstv.ir, irna.ir, yonhapnews.co.kr, aljazeera.net) often have non-English URL slugs so the "title" may be a numeric ID or transliterated text. In these cases, use the domain + actor fields + subEventType to infer the event content and location. Do NOT reject events solely because the title is a numeric slug.
+
 Events:
-${events.map(e => `{"id":"${e.id}","title":"${e.title}","source_country":"${e.country}","actor1":${JSON.stringify(e.actor1||null)},"actor2":${JSON.stringify(e.actor2||null)},"subEventType":${JSON.stringify(e.subEventType||null)}}`).join('\n')}
+${events.map(e => `{"id":"${e.id}","title":"${e.title}","domain":"${e.domain||''}","source_country":"${e.country}","actor1":${JSON.stringify(e.actor1||null)},"actor2":${JSON.stringify(e.actor2||null)},"subEventType":${JSON.stringify(e.subEventType||null)}}`).join('\n')}
 
 Required output format for each event:
 {"id":"...","keep":true/false,"relevance":0-100,"title_fr":"titre français ≤12 mots","headline":"English headline ≤15 words","notes":"brief operational summary ≤20 words (what happened, where, who)","location":"Ville ou Pays réel de l'événement (inféré du titre uniquement)","category":"military|conflict|terrorism|protest|cyber|strategic|crisis|critical_incident|discard"}`;
@@ -204,7 +206,7 @@ Required output format for each event:
   const results = JSON.parse(match[0]);
   const byId    = Object.fromEntries(results.map(r => [r.id, r]));
 
-  const RELEVANCE_THRESHOLD = 65;
+  const RELEVANCE_THRESHOLD = 55;
 
   const kept = events.filter(e => {
     const r = byId[e.id];

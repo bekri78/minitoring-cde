@@ -104,11 +104,11 @@ async function refresh(force = false) {
 
   try {
     const raw        = await fetchTodayEvents();
-    const MAX_ENRICH = 250; // réduit les appels OpenAI — la diversité géo est assurée dans gdelt.js
+    const MAX_ENRICH = 400; // plus d'événements → meilleure couverture géographique
 
     // Diversité géographique : garder les zones stratégiques (Russie, Chine, etc.)
     const STRATEGIC = new Set(['RS', 'CH', 'KN', 'IR', 'SY', 'UP', 'IZ']);
-    const STRATEGIC_MIN = 30; // slots réservés dans les 250
+    const STRATEGIC_MIN = 60; // slots réservés dans les 400
     const rawSorted = [...raw].sort((a, b) => b.score - a.score);
     const rawStrategic = rawSorted.filter(e => STRATEGIC.has(e.countryCode));
     const rawOthers    = rawSorted.filter(e => !STRATEGIC.has(e.countryCode));
