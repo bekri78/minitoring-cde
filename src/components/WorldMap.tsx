@@ -1028,22 +1028,6 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup, launchesRef: M
   function tierColor(tier: string) {
     return { confirmed_military: '#ff2244', likely_military: '#ff8800', possible_state: '#ffdd55', unknown: '#4a6a7a' }[tier] || '#4a6a7a';
   }
-  function nearbyEventsHtml(raw: string) {
-    try {
-      const evts = JSON.parse(raw || '[]');
-      if (!evts.length) return '';
-      return `<div style="margin-top:8px;border-top:1px solid #1a2a3a;padding-top:6px;">
-        <div style="color:#4a6a7a;font-size:8px;letter-spacing:1px;margin-bottom:4px;">ÉVÉNEMENTS PROCHES</div>
-        ${evts.slice(0,3).map((ev: any) => `
-          <div style="margin-bottom:4px;padding:4px;background:#0a1520;border-left:2px solid #ff2244;">
-            <div style="color:#ffaa44;font-size:8px;">${escapeHtml(ev.subEventType || ev.category || '')} · ${ev.distanceKm}km</div>
-            <div style="color:#c8d8e8;font-size:9px;">${escapeHtml(ev.headline || ev.title || '')}</div>
-            ${ev.actor1 ? `<div style="color:#4a6a7a;font-size:8px;">${escapeHtml(ev.actor1)}${ev.actor2 ? ' → '+escapeHtml(ev.actor2) : ''}</div>` : ''}
-          </div>`).join('')}
-      </div>`;
-    } catch { return ''; }
-  }
-
   // Military aircraft click
   map.on('click', 'mil-aircraft', async e => {
     const feature = e.features?.[0];
@@ -1071,7 +1055,6 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup, launchesRef: M
           <div><span style="color:#4a6a7a;">CAP</span><br><span style="color:#c8d8e8;">${capStr}</span></div>
         </div>
         <div style="margin-top:6px;font-size:9px;color:#4a6a7a;">${Number(coords[1]).toFixed(3)}°, ${Number(coords[0]).toFixed(3)}° — ICAO ${escapeHtml(p.id)}</div>
-        ${nearbyEventsHtml(p.nearbyEvents)}
       </div>
     `).addTo(map);
 
@@ -1119,7 +1102,6 @@ function bindEvents(map: maplibregl.Map, popup: maplibregl.Popup, launchesRef: M
           <div><span style="color:#4a6a7a;">CAP VRAI</span><br><span style="color:#c8d8e8;">${hdgStr}</span></div>
         </div>
         <div style="margin-top:6px;font-size:9px;color:#4a6a7a;">${Number(coords[1]).toFixed(3)}°, ${Number(coords[0]).toFixed(3)}°</div>
-        ${nearbyEventsHtml(p.nearbyEvents)}
       </div>
     `).addTo(map);
 
