@@ -75,6 +75,10 @@ const NOISE_KEYWORDS = [
   'memorial service', 'tribute to', 'in memory of',
   'explainer', 'fact check', 'what to know', 'opinion:', 'op-ed',
   'health tips', 'weight loss', 'diet', 'fitness', 'wellness',
+  'birth', 'delivery', 'delivered', 'triplets', 'twins', 'pregnant',
+  'pregnancy', 'mother', 'mothers', 'maternity', 'obstetric', 'high risk mother',
+  'high-risk mother', '\uc774\ub300\ubaa9\ub3d9\ubcd1\uc6d0', '\ubcd1\uc6d0',
+  '\uc138\uc30d\ub465\uc774', '\ucd9c\uc0b0', '\uc0b0\ubaa8', '\uace0\uc704\ud5d8',
   'stroller', 'baby killed', 'child killed in shooting', 'teen shot',
   'man shot', 'woman shot', 'killed in shooting', 'shooting in brooklyn',
   'shooting in chicago', 'shooting in los angeles', 'shooting in philadelphia',
@@ -207,18 +211,41 @@ const CATEGORY_RULES = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function normalizeText(value) {
-  return String(value || '')
+  return decodeHtmlEntities(value)
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s:/._-]/g, ' ')
+    .replace(/[^\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff\u0600-\u06ff\u0400-\u04ffa-z0-9\s:/._-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
+function decodeHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&#x([0-9a-f]+);?/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);?/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
 function containsAnyKeyword(text, keywords) {
-  const normalized = normalizeText(text);
-  return keywords.some(k => normalized.includes(normalizeText(k)));
+  const decoded = decodeHtmlEntities(text).toLowerCase();
+  const normalized = normalizeText(decoded);
+  return keywords.some(k => decoded.includes(decodeHtmlEntities(k).toLowerCase()) || normalized.includes(normalizeText(k)));
+}
+
+const SECURITY_OVERRIDE_KEYWORDS = [
+  'attack', 'airstrike', 'strike', 'missile', 'drone', 'military', 'war',
+  'terror', 'bomb', 'explosion', 'hostage', 'raid', 'shelling', 'cyberattack',
+  'ransomware', 'hack', 'sanction', 'border', 'coup', 'riot', 'protest',
+  '\uacf5\uaca9', '\ud14c\ub7ec', '\ud3ed\ubc1c', '\uc804\uc7c1', '\ubbf8\uc0ac\uc77c',
+];
+
+function isCivilianNoise(text) {
+  return containsAnyKeyword(text, CIVILIAN_OVERRIDE) && !containsAnyKeyword(text, SECURITY_OVERRIDE_KEYWORDS);
 }
 
 // Segments URL qui ne sont pas des titres (navigation, catégories, IDs courts)
@@ -242,7 +269,7 @@ function titleFromUrl(url) {
     // 1) Certains sites injectent le titre natif dans les query params (?title=...).
     // On le récupère avant de parser les segments de path.
     for (const [, rawParam] of u.searchParams.entries()) {
-      const candidate = decodeURIComponent(String(rawParam || ''))
+      const candidate = decodeHtmlEntities(decodeURIComponent(String(rawParam || '')))
         .replace(/[+_]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
@@ -252,7 +279,7 @@ function titleFromUrl(url) {
 
     const segments = u.pathname.split('/').filter(Boolean);
     for (let i = segments.length - 1; i >= 0; i--) {
-      const raw = decodeURIComponent(segments[i])
+      const raw = decodeHtmlEntities(decodeURIComponent(segments[i]))
         .replace(/\.[a-z0-9]{2,6}$/i, '')
         .replace(/[-_+%]+/g, ' ')
         .replace(/\s+/g, ' ')
@@ -300,6 +327,10 @@ const CIVILIAN_OVERRIDE = [
   'drug trial', 'patient', 'vaccine', 'antibody', 'immunotherapy',
   'cancer', 'tumor', 'oncology', 'therapy', 'treatment', 'hospital',
   'biotech', 'pharmaceutical', 'fda', 'ema', 'approval', 'dosing',
+  'birth', 'delivery', 'delivered', 'triplets', 'twins', 'pregnant',
+  'pregnancy', 'mother', 'mothers', 'maternity', 'obstetric', 'high risk mother',
+  'high-risk mother', '\uc774\ub300\ubaa9\ub3d9\ubcd1\uc6d0', '\ubcd1\uc6d0',
+  '\uc138\uc30d\ub465\uc774', '\ucd9c\uc0b0', '\uc0b0\ubaa8', '\uace0\uc704\ud5d8',
   // Politique / élections
   'election', 'vote', 'ballot', 'parliament', 'legislation', 'law passed',
   // Économie / finance / transport civil
@@ -328,7 +359,7 @@ function classifyEvent(text, eventCode = '') {
   const normalizedCode = String(eventCode || '');
 
   // Si le texte contient des termes clairement civils → ne pas l'envoyer en faux positif sécurité.
-  const isCivilian = CIVILIAN_OVERRIDE.some(k => normalized.includes(normalizeText(k)));
+  const isCivilian = isCivilianNoise(text);
   if (isCivilian) return 'discard';
 
   // Les mots du titre/article priment sur CAMEO: GDELT mappe souvent des articles
@@ -693,7 +724,7 @@ function rowToEvent(row, hotspotIndex) {
 
   const domain = safeDomainFromUrl(url);
   // Priorité : titre GKG (PAGE_TITLE) → extraction URL → fallback GDELT metadata
-  const gkgTitle = (row.page_title || '').trim().replace(/\s+/g, ' ');
+  const gkgTitle = decodeHtmlEntities(row.page_title || '').trim().replace(/\s+/g, ' ');
   const title  = (gkgTitle.length > 4 ? gkgTitle : null)
               || titleFromUrl(url)
               || buildFallbackTitle(row);
