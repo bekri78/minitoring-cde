@@ -237,6 +237,7 @@ export function WorldMap({
       const domain    = escapeHtml(p.domain || '');
       const dateStr   = escapeHtml(formatDate(p.date));
       const rawTitle  = p.title || p.domain || '';
+      const rawTitleFr = p.titleFr || '';
       const popId = `ev-${p.id || Math.random().toString(36).slice(2)}`;
 
       // Titre stocké en data-attribute pour éviter les problèmes d'échappement dans onclick
@@ -244,6 +245,7 @@ export function WorldMap({
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
           <button id="${popId}-btn"
             data-title="${escapeHtml(rawTitle)}"
+            data-title-fr="${escapeHtml(rawTitleFr)}"
             data-url="${escapeHtml(p.url || '')}"
             data-domain="${escapeHtml(p.domain || '')}"
             data-country="${escapeHtml(p.country || '')}"
@@ -255,6 +257,8 @@ export function WorldMap({
               var btn=document.getElementById('${popId}-btn');
               var box=document.getElementById('${popId}-title');
               if(!btn||!box)return;
+              var cached=btn.getAttribute('data-title-fr')||'';
+              if(cached){box.textContent=cached;btn.textContent='✓ FR';return;}
               var q=btn.getAttribute('data-title')||'';
               btn.textContent='...';btn.disabled=true;
               fetch('${RAILWAY_URL}/translate-title',{

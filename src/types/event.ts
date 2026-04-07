@@ -1,6 +1,9 @@
 export interface Event {
   id: string;
   title: string;
+  titleFr?: string;
+  originalTitle?: string;
+  nativeTitle?: string;
   url: string;
   domain: string;
   date: string;

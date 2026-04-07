@@ -190,7 +190,10 @@ function mergeAiResult(event, result) {
 
   return {
     ...event,
-    title: result?.title_fr || event.title,
+    originalTitle: event.originalTitle || event.title,
+    nativeTitle: event.nativeTitle || event.title,
+    title: event.title,
+    titleFr: result?.title_fr || event.titleFr || null,
     headline: result?.headline || event.headline || null,
     notes: result?.notes || event.notes || null,
     category,
