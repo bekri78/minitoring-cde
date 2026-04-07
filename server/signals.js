@@ -17,8 +17,8 @@ const GROQ_MODEL   = 'llama-3.1-8b-instant';
 const CACHE_TTL_MS  = 4 * 60 * 60 * 1000; // 4h
 const GRID_DEG      = 2;   // cellule 2° ≈ 220 km
 const MIN_EVENTS    = 3;   // minimum d'events pour générer un résumé
-const MAX_CLUSTERS  = 60;  // max clusters à envoyer à Groq par cycle
-const CONCURRENCY   = 3;   // appels Groq simultanés max
+const MAX_CLUSTERS  = 30;  // réduit pour respecter le rate limit Groq free tier
+const CONCURRENCY   = 1;   // 1 appel à la fois — Groq free = ~30 req/min
 
 let signalsCache = { signals: [], lastUpdate: null };
 let isRunning    = false;
@@ -95,31 +95,47 @@ Respond with a JSON object only, no markdown:
 
 Rules: max 5 key_points, English only, factual and concise, no speculation.`;
 
-  const resp = await fetch(GROQ_URL, {
-    method:  'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${GROQ_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model:       GROQ_MODEL,
-      messages:    [{ role: 'user', content: prompt }],
-      temperature: 0,
-      max_tokens:  400,
-    }),
-    signal: AbortSignal.timeout(15000),
-  });
+  // Retry avec backoff sur 429 (rate limit Groq free tier)
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await sleep(attempt * 8000); // 8s, 16s
 
-  if (!resp.ok) throw new Error(`Groq HTTP ${resp.status}`);
+    const resp = await fetch(GROQ_URL, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model:       GROQ_MODEL,
+        messages:    [{ role: 'user', content: prompt }],
+        temperature: 0,
+        max_tokens:  400,
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
 
-  const data = await resp.json();
-  const text = data.choices?.[0]?.message?.content || '';
+    if (resp.status === 429) { lastErr = new Error('Groq HTTP 429'); continue; }
+    if (!resp.ok) throw new Error(`Groq HTTP ${resp.status}`);
 
-  // Extraire le JSON de la réponse
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error('no JSON in response');
+    const data = await resp.json();
+    const text = data.choices?.[0]?.message?.content || '';
 
-  return JSON.parse(match[0]);
+    // Extraire le JSON de la réponse (tolérant aux préfixes texte)
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('no JSON in response');
+
+    // Parser avec tolérance aux JSON tronqués
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      // Essayer de réparer le JSON tronqué (fermer les accolades manquantes)
+      const repaired = match[0].replace(/,\s*$/, '') + '}}';
+      return JSON.parse(repaired);
+    }
+  }
+  throw lastErr;
 }
 
 // ── Générer tous les signals ───────────────────────────────────────────────
