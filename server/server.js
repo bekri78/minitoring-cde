@@ -104,7 +104,7 @@ async function refresh(force = false) {
 
   try {
     const raw        = await fetchTodayEvents();
-    const MAX_ENRICH = 400; // plus d'événements → meilleure couverture géographique
+    const MAX_ENRICH = 800; // plus d'événements → meilleure couverture géographique
 
     // Diversité géographique : garder les zones stratégiques (Russie, Chine, etc.)
     const STRATEGIC = new Set(['RS', 'CH', 'KN', 'IR', 'SY', 'UP', 'IZ']);
