@@ -372,58 +372,63 @@ const DATEADDED_FILTER = (hours) =>
 // Événements individuels des dernières 24h, avec score composite BigQuery.
 const RECENT_EVENTS_SQL = `
   SELECT
-    CAST(GlobalEventID AS STRING)     AS id,
-    CAST(SQLDATE AS STRING)           AS date,
-    DATEADDED                         AS date_added,
-    IFNULL(ActionGeo_FullName, '')    AS location,
-    IFNULL(ActionGeo_CountryCode, '') AS country_code,
-    IFNULL(Actor1Name, '')            AS actor1,
-    IFNULL(Actor2Name, '')            AS actor2,
-    IFNULL(EventCode, '')             AS event_code,
-    IFNULL(EventRootCode, '')         AS root_code,
-    QuadClass                         AS quad_class,
-    GoldsteinScale                    AS goldstein,
-    NumMentions                       AS num_mentions,
-    NumSources                        AS num_sources,
-    NumArticles                       AS num_articles,
-    AvgTone                           AS avg_tone,
-    CAST(ActionGeo_Type AS STRING)    AS geo_type,
-    ActionGeo_Lat                     AS latitude,
-    ActionGeo_Long                    AS longitude,
-    SOURCEURL                         AS source_url,
+    CAST(e.GlobalEventID AS STRING)     AS id,
+    CAST(e.SQLDATE AS STRING)           AS date,
+    e.DATEADDED                         AS date_added,
+    IFNULL(e.ActionGeo_FullName, '')    AS location,
+    IFNULL(e.ActionGeo_CountryCode, '') AS country_code,
+    IFNULL(e.Actor1Name, '')            AS actor1,
+    IFNULL(e.Actor2Name, '')            AS actor2,
+    IFNULL(e.EventCode, '')             AS event_code,
+    IFNULL(e.EventRootCode, '')         AS root_code,
+    e.QuadClass                         AS quad_class,
+    e.GoldsteinScale                    AS goldstein,
+    e.NumMentions                       AS num_mentions,
+    e.NumSources                        AS num_sources,
+    e.NumArticles                       AS num_articles,
+    e.AvgTone                           AS avg_tone,
+    CAST(e.ActionGeo_Type AS STRING)    AS geo_type,
+    e.ActionGeo_Lat                     AS latitude,
+    e.ActionGeo_Long                    AS longitude,
+    e.SOURCEURL                         AS source_url,
+    -- Titre réel de l'article depuis la table GKG (PAGE_TITLE dans Extras)
+    REGEXP_EXTRACT(g.Extras, r'<PAGE_TITLE>([^<]{4,300})</PAGE_TITLE>') AS page_title,
     CASE
-      WHEN EventRootCode IN ('18','19','20') THEN 'hard_events'
-      WHEN EventRootCode = '14'             THEN 'protests'
-      WHEN EventRootCode IN ('03','04','05') THEN 'diplomacy'
+      WHEN e.EventRootCode IN ('18','19','20') THEN 'hard_events'
+      WHEN e.EventRootCode = '14'             THEN 'protests'
+      WHEN e.EventRootCode IN ('03','04','05') THEN 'diplomacy'
       ELSE 'other'
     END AS layer_type,
     -- Score composite BigQuery : sévérité + médias + bonus récence
     ROUND(
-      ABS(GoldsteinScale) * 10
-      + LN(1 + NumMentions)  * 3
-      + LN(1 + NumSources)   * 5
-      + LN(1 + NumArticles)  * 2
+      ABS(e.GoldsteinScale) * 10
+      + LN(1 + e.NumMentions)  * 3
+      + LN(1 + e.NumSources)   * 5
+      + LN(1 + e.NumArticles)  * 2
       + CASE
           WHEN ${DATEADDED_FILTER(2)}  THEN 20
           WHEN ${DATEADDED_FILTER(6)}  THEN 10
           ELSE 0
         END
     ) AS bq_signal_score
-  FROM \`gdelt-bq.gdeltv2.events\`
+  FROM \`gdelt-bq.gdeltv2.events\` e
+  LEFT JOIN \`gdelt-bq.gdeltv2.gkg\` g
+    ON g.DocumentIdentifier = e.SOURCEURL
+    AND CAST(g.DATE AS STRING) >= FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY)) || '000000'
   WHERE
     ${DATEADDED_FILTER(24)}
-    AND ActionGeo_Lat  IS NOT NULL
-    AND ActionGeo_Long IS NOT NULL
-    AND ActionGeo_Lat  != 0
-    AND ActionGeo_Long != 0
-    AND SOURCEURL IS NOT NULL
-    AND SOURCEURL != ''
+    AND e.ActionGeo_Lat  IS NOT NULL
+    AND e.ActionGeo_Long IS NOT NULL
+    AND e.ActionGeo_Lat  != 0
+    AND e.ActionGeo_Long != 0
+    AND e.SOURCEURL IS NOT NULL
+    AND e.SOURCEURL != ''
     AND (
       -- Violence militaire directe : combat, frappes, opérations armées, terrorisme
-      (EventRootCode IN ('18','19','20') AND GoldsteinScale <= -3.0)
+      (e.EventRootCode IN ('18','19','20') AND e.GoldsteinScale <= -3.0)
       OR
       -- Insurrections violentes / coups d'état (seulement les plus graves)
-      (EventRootCode = '14' AND GoldsteinScale <= -6.0)
+      (e.EventRootCode = '14' AND e.GoldsteinScale <= -6.0)
     )
   ORDER BY bq_signal_score DESC
   LIMIT 5000
@@ -554,7 +559,11 @@ function rowToEvent(row, hotspotIndex) {
   }
 
   const domain = safeDomainFromUrl(url);
-  const title  = titleFromUrl(url) || buildFallbackTitle(row);
+  // Priorité : titre GKG (PAGE_TITLE) → extraction URL → fallback GDELT metadata
+  const gkgTitle = (row.page_title || '').trim().replace(/\s+/g, ' ');
+  const title  = (gkgTitle.length > 4 ? gkgTitle : null)
+              || titleFromUrl(url)
+              || buildFallbackTitle(row);
 
   if (isNoiseEvent(title, url, domain)) return null;
 
@@ -597,91 +606,6 @@ function rowToEvent(row, hotspotIndex) {
   };
 }
 
-// ── Fetch du vrai titre HTML pour les URLs sans slug lisible ─────────────
-const TITLE_FETCH_CONCURRENCY = 20;
-const TITLE_FETCH_TIMEOUT_MS  = 5000;
-const TITLE_MAX_BYTES         = 15000; // lire seulement les 15 premiers Ko
-
-async function fetchPageTitle(url) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TITLE_FETCH_TIMEOUT_MS);
-  try {
-    const resp = await fetch(url, {
-      signal:  ctrl.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)',
-        'Accept':     'text/html,application/xhtml+xml',
-      },
-    });
-    if (!resp.ok || !resp.body) return null;
-
-    // Lire seulement les premiers Ko
-    const reader = resp.body.getReader();
-    const dec    = new TextDecoder('utf-8', { fatal: false });
-    let html = '';
-    while (html.length < TITLE_MAX_BYTES) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      html += dec.decode(value, { stream: true });
-      // Arrêter dès qu'on a trouvé ce qu'on cherche
-      if (/<\/title>/i.test(html) && /og:title/i.test(html)) break;
-      if (/<\/title>/i.test(html) && html.length > 3000) break;
-    }
-    reader.cancel().catch(() => {});
-
-    // og:title (priorité — titre propre sans suffixe site)
-    const og = html.match(/property=["']og:title["'][^>]*content=["']([^"']{4,200})["']/i)
-            || html.match(/content=["']([^"']{4,200})["'][^>]*property=["']og:title["']/i);
-    if (og) return og[1].trim();
-
-    // <title> standard
-    const t = html.match(/<title[^>]*>([^<]{4,300})<\/title>/i);
-    if (t) {
-      // Enlever le suffixe " | Site Name" si présent
-      return t[1].split(/[|\-–—]/, 1)[0].trim() || t[1].trim();
-    }
-    return null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// Pays dont les URLs ne contiennent jamais le titre — on va fetcher leur page
-const FETCH_TITLE_COUNTRIES = new Set([
-  'CH','KN','KS','TW','VM','JP','RS','IR','IZ','SY','UP',
-  'AF','PK','LY','YM','SU','EG','SA','AE','TR','TH','ID','IN',
-]);
-
-async function enrichTitlesFromPages(events) {
-  // Sélectionner les events qui ont besoin d'un fetch :
-  // - pays dont les URLs n'ont pas de slug, ET
-  // - titre qui ressemble à un fallback (contient " — ") ou trop court
-  const needFetch = events.filter(e =>
-    FETCH_TITLE_COUNTRIES.has(e.countryCode) &&
-    (e.title.includes(' — ') || e.title.length < 25)
-  );
-
-  if (!needFetch.length) return;
-  console.log(`[gdelt-bq] fetching real titles for ${needFetch.length} foreign events...`);
-
-  // Pool de concurrence simple
-  let idx = 0;
-  let fetched = 0;
-  async function worker() {
-    while (idx < needFetch.length) {
-      const ev = needFetch[idx++];
-      const title = await fetchPageTitle(ev.url);
-      if (title && title.length > 4) {
-        ev.title = title;
-        fetched++;
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: TITLE_FETCH_CONCURRENCY }, worker));
-  console.log(`[gdelt-bq] title fetch done — ${fetched}/${needFetch.length} titles updated`);
-}
 
 // ── Main fetch function ───────────────────────────────────────────────────
 async function fetchTodayEvents() {
@@ -736,9 +660,6 @@ async function fetchTodayEvents() {
 
   const strategicCount = events.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)).length;
   console.log(`[gdelt-bq] done — ${events.length} events (${strategicCount} strategic)`);
-
-  // Fetch des vrais titres HTML pour les pays dont les URLs n'ont pas de slug
-  await enrichTitlesFromPages(events);
 
   return events;
 }
