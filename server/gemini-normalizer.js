@@ -4,6 +4,9 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL   = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 const GEMINI_LIMIT   = Number(process.env.GEMINI_NORMALIZE_LIMIT || 80);
 const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
+const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
+const MISTRAL_MODEL   = process.env.MISTRAL_TRANSLATE_MODEL || 'mistral-small-latest';
+const MISTRAL_URL     = 'https://api.mistral.ai/v1/chat/completions';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
 const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || 'gpt-4o-mini';
 const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
@@ -265,6 +268,95 @@ async function translateTitleWithOpenAI(event) {
   };
 }
 
+async function translateTitleWithMistral(event) {
+  if (!MISTRAL_API_KEY) {
+    const err = new Error('MISTRAL_API_KEY missing');
+    err.status = 503;
+    throw err;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+  let resp;
+  try {
+    resp = await fetch(MISTRAL_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${MISTRAL_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: MISTRAL_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: 'Translate OSINT/geopolitical article titles into concise French. Return only a valid JSON object.',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              title: event.title,
+              domain: event.domain || '',
+              country: event.country || '',
+              category: event.category || 'incident',
+              eventCode: event.eventCode || '',
+              rootCode: event.rootCode || '',
+              subEventType: event.subEventType || '',
+              response_format: {
+                fr: 'French title, <= 16 words',
+                en: 'English title, <= 16 words',
+                notes: 'brief operational summary in French, <= 22 words',
+                language: 'detected source language code or name',
+              },
+            }),
+          },
+        ],
+        temperature: 0,
+        response_format: { type: 'json_object' },
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    const err = new Error(`Mistral HTTP_${resp.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
+    err.status = resp.status >= 500 ? 502 : 503;
+    throw err;
+  }
+
+  const data = await resp.json();
+  const content = data.choices?.[0]?.message?.content;
+  const text = Array.isArray(content)
+    ? content.map(part => part?.text || part?.content || '').join('\n')
+    : String(content || '');
+  const result = extractJsonObject(text) || {};
+  const output = result.output && typeof result.output === 'object' ? result.output : {};
+  const fr = result.fr || result.title_fr || result.french || result.translation_fr ||
+    result.translation || output.fr || output.title_fr || output.french || output.translation;
+  const en = result.en || result.headline || result.english || output.en || output.headline || output.english;
+  const notes = result.notes || result.summary || output.notes || output.summary;
+  const language = result.language || result.detected_language || output.language || output.detected_language;
+
+  return {
+    id: event.id,
+    keep: true,
+    originalTitle: event.title,
+    title: fr || event.title,
+    fr: fr || event.title,
+    headline: en || null,
+    notes: notes || null,
+    category: VALID_CATEGORIES.has(event.category) ? event.category : 'incident',
+    relevance: Number(event.relevance || 0),
+    language: language || null,
+    isRomanized: false,
+    nativeTitle: null,
+    provider: 'mistral',
+  };
+}
+
 async function normalizeEventsWithGemini(events) {
   if (!GEMINI_API_KEY) {
     console.log('[gemini] skipped: GEMINI_API_KEY missing');
@@ -312,27 +404,6 @@ async function normalizeEventsWithGemini(events) {
 }
 
 async function normalizeTitleWithGemini(event) {
-  if (!GEMINI_API_KEY) {
-    if (OPENAI_TRANSLATE_FALLBACK && OPENAI_API_KEY) {
-      console.warn('[translate-title] Gemini API key missing; falling back to OpenAI');
-      const title = String(event?.title || '').trim();
-      if (!title) {
-        const err = new Error('title required');
-        err.status = 400;
-        throw err;
-      }
-      return translateTitleWithOpenAI({
-        ...event,
-        id: event?.id || `title_${Date.now()}`,
-        title,
-        category: event?.category || 'incident',
-      });
-    }
-    const err = new Error('GEMINI_API_KEY missing');
-    err.status = 503;
-    throw err;
-  }
-
   const title = String(event?.title || '').trim();
   if (!title) {
     const err = new Error('title required');
@@ -340,13 +411,27 @@ async function normalizeTitleWithGemini(event) {
     throw err;
   }
 
-  const id = event.id || `title_${Date.now()}`;
+  const id = event?.id || `title_${Date.now()}`;
   const baseEvent = {
     ...event,
     id,
     title,
-    category: event.category || 'incident',
+    category: event?.category || 'incident',
   };
+
+  if (MISTRAL_API_KEY) {
+    return translateTitleWithMistral(baseEvent);
+  }
+
+  if (!GEMINI_API_KEY) {
+    if (OPENAI_TRANSLATE_FALLBACK && OPENAI_API_KEY) {
+      console.warn('[translate-title] Gemini API key missing; falling back to OpenAI');
+      return translateTitleWithOpenAI(baseEvent);
+    }
+    const err = new Error('MISTRAL_API_KEY or GEMINI_API_KEY missing');
+    err.status = 503;
+    throw err;
+  }
   let result;
   try {
     [result] = await normalizeBatch([baseEvent]);
