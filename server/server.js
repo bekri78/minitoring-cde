@@ -17,6 +17,7 @@ const { runPipeline }                                                = require('
 const { fetchAircraftPhoto }                                         = require('./planespotters');
 const { fetchShipPhoto }                                             = require('./shipphotos');
 const { attachNearbyEvents }                                         = require('./proximity');
+const { refreshSignals, getSignalsCache, isStale }                   = require('./signals');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -125,6 +126,8 @@ async function refresh(force = false) {
     cache.status     = 'ok';
     saveToDisk(today, events, cache.lastUpdate);
     console.log(`[refresh] done — ${events.length} events after AI enrichment`);
+    // Lancer la synthèse Groq en arrière-plan (pas besoin d'attendre)
+    refreshSignals(events).catch(err => console.error('[signals]', err.message));
   } catch (err) {
     cache.status = 'error';
     console.error('[refresh] failed:', err.message);
@@ -270,6 +273,17 @@ app.get('/api/aircraft/military', (req, res) => {
 app.get('/military-ships', (req, res) => {
   const c = getShipCache();
   res.json(c);
+});
+
+// ── Signals géopolitiques (synthèse Groq par zone) ────────────────────────
+app.get('/api/signals', (req, res) => {
+  const c = getSignalsCache();
+  res.json({
+    signals:    c.signals,
+    count:      c.signals.length,
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  });
 });
 
 // ── Photo avion via planespotters.net ─────────────────────────────────────
