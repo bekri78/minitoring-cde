@@ -234,10 +234,7 @@ export function WorldMap({
       const popId = `ev-${p.id || Math.random().toString(36).slice(2)}`;
 
       marker.bindPopup(mono(`
-        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px;">
-          <span style="padding:1px 6px;font-size:9px;background:${catColor}22;color:${catColor};border:1px solid ${catColor}55;">${catLabel}</span>
-          <span style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#4a6a7a;border:1px solid #2a3a4a;">${domain}</span>
-          <span style="padding:1px 6px;font-size:9px;color:#4a6a7a;margin-left:auto;">${dateStr}</span>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
           <button id="${popId}-btn" onclick="(function(){
             var btn=document.getElementById('${popId}-btn');
             var box=document.getElementById('${popId}-title');
@@ -251,10 +248,14 @@ export function WorldMap({
                 else{btn.textContent='ERR';}
               })
               .catch(function(){btn.textContent='ERR';btn.disabled=false;});
-          })()" style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#00d4ff;border:1px solid #1a4a5a;cursor:pointer;font-family:inherit;">FR</button>
+          })()" style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#00d4ff;border:1px solid #1a4a5a;cursor:pointer;font-family:inherit;flex-shrink:0;">FR</button>
+          <span style="padding:1px 6px;font-size:9px;background:${catColor}22;color:${catColor};border:1px solid ${catColor}55;">${catLabel}</span>
+          <span style="font-size:9px;color:#4a6a7a;margin-left:auto;white-space:nowrap;">${dateStr}</span>
         </div>
-        <p id="${popId}-title" style="margin:0;font-size:11px;line-height:1.5;color:#e8f4ff;">${escapeHtml(rawTitle)}</p>
-        ${p.url ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener" style="font-size:9px;color:#4a6a7a;text-decoration:none;border-bottom:1px dotted #2a3a4a;">↗ source</a>` : ''}
+        <p id="${popId}-title" style="margin:0 0 8px 0;font-size:11px;line-height:1.5;color:#e8f4ff;">${escapeHtml(rawTitle)}</p>
+        <div style="font-size:9px;color:#2a4a5a;border-top:1px solid #0e1a24;padding-top:6px;">
+          ${p.url ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener" style="color:#2a5a6a;text-decoration:none;">↗ ${domain}</a>` : domain}
+        </div>
       `), { maxWidth: 340 });
 
       cluster.addLayer(marker);
