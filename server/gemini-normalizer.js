@@ -4,6 +4,9 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL   = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 const GEMINI_LIMIT   = Number(process.env.GEMINI_NORMALIZE_LIMIT || 80);
 const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
+const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || 'gpt-4o-mini';
+const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
 
 const VALID_CATEGORIES = new Set([
   'terrorism', 'military', 'conflict', 'protest',
@@ -132,7 +135,9 @@ async function normalizeBatch(events) {
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
-    throw new Error(`HTTP_${resp.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
+    const err = new Error(`HTTP_${resp.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
+    err.status = resp.status >= 500 ? 502 : 503;
+    throw err;
   }
 
   const data = await resp.json();
@@ -157,6 +162,99 @@ function mergeResult(event, result) {
     isRomanized: Boolean(result.is_romanized),
     nativeTitle: result.native_text || event.nativeTitle || null,
     score: Number(event.score || 0) + Math.round(relevance / 5),
+  };
+}
+
+function extractJsonObject(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch (_) {}
+
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  return JSON.parse(match[0]);
+}
+
+async function translateTitleWithOpenAI(event) {
+  if (!OPENAI_API_KEY) {
+    const err = new Error('OPENAI_API_KEY missing');
+    err.status = 503;
+    throw err;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+  let resp;
+  try {
+    resp = await fetch(OPENAI_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: 'Translate OSINT/geopolitical article titles into concise French. Return JSON only.',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              title: event.title,
+              domain: event.domain || '',
+              country: event.country || '',
+              category: event.category || 'incident',
+              eventCode: event.eventCode || '',
+              rootCode: event.rootCode || '',
+              subEventType: event.subEventType || '',
+              output: {
+                fr: 'French title, <= 16 words',
+                en: 'English title, <= 16 words',
+                notes: 'brief operational summary in French, <= 22 words',
+                language: 'detected language',
+              },
+            }),
+          },
+        ],
+        temperature: 0,
+        response_format: { type: 'json_object' },
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    const err = new Error(`OpenAI HTTP_${resp.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
+    err.status = resp.status >= 500 ? 502 : 503;
+    throw err;
+  }
+
+  const data = await resp.json();
+  const text = data.choices?.[0]?.message?.content || '';
+  const result = extractJsonObject(text) || {};
+  return {
+    id: event.id,
+    keep: true,
+    originalTitle: event.title,
+    title: result.fr || event.title,
+    fr: result.fr || event.title,
+    headline: result.en || null,
+    notes: result.notes || null,
+    category: VALID_CATEGORIES.has(event.category) ? event.category : 'incident',
+    relevance: Number(event.relevance || 0),
+    language: result.language || null,
+    isRomanized: false,
+    nativeTitle: null,
+    provider: 'openai',
   };
 }
 
@@ -208,6 +306,21 @@ async function normalizeEventsWithGemini(events) {
 
 async function normalizeTitleWithGemini(event) {
   if (!GEMINI_API_KEY) {
+    if (OPENAI_API_KEY) {
+      console.warn('[translate-title] Gemini API key missing; falling back to OpenAI');
+      const title = String(event?.title || '').trim();
+      if (!title) {
+        const err = new Error('title required');
+        err.status = 400;
+        throw err;
+      }
+      return translateTitleWithOpenAI({
+        ...event,
+        id: event?.id || `title_${Date.now()}`,
+        title,
+        category: event?.category || 'incident',
+      });
+    }
     const err = new Error('GEMINI_API_KEY missing');
     err.status = 503;
     throw err;
@@ -227,7 +340,16 @@ async function normalizeTitleWithGemini(event) {
     title,
     category: event.category || 'incident',
   };
-  const [result] = await normalizeBatch([baseEvent]);
+  let result;
+  try {
+    [result] = await normalizeBatch([baseEvent]);
+  } catch (err) {
+    if (OPENAI_API_KEY) {
+      console.warn(`[translate-title] Gemini failed (${err.message}); falling back to OpenAI`);
+      return translateTitleWithOpenAI(baseEvent);
+    }
+    throw err;
+  }
   const merged = mergeResult(baseEvent, result);
 
   if (!merged) {

@@ -271,13 +271,18 @@ export function WorldMap({
                   subEventType:btn.getAttribute('data-sub-event-type')||''
                 })
               })
-                .then(function(r){return r.json();})
+                .then(function(r){
+                  return r.json().then(function(d){
+                    if(!r.ok)throw new Error((d&&d.error)||'translation_failed');
+                    return d;
+                  });
+                })
                 .then(function(d){
                   var tr=d&&(d.title||d.fr);
                   if(tr){box.textContent=tr;btn.textContent='✓ FR';}
-                  else{btn.textContent='ERR';}
+                  else{btn.textContent='NO FR';btn.disabled=false;}
                 })
-                .catch(function(){btn.textContent='ERR';btn.disabled=false;});
+                .catch(function(err){btn.textContent=String(err&&err.message||'ERR').indexOf('API')>=0?'API':'ERR';btn.disabled=false;});
             })()"
             style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#00d4ff;border:1px solid #1a4a5a;cursor:pointer;font-family:inherit;flex-shrink:0;">FR</button>
           <span style="padding:1px 6px;font-size:9px;background:${catColor}22;color:${catColor};border:1px solid ${catColor}55;">${catLabel}</span>
