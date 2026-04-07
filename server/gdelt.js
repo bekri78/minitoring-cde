@@ -190,6 +190,20 @@ function titleFromUrl(url) {
   if (!url) return null;
   try {
     const u = new URL(url);
+    const hasNativeScript = (value) =>
+      /[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff\u0600-\u06ff\u0400-\u04ff]/.test(value);
+
+    // 1) Certains sites injectent le titre natif dans les query params (?title=...).
+    // On le récupère avant de parser les segments de path.
+    for (const [, rawParam] of u.searchParams.entries()) {
+      const candidate = decodeURIComponent(String(rawParam || ''))
+        .replace(/[+_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!candidate) continue;
+      if (hasNativeScript(candidate) && candidate.length >= 4) return candidate;
+    }
+
     const segments = u.pathname.split('/').filter(Boolean);
     for (let i = segments.length - 1; i >= 0; i--) {
       const raw = decodeURIComponent(segments[i])
@@ -198,14 +212,17 @@ function titleFromUrl(url) {
         .replace(/\s+/g, ' ')
         .trim();
 
-      if (!raw || raw.length < 10) continue;
+      if (!raw) continue;
       if (/^\d+$/.test(raw)) continue;                          // ID numérique pur
       if (URL_NAV_SEGMENTS.has(raw.toLowerCase())) continue;    // segment navigation
 
+      // Accepte : caractères CJK / Hangul / Kana / Arabe / Cyrillique
+      // Même si court (<10), car les titres natifs peuvent être compacts.
+      if (hasNativeScript(raw) && raw.length >= 4) return raw;
+
+      if (raw.length < 10) continue;
       // Accepte : titre latin avec au moins 2 mots OU assez long
       if (/[a-zA-Z]{3,}/.test(raw) && (raw.includes(' ') || raw.length >= 20)) return raw;
-      // Accepte : caractères CJK / Hangul / Kana / Arabe / Cyrillique
-      if (/[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff\u0600-\u06ff\u0400-\u04ff]/.test(raw)) return raw;
     }
     return null;
   } catch {
