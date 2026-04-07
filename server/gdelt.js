@@ -597,6 +597,92 @@ function rowToEvent(row, hotspotIndex) {
   };
 }
 
+// ── Fetch du vrai titre HTML pour les URLs sans slug lisible ─────────────
+const TITLE_FETCH_CONCURRENCY = 20;
+const TITLE_FETCH_TIMEOUT_MS  = 5000;
+const TITLE_MAX_BYTES         = 15000; // lire seulement les 15 premiers Ko
+
+async function fetchPageTitle(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TITLE_FETCH_TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, {
+      signal:  ctrl.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; NewsBot/1.0)',
+        'Accept':     'text/html,application/xhtml+xml',
+      },
+    });
+    if (!resp.ok || !resp.body) return null;
+
+    // Lire seulement les premiers Ko
+    const reader = resp.body.getReader();
+    const dec    = new TextDecoder('utf-8', { fatal: false });
+    let html = '';
+    while (html.length < TITLE_MAX_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      html += dec.decode(value, { stream: true });
+      // Arrêter dès qu'on a trouvé ce qu'on cherche
+      if (/<\/title>/i.test(html) && /og:title/i.test(html)) break;
+      if (/<\/title>/i.test(html) && html.length > 3000) break;
+    }
+    reader.cancel().catch(() => {});
+
+    // og:title (priorité — titre propre sans suffixe site)
+    const og = html.match(/property=["']og:title["'][^>]*content=["']([^"']{4,200})["']/i)
+            || html.match(/content=["']([^"']{4,200})["'][^>]*property=["']og:title["']/i);
+    if (og) return og[1].trim();
+
+    // <title> standard
+    const t = html.match(/<title[^>]*>([^<]{4,300})<\/title>/i);
+    if (t) {
+      // Enlever le suffixe " | Site Name" si présent
+      return t[1].split(/[|\-–—]/, 1)[0].trim() || t[1].trim();
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Pays dont les URLs ne contiennent jamais le titre — on va fetcher leur page
+const FETCH_TITLE_COUNTRIES = new Set([
+  'CH','KN','KS','TW','VM','JP','RS','IR','IZ','SY','UP',
+  'AF','PK','LY','YM','SU','EG','SA','AE','TR','TH','ID','IN',
+]);
+
+async function enrichTitlesFromPages(events) {
+  // Sélectionner les events qui ont besoin d'un fetch :
+  // - pays dont les URLs n'ont pas de slug, ET
+  // - titre qui ressemble à un fallback (contient " — ") ou trop court
+  const needFetch = events.filter(e =>
+    FETCH_TITLE_COUNTRIES.has(e.countryCode) &&
+    (e.title.includes(' — ') || e.title.length < 25)
+  );
+
+  if (!needFetch.length) return;
+  console.log(`[gdelt-bq] fetching real titles for ${needFetch.length} foreign events...`);
+
+  // Pool de concurrence simple
+  let idx = 0;
+  let fetched = 0;
+  async function worker() {
+    while (idx < needFetch.length) {
+      const ev = needFetch[idx++];
+      const title = await fetchPageTitle(ev.url);
+      if (title && title.length > 4) {
+        ev.title = title;
+        fetched++;
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: TITLE_FETCH_CONCURRENCY }, worker));
+  console.log(`[gdelt-bq] title fetch done — ${fetched}/${needFetch.length} titles updated`);
+}
+
 // ── Main fetch function ───────────────────────────────────────────────────
 async function fetchTodayEvents() {
   const bq = getBigQueryClient();
@@ -650,6 +736,10 @@ async function fetchTodayEvents() {
 
   const strategicCount = events.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)).length;
   console.log(`[gdelt-bq] done — ${events.length} events (${strategicCount} strategic)`);
+
+  // Fetch des vrais titres HTML pour les pays dont les URLs n'ont pas de slug
+  await enrichTitlesFromPages(events);
+
   return events;
 }
 
