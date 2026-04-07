@@ -7,6 +7,7 @@ const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
 const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || 'gpt-4o-mini';
 const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_TRANSLATE_FALLBACK = process.env.OPENAI_TRANSLATE_FALLBACK === 'true';
 
 const VALID_CATEGORIES = new Set([
   'terrorism', 'military', 'conflict', 'protest',
@@ -312,7 +313,7 @@ async function normalizeEventsWithGemini(events) {
 
 async function normalizeTitleWithGemini(event) {
   if (!GEMINI_API_KEY) {
-    if (OPENAI_API_KEY) {
+    if (OPENAI_TRANSLATE_FALLBACK && OPENAI_API_KEY) {
       console.warn('[translate-title] Gemini API key missing; falling back to OpenAI');
       const title = String(event?.title || '').trim();
       if (!title) {
@@ -350,7 +351,7 @@ async function normalizeTitleWithGemini(event) {
   try {
     [result] = await normalizeBatch([baseEvent]);
   } catch (err) {
-    if (OPENAI_API_KEY) {
+    if (OPENAI_TRANSLATE_FALLBACK && OPENAI_API_KEY) {
       console.warn(`[translate-title] Gemini failed (${err.message}); falling back to OpenAI`);
       return translateTitleWithOpenAI(baseEvent);
     }
