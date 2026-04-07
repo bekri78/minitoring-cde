@@ -241,17 +241,23 @@ async function translateTitleWithOpenAI(event) {
   const data = await resp.json();
   const text = data.choices?.[0]?.message?.content || '';
   const result = extractJsonObject(text) || {};
+  const output = result.output && typeof result.output === 'object' ? result.output : {};
+  const fr = result.fr || result.title_fr || result.french || result.translation_fr ||
+    result.translation || output.fr || output.title_fr || output.french || output.translation;
+  const en = result.en || result.headline || result.english || output.en || output.headline || output.english;
+  const notes = result.notes || result.summary || output.notes || output.summary;
+  const language = result.language || result.detected_language || output.language || output.detected_language;
   return {
     id: event.id,
     keep: true,
     originalTitle: event.title,
-    title: result.fr || event.title,
-    fr: result.fr || event.title,
-    headline: result.en || null,
-    notes: result.notes || null,
+    title: fr || event.title,
+    fr: fr || event.title,
+    headline: en || null,
+    notes: notes || null,
     category: VALID_CATEGORIES.has(event.category) ? event.category : 'incident',
     relevance: Number(event.relevance || 0),
-    language: result.language || null,
+    language: language || null,
     isRomanized: false,
     nativeTitle: null,
     provider: 'openai',
