@@ -42,6 +42,17 @@ function setCache(name, data) {
   sourceCache.set(name, { data, ts: Date.now() });
 }
 
+function openSkyHeaders() {
+  const headers = { 'User-Agent': 'WorldMonitor/1.0' };
+  const user = process.env.OPENSKY_USER;
+  const pass = process.env.OPENSKY_PASS;
+  if (user && pass) {
+    const token = Buffer.from(`${user}:${pass}`).toString('base64');
+    headers.Authorization = `Basic ${token}`;
+  }
+  return headers;
+}
+
 // ── Fetch avec timeout + retry ─────────────────────────────────────────────
 async function fetchWithRetry(url, options = {}, attempt = 0) {
   const controller = new AbortController();
@@ -125,7 +136,7 @@ async function fetchOpenSkyBox(box) {
   const { lamin, lomin, lamax, lomax } = box;
   const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
   const data = await fetchPool(() =>
-    fetchWithRetry(url, { headers: { 'User-Agent': 'WorldMonitor/1.0' } })
+    fetchWithRetry(url, { headers: openSkyHeaders() })
   );
   return (data?.states || []).map(normalizeOpenSkyState).filter(Boolean);
 }
