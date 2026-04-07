@@ -108,19 +108,19 @@ const STRATEGIC_COUNTRY_CODES = new Set([
   'IR', 'SY', 'UP', 'IZ', 'AF', 'PK',
   'LY', 'YM', 'SU',
 ]);
-const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 260);
-const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 70);
-const MIN_RELEVANCE_SCORE  = Number(process.env.GDELT_MIN_SCORE || 85);
+const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 1200);
+const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 250);
+const MIN_RELEVANCE_SCORE  = Number(process.env.GDELT_MIN_SCORE || 60);
 
 const CATEGORY_QUOTAS = {
-  terrorism: 35,
-  conflict:  70,
-  military:  55,
-  protest:   35,
-  cyber:     20,
-  strategic: 35,
-  crisis:    35,
-  incident:  20,
+  terrorism: 120,
+  conflict:  260,
+  military:  220,
+  protest:   160,
+  cyber:      80,
+  strategic: 160,
+  crisis:    160,
+  incident:   80,
 };
 
 // ── Mots-clés opérationnels ────────────────────────────────────────────────
@@ -504,19 +504,19 @@ const RECENT_EVENTS_SQL = `
     AND e.SOURCEURL != ''
     AND (
       -- Violence militaire directe : combat, frappes, opérations armées, terrorisme
-      (e.EventRootCode IN ('18','19','20') AND e.GoldsteinScale <= -3.0)
+      (e.EventRootCode IN ('18','19','20') AND e.GoldsteinScale <= -1.5)
       OR
       -- Insurrections violentes / coups d'état (seulement les plus graves)
       (e.EventRootCode = '15' AND e.GoldsteinScale <= -2.0)
       OR
-      (e.EventRootCode = '14' AND e.GoldsteinScale <= -3.5)
+      (e.EventRootCode = '14' AND e.GoldsteinScale <= -2.5)
       OR
-      (e.EventRootCode IN ('13','16','17') AND e.GoldsteinScale <= -4.0)
+      (e.EventRootCode IN ('13','16','17') AND e.GoldsteinScale <= -3.0)
       OR
       (e.EventCode = '155')
     )
   ORDER BY bq_signal_score DESC
-  LIMIT 3000
+  LIMIT 5000
 `;
 
 // ── Couche 2 — signal_hotspots_24h ───────────────────────────────────────
@@ -660,9 +660,9 @@ function rowToEvent(row, hotspotIndex) {
 
   // Re-apply Goldstein thresholds (the SQL already filters, but views may not)
   if (isNaN(goldstein)) return null;
-  if (eventCode !== '155' && quadClass === '4' && goldstein > -1) return null;
-  if (quadClass === '3' && ['13','16','17'].includes(rootCode) && goldstein > -4) return null;
-  if (quadClass === '3' && !['13','16','17'].includes(rootCode) && goldstein > -5) return null;
+  if (eventCode !== '155' && quadClass === '4' && goldstein > -0.5) return null;
+  if (quadClass === '3' && ['13','16','17'].includes(rootCode) && goldstein > -3) return null;
+  if (quadClass === '3' && !['13','16','17'].includes(rootCode) && goldstein > -4) return null;
   // For rows from a pre-created view with no quad_class, accept any negative value
   if (!quadClass && goldstein >= 0) return null;
 

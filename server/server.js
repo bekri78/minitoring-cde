@@ -106,11 +106,11 @@ async function refresh(force = false) {
 
   try {
     const raw        = await fetchTodayEvents();
-    const MAX_ENRICH = 800; // plus d'événements → meilleure couverture géographique
+    const MAX_ENRICH = Number(process.env.GDELT_AI_INPUT_MAX || 1200); // pool IA large pour meilleure couverture mondiale
 
     // Diversité géographique : garder les zones stratégiques (Russie, Chine, etc.)
     const STRATEGIC = new Set(['RS','CH','KN','KS','TW','VM','IR','SY','UP','IZ','AF','PK','LY','YM','SU']);
-    const STRATEGIC_MIN = 300; // 300/800 réservés aux zones stratégiques
+    const STRATEGIC_MIN = Number(process.env.GDELT_AI_STRATEGIC_MIN || 350);
     const rawSorted = [...raw].sort((a, b) => b.score - a.score);
     const rawStrategic = rawSorted.filter(e => STRATEGIC.has(e.countryCode));
     const rawOthers    = rawSorted.filter(e => !STRATEGIC.has(e.countryCode));
