@@ -34,7 +34,7 @@ const airplaneSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 25
 
 const helicopterSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><path fill="COLOR" d="M128,38 C110,38 96,56 96,90 L96,188 C96,200 110,212 128,212 C146,212 160,200 160,188 L160,90 C160,56 146,38 128,38 Z"/><rect fill="COLOR" x="8" y="106" width="240" height="18" rx="9"/><circle fill="COLOR" cx="128" cy="115" r="14"/><rect fill="COLOR" x="121" y="208" width="14" height="36" rx="5"/><rect fill="COLOR" x="100" y="234" width="56" height="12" rx="6"/></svg>`;
 
-const shipSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 160"><path fill="COLOR" d="M50 5 L80 60 L80 130 Q80 145 50 155 Q20 145 20 130 L20 60 Z"/><rect fill="COLOR" x="35" y="55" width="30" height="8" rx="2"/><rect fill="COLOR" x="35" y="40" width="30" height="12" rx="2"/></svg>`;
+const shipSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 612 612" fill="COLOR"><g><path d="M612,342.869l-72.243,150.559c-9.036,17.516-27.098,28.521-46.808,28.521H66.974c-7.85,0-12.942-8.277-9.402-15.285l0.179-0.355c5.778-11.439,2.35-25.383-8.074-32.836l-0.589-0.422c-24.197-17.305-38.554-45.225-38.554-74.973v-34.141h379.228v-0.211c0-11.52,9.338-20.857,20.856-20.857H612L612,342.869z M368.693,216.46h-73.738c-5.818,0-10.534,4.716-10.534,10.534v115.875c0,5.818,4.716,10.535,10.534,10.535h73.738c5.817,0,10.534-4.717,10.534-10.535V226.994C379.228,221.176,374.511,216.46,368.693,216.46z M495.102,258.596h-84.272c-5.817,0-10.534,4.716-10.534,10.534v42.135c0,5.818,4.717,10.535,10.534,10.535h84.272c5.818,0,10.534-4.717,10.534-10.535V269.13C505.636,263.312,500.92,258.596,495.102,258.596z M168.545,353.402h84.272c5.818,0,10.534-4.717,10.534-10.533v-84.273c0-5.818-4.716-10.534-10.534-10.534h-84.272c-5.818,0-10.534,4.716-10.534,10.534v84.273C158.012,348.686,162.728,353.402,168.545,353.402z M163.155,195.391l-26.211,21.069v136.942H31.602V216.46H0v-21.069h73.738v-30.546H46.506v-12.296h27.232V90.051h10.534v62.498h27.233v12.296H84.272v30.546H163.155z M117.913,282.062h-34.28v31.457h34.28V282.062z M117.913,231.651h-34.28v31.458h34.28V231.651z"/></g></svg>`;
 
 const rocketSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><path fill="COLOR" d="M128 24 C128 24 96 56 96 128 L96 176 L128 200 L160 176 L160 128 C160 56 128 24 128 24 Z"/><path fill="COLOR" d="M96 144 L64 168 L96 176 Z"/><path fill="COLOR" d="M160 144 L192 168 L160 176 Z"/><circle fill="COLOR" cx="128" cy="100" r="16"/></svg>`;
 
@@ -341,7 +341,7 @@ export function WorldMap({
 
     seaTracks.forEach(t => {
       if (t.lat == null || t.lon == null) return;
-      const icon   = makeSvgIcon(shipSvg, t.color || '#60ddff', 26, t.cog ?? t.heading ?? 0);
+      const icon   = makeSvgIcon(shipSvg, t.color || '#60ddff', 32, 0); // vue de profil — pas de rotation
       const marker = L.marker([t.lat, t.lon], { icon, zIndexOffset: 400 });
 
       const tc     = tierColor(t.milTier || '');

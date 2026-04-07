@@ -206,17 +206,15 @@ Required output format for each event:
   const results = JSON.parse(match[0]);
   const byId    = Object.fromEntries(results.map(r => [r.id, r]));
 
-  const RELEVANCE_THRESHOLD = 55;
-
-  const kept = events.filter(e => {
-    const r = byId[e.id];
-    return r && r.keep === true && (r.relevance || 0) >= RELEVANCE_THRESHOLD;
-  });
+  // Filtre GPT désactivé — tous les événements passent, on garde uniquement l'enrichissement
+  const kept = events;
 
   // Geocode corrected locations in parallel (max 1 req/s Nominatim policy)
   const geocoded = await Promise.all(
     kept.map(async (e, i) => {
-      const r = byId[e.id];
+      const r = byId[e.id]; // peut être undefined si GPT n'a pas retourné cet id
+      if (!r) return e;     // pas d'enrichissement → on garde l'événement brut
+
       const aiLocation = r.location;
       let lat = e.lat, lon = e.lon;
 
@@ -246,6 +244,11 @@ Required output format for each event:
 
 // ── Enrichissement complet par batches de 20 ─────────────────────────────
 async function enrichEvents(events) {
+  // GPT step désactivé — retour direct sans filtre ni appel OpenAI
+  console.log(`[enrich] GPT step SKIPPED — returning ${events.length} raw events`);
+  return events;
+
+  // eslint-disable-next-line no-unreachable
   console.log(`[enrich] API key present: ${!!OPENAI_API_KEY}`);
   if (!OPENAI_API_KEY || !events.length) return events;
 
