@@ -230,17 +230,31 @@ export function WorldMap({
       const catLabel  = getCategoryLabel(p.category || 'incident');
       const domain    = escapeHtml(p.domain || '');
       const dateStr   = escapeHtml(formatDate(p.date));
-      const titleLink = p.url
-        ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener" style="color:#e8f4ff;font-size:11px;line-height:1.5;text-decoration:none;border-bottom:1px dotted #2a4a5a;">${escapeHtml(p.title || p.domain)}</a>`
-        : `<span style="color:#c8d8e8;font-size:11px;">${escapeHtml(p.title || p.domain)}</span>`;
+      const rawTitle  = p.title || p.domain || '';
+      const popId = `ev-${p.id || Math.random().toString(36).slice(2)}`;
 
       marker.bindPopup(mono(`
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px;">
           <span style="padding:1px 6px;font-size:9px;background:${catColor}22;color:${catColor};border:1px solid ${catColor}55;">${catLabel}</span>
           <span style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#4a6a7a;border:1px solid #2a3a4a;">${domain}</span>
           <span style="padding:1px 6px;font-size:9px;color:#4a6a7a;margin-left:auto;">${dateStr}</span>
+          <button id="${popId}-btn" onclick="(function(){
+            var btn=document.getElementById('${popId}-btn');
+            var box=document.getElementById('${popId}-title');
+            if(!btn||!box)return;
+            btn.textContent='...';btn.disabled=true;
+            fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(${JSON.stringify(rawTitle)})+'&langpair=en|fr')
+              .then(function(r){return r.json();})
+              .then(function(d){
+                var tr=d&&d.responseData&&d.responseData.translatedText;
+                if(tr){box.textContent=tr;btn.textContent='✓ FR';}
+                else{btn.textContent='ERR';}
+              })
+              .catch(function(){btn.textContent='ERR';btn.disabled=false;});
+          })()" style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#00d4ff;border:1px solid #1a4a5a;cursor:pointer;font-family:inherit;">FR</button>
         </div>
-        <p style="margin:0;">${titleLink}</p>
+        <p id="${popId}-title" style="margin:0;font-size:11px;line-height:1.5;color:#e8f4ff;">${escapeHtml(rawTitle)}</p>
+        ${p.url ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener" style="font-size:9px;color:#4a6a7a;text-decoration:none;border-bottom:1px dotted #2a3a4a;">↗ source</a>` : ''}
       `), { maxWidth: 340 });
 
       cluster.addLayer(marker);
