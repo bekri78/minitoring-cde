@@ -107,8 +107,8 @@ async function refresh(force = false) {
     const MAX_ENRICH = 800; // plus d'événements → meilleure couverture géographique
 
     // Diversité géographique : garder les zones stratégiques (Russie, Chine, etc.)
-    const STRATEGIC = new Set(['RS', 'CH', 'KN', 'IR', 'SY', 'UP', 'IZ']);
-    const STRATEGIC_MIN = 60; // slots réservés dans les 400
+    const STRATEGIC = new Set(['RS','CH','KN','KS','TW','VM','IR','SY','UP','IZ','AF','PK','LY','YM','SU']);
+    const STRATEGIC_MIN = 300; // 300/800 réservés aux zones stratégiques
     const rawSorted = [...raw].sort((a, b) => b.score - a.score);
     const rawStrategic = rawSorted.filter(e => STRATEGIC.has(e.countryCode));
     const rawOthers    = rawSorted.filter(e => !STRATEGIC.has(e.countryCode));

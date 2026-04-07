@@ -100,8 +100,15 @@ const PRIORITY_DOMAIN_BOOST = {
   'yonhapnews.co.kr': 55,
 };
 
-const STRATEGIC_COUNTRY_CODES = new Set(['RS', 'CH', 'KN', 'IR', 'SY', 'UP', 'IZ']);
-const STRATEGIC_MIN_EVENTS = 60;
+// RS=Russie, CH=Chine, KN=Corée du Nord, KS=Corée du Sud, TW=Taiwan,
+// VM=Vietnam, AF=Afghanistan, PK=Pakistan, IR=Iran, IZ=Iraq,
+// SY=Syrie, UP=Ukraine, LY=Libye, YM=Yémen, SU=Soudan
+const STRATEGIC_COUNTRY_CODES = new Set([
+  'RS', 'CH', 'KN', 'KS', 'TW', 'VM',
+  'IR', 'SY', 'UP', 'IZ', 'AF', 'PK',
+  'LY', 'YM', 'SU',
+]);
+const STRATEGIC_MIN_EVENTS = 300; // 300/800 = 37% réservés aux zones stratégiques
 
 // ── Mots-clés opérationnels ────────────────────────────────────────────────
 const MILITARY_CRISIS_KEYWORDS = [
