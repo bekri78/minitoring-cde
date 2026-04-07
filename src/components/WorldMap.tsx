@@ -11,7 +11,7 @@ import type { TipObject } from '../types/tip';
 import type { Quake } from '../types/earthquake';
 import type { Track } from '../types/track';
 import { buildGeoJSON } from '../utils/geo';
-import { getColor, getCategoryColor, getCategoryLabel, getSeverityLabel } from '../utils/classify';
+import { getCategoryColor, getCategoryLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
 
 const RAILWAY_URL = 'https://minitoring-cde-production.up.railway.app';
@@ -139,29 +139,23 @@ export function WorldMap({
 
     // ── Layer groups ───────────────────────────────────────────────────────
     const eventsCluster = (L as any).markerClusterGroup({
-      // Rayon réduit agressivement par zoom → dispersion rapide dès zoom 4-5
       maxClusterRadius: (zoom: number) => {
-        if (zoom <= 2)  return 60;
-        if (zoom <= 3)  return 40;
-        if (zoom <= 4)  return 25;
-        if (zoom <= 5)  return 15;
-        if (zoom <= 6)  return 10;
+        if (zoom <= 3) return 60;
+        if (zoom <= 5) return 25;
+        if (zoom <= 6) return 10;
         return 5;
       },
       showCoverageOnHover: false,
       zoomToBoundsOnClick: true,
       spiderfyOnMaxZoom:   true,
-      spiderfyDistanceMultiplier: 2,   // markers plus espacés au spiderfy
+      spiderfyDistanceMultiplier: 2,
       animate:             true,
-      animateAddingMarkers: false,     // pas d'animation à l'ajout → plus rapide
+      animateAddingMarkers: false,
       iconCreateFunction: (cluster: any) => {
         const count = cluster.getChildCount();
-        // Taille proportionnelle au count : 18px (2) → 36px (50+)
-        const size  = count >= 50 ? 36 : count >= 20 ? 30 : count >= 10 ? 26 : count >= 3 ? 22 : 18;
-        const color = count >= 30 ? '#ff2244' : count >= 10 ? '#ff6600' : count >= 3 ? '#ff8800' : '#ffaa00';
-        const fs    = size <= 20 ? 9 : size <= 26 ? 10 : 12;
+        const size  = 36;
         return L.divIcon({
-          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color}cc;border:1px solid ${color};display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:${fs}px;color:#fff;box-shadow:0 0 6px ${color}55;">${count}</div>`,
+          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#ff440033;border:1px solid #ff4400;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:12px;color:#ff8800;">${count}</div>`,
           className: '',
           iconSize:   [size, size],
           iconAnchor: [size / 2, size / 2],
@@ -217,44 +211,37 @@ export function WorldMap({
     (geoJSON.features || []).forEach(f => {
       const p = (f as GeoJSON.Feature<GeoJSON.Point>).properties || {};
       const [lon, lat] = (f as GeoJSON.Feature<GeoJSON.Point>).geometry.coordinates;
-      const catColor = p.categoryColor || getCategoryColor(p.category || 'incident');
-      const size     = Math.max(6, Math.min(p.size || 6, 16));
+      const catColor  = p.categoryColor || getCategoryColor(p.category || 'incident');
+      const tone      = Number(p.tone);
+      const score     = Number(p.score || 0);
+      // Rayon basé sur le score (équivalent num_mentions) : 5 à 12px
+      const radius    = Math.max(5, Math.min(12, 5 + score / 20));
+      // Couleur selon sévérité Goldstein (tone négatif = rouge, positif = vert)
+      const dotColor  = tone <= -7 ? '#ff2244' : tone <= -4 ? '#ff6600' : tone <= -1 ? '#ff8800' : '#4a9eff';
 
       const marker = L.circleMarker([lat, lon], {
-        radius:      size,
-        color:       catColor,
-        fillColor:   catColor,
-        fillOpacity: 0.88,
-        weight:      0,
+        radius,
+        color:       dotColor,
+        fillColor:   dotColor,
+        fillOpacity: 0.75,
+        weight:      1,
       });
 
-      const tone      = Number(p.tone);
-      const sevColor  = getColor(tone);
-      const isAcled   = p.dataSource === 'acled';
-      const sourceTag = isAcled
-        ? `<span style="padding:2px 8px;font-size:9px;background:rgba(0,255,136,0.12);color:#00ff88;border:1px solid rgba(0,255,136,0.3);">ACLED</span>` : '';
-      const fatalTag = isAcled && Number(p.fatalities) > 0
-        ? `<span style="padding:2px 8px;font-size:9px;background:rgba(255,34,68,0.12);color:#ff2244;border:1px solid rgba(255,34,68,0.3);">☠ ${escapeHtml(String(p.fatalities))}</span>` : '';
-      const actorsLine = isAcled && p.actor1
-        ? `<div style="color:#4a6a7a;font-size:9px;margin-bottom:5px;">⚔ ${escapeHtml(p.actor1)}${p.actor2 ? ' <span style="color:#2a3a4a">vs</span> ' + escapeHtml(p.actor2) : ''}</div>` : '';
-      const titleBlock = p.url
-        ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener" style="color:#e8f4ff;text-decoration:none;border-bottom:1px dotted #2a4a5a;">${escapeHtml(p.title || p.domain)}</a>`
-        : `<span style="color:#c8d8e8;">${escapeHtml(p.title || p.domain)}</span>`;
+      const catLabel  = getCategoryLabel(p.category || 'incident');
+      const domain    = escapeHtml(p.domain || '');
+      const dateStr   = escapeHtml(formatDate(p.date));
+      const titleLink = p.url
+        ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener" style="color:#e8f4ff;font-size:11px;line-height:1.5;text-decoration:none;border-bottom:1px dotted #2a4a5a;">${escapeHtml(p.title || p.domain)}</a>`
+        : `<span style="color:#c8d8e8;font-size:11px;">${escapeHtml(p.title || p.domain)}</span>`;
 
       marker.bindPopup(mono(`
-        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px;">
-          ${sourceTag}
-          <span style="padding:2px 8px;font-size:9px;background:${catColor}22;color:${catColor};border:1px solid ${catColor}55;">${getCategoryLabel(p.category || 'incident')}</span>
-          <span style="padding:2px 8px;font-size:9px;background:${sevColor}22;color:${sevColor};border:1px solid ${sevColor}55;">${getSeverityLabel(tone)}</span>
-          ${fatalTag}
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px;">
+          <span style="padding:1px 6px;font-size:9px;background:${catColor}22;color:${catColor};border:1px solid ${catColor}55;">${catLabel}</span>
+          <span style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#4a6a7a;border:1px solid #2a3a4a;">${domain}</span>
+          <span style="padding:1px 6px;font-size:9px;color:#4a6a7a;margin-left:auto;">${dateStr}</span>
         </div>
-        <div style="color:#4a6a7a;font-size:9px;margin-bottom:4px;">📍 ${escapeHtml(p.country)}</div>
-        ${actorsLine}
-        <p style="color:#c8d8e8;line-height:1.5;margin:0 0 8px 0;font-size:11px;">${titleBlock}</p>
-        <div style="font-size:9px;color:#4a6a7a;border-top:1px solid #1a2a3a;padding-top:6px;">
-          ${escapeHtml(formatDate(p.date))} &nbsp;·&nbsp; ${escapeHtml(p.domain)}
-        </div>
-      `), { maxWidth: 360 });
+        <p style="margin:0;">${titleLink}</p>
+      `), { maxWidth: 340 });
 
       cluster.addLayer(marker);
     });
