@@ -133,14 +133,14 @@ const CATEGORY_RULES = [
     key: 'military',
     cameo: ['15','18','19','20'],  // préfixes CAMEO : assault, use of force, fight, coerce
     keywords: ['airstrike', 'air strike', 'missile', 'artillery', 'shelling',
-               'bombardment', 'navy', 'air force', 'warplane', 'fighter jet',
+               'bombardment', 'warplane', 'fighter jet', 'military aircraft',
                'tank', 'drone strike', 'armed forces', 'military operation',
                'offensive', 'siege', 'air raid', 'rocket attack', 'troops',
                'frontline', 'ceasefire violation', 'combat', 'war', 'battle',
-               'killed', 'wounded', 'casualties', 'bombing', 'blast', 'explosion',
-               'ambush', 'militia', 'rebels', 'insurgent', 'terrorist', 'attack',
-               'hostage', 'gunfire', 'shooting', 'raid', 'naval', 'submarine',
-               'nuclear', 'wmd', 'chemical weapon', 'coup']
+               'ambush', 'militia', 'rebels', 'insurgent', 'terrorist attack',
+               'hostage', 'gunfire', 'naval battle', 'submarine', 'navy vessel',
+               'nuclear weapon', 'wmd', 'chemical weapon', 'coup d\'état', 'coup',
+               'military convoy', 'military base', 'military strike', 'air force base']
   },
   {
     key: 'protest',
@@ -175,26 +175,54 @@ function containsAnyKeyword(text, keywords) {
   return keywords.some(k => normalized.includes(normalizeText(k)));
 }
 
+// Segments URL qui ne sont pas des titres (navigation, catégories, IDs courts)
+const URL_NAV_SEGMENTS = new Set([
+  'view','news','article','articles','read','story','stories','post','posts',
+  'page','pages','detail','details','content','index','home','default',
+  'category','categories','tag','tags','search','author','authors',
+  'section','topic','topics','latest','breaking','world','politics',
+  'national','local','international','sports','business','technology',
+  'opinion','editorial','comment','comments','html','htm','php','aspx','jsp',
+  'en','fr','ru','zh','ar','ko','ja','de','es','pt','tr','fa','he',
+]);
+
 function titleFromUrl(url) {
-  if (!url) return 'Untitled';
+  if (!url) return null;
   try {
     const u = new URL(url);
-    const domain = u.hostname.replace(/^www\./, '');
     const segments = u.pathname.split('/').filter(Boolean);
     for (let i = segments.length - 1; i >= 0; i--) {
-      const cleaned = decodeURIComponent(segments[i])
+      const raw = decodeURIComponent(segments[i])
         .replace(/\.[a-z0-9]{2,6}$/i, '')
-        .replace(/[-_+]+/g, ' ')
+        .replace(/[-_+%]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
-      // Accepte : 3+ lettres latines OU caractères CJK/Hangul/Kana
-      if (/[a-zA-Z]{3,}/.test(cleaned)) return cleaned;
-      if (/[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff]/.test(cleaned)) return cleaned;
+
+      if (!raw || raw.length < 10) continue;
+      if (/^\d+$/.test(raw)) continue;                          // ID numérique pur
+      if (URL_NAV_SEGMENTS.has(raw.toLowerCase())) continue;    // segment navigation
+
+      // Accepte : titre latin avec au moins 2 mots OU assez long
+      if (/[a-zA-Z]{3,}/.test(raw) && (raw.includes(' ') || raw.length >= 20)) return raw;
+      // Accepte : caractères CJK / Hangul / Kana / Arabe / Cyrillique
+      if (/[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff\u0600-\u06ff\u0400-\u04ff]/.test(raw)) return raw;
     }
-    return domain;
+    return null;
   } catch {
-    return 'Untitled';
+    return null;
   }
+}
+
+// Construit un titre lisible depuis les métadonnées GDELT quand l'URL n'en contient pas
+function buildFallbackTitle(row) {
+  const parts = [];
+  const sub = getSubEventType(row.event_code || row.root_code || '');
+  if (sub && sub !== 'Unknown') parts.push(sub);
+  const a1 = (row.actor1 || '').trim();
+  if (a1 && a1.length < 50) parts.push(a1);
+  const loc = (row.location || '').trim();
+  if (loc && loc.length < 80) parts.push(loc);
+  return parts.join(' — ') || 'Unknown Event';
 }
 
 function safeDomainFromUrl(url) {
@@ -202,13 +230,33 @@ function safeDomainFromUrl(url) {
   catch { return ''; }
 }
 
+// Termes civils qui invalident une classification MILITARY (même si CAMEO le suggère)
+const CIVILIAN_OVERRIDE = [
+  'clinical trial', 'phase i', 'phase ii', 'phase iii', 'clinical study',
+  'drug trial', 'patient', 'vaccine', 'antibody', 'immunotherapy',
+  'cancer', 'tumor', 'oncology', 'therapy', 'treatment', 'hospital',
+  'biotech', 'pharmaceutical', 'fda', 'ema', 'approval', 'dosing',
+  'election', 'vote', 'ballot', 'parliament', 'legislation', 'law passed',
+  'economic growth', 'gdp', 'inflation', 'interest rate', 'trade deal',
+  'earthquake', 'flood', 'hurricane', 'wildfire', 'disaster relief',
+  'accident', 'crash', 'collision', 'train', 'car accident',
+  'sports', 'tournament', 'championship', 'olympic',
+];
+
 function classifyEvent(text, eventCode = '') {
-  for (const cat of CATEGORY_RULES) {
-    if (cat.cameo && cat.cameo.some(c => eventCode.startsWith(c))) {
-      return cat.key;
+  const normalized = normalizeText(text);
+
+  // Si le texte contient des termes clairement civils → jamais MILITARY
+  const isCivilian = CIVILIAN_OVERRIDE.some(k => normalized.includes(normalizeText(k)));
+
+  if (!isCivilian) {
+    for (const cat of CATEGORY_RULES) {
+      if (cat.cameo && cat.cameo.some(c => eventCode.startsWith(c))) {
+        return cat.key;
+      }
     }
   }
-  const normalized = normalizeText(text);
+
   for (const cat of CATEGORY_RULES) {
     if (cat.keywords.some(k => normalized.includes(normalizeText(k)))) {
       return cat.key;
@@ -354,14 +402,11 @@ const RECENT_EVENTS_SQL = `
     AND SOURCEURL IS NOT NULL
     AND SOURCEURL != ''
     AND (
-      -- MILITARY : combat, violence, conflits armés (QuadClass 4)
-      (QuadClass = 4 AND EventRootCode IN ('18','19','20') AND GoldsteinScale <= -1.0)
+      -- Violence militaire directe : combat, frappes, opérations armées, terrorisme
+      (EventRootCode IN ('18','19','20') AND GoldsteinScale <= -3.0)
       OR
-      -- PROTEST : manifestations, insurrections, coups (QuadClass 3 ou 4)
-      (EventRootCode = '14' AND GoldsteinScale <= -3.0)
-      OR
-      -- INCIDENT : diplomatie coercitive, menaces, crises (QuadClass 3)
-      (QuadClass = 3 AND EventRootCode IN ('03','04','05','13','17') AND GoldsteinScale <= -4.0)
+      -- Insurrections violentes / coups d'état (seulement les plus graves)
+      (EventRootCode = '14' AND GoldsteinScale <= -6.0)
     )
   ORDER BY bq_signal_score DESC
   LIMIT 5000
@@ -492,7 +537,7 @@ function rowToEvent(row, hotspotIndex) {
   }
 
   const domain = safeDomainFromUrl(url);
-  const title  = titleFromUrl(url);
+  const title  = titleFromUrl(url) || buildFallbackTitle(row);
 
   if (isNoiseEvent(title, url, domain)) return null;
 
