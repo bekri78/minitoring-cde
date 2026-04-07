@@ -68,6 +68,9 @@ export function buildGeoJSON(events: Event[]) {
           actor1:        e.actor1 || '',
           actor2:        e.actor2 || '',
           subType:       e.subType || '',
+          eventCode:     (e as any).eventCode || '',
+          rootCode:      e.rootCode || '',
+          subEventType:  (e as any).subEventType || e.subType || '',
         },
       };
     }),

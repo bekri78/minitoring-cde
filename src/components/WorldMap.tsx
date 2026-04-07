@@ -238,16 +238,37 @@ export function WorldMap({
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
           <button id="${popId}-btn"
             data-title="${escapeHtml(rawTitle)}"
+            data-url="${escapeHtml(p.url || '')}"
+            data-domain="${escapeHtml(p.domain || '')}"
+            data-country="${escapeHtml(p.country || '')}"
+            data-category="${escapeHtml(p.category || 'incident')}"
+            data-event-code="${escapeHtml(p.eventCode || '')}"
+            data-root-code="${escapeHtml(p.rootCode || '')}"
+            data-sub-event-type="${escapeHtml(p.subEventType || p.subType || '')}"
             onclick="(function(){
               var btn=document.getElementById('${popId}-btn');
               var box=document.getElementById('${popId}-title');
               if(!btn||!box)return;
-              var q=btn.getAttribute('data-title');
+              var q=btn.getAttribute('data-title')||'';
               btn.textContent='...';btn.disabled=true;
-              fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(q)+'&langpair=en|fr')
+              fetch('${RAILWAY_URL}/translate-title',{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({
+                  id:'${escapeHtml(String(p.id || ''))}',
+                  title:q,
+                  url:btn.getAttribute('data-url')||'',
+                  domain:btn.getAttribute('data-domain')||'',
+                  country:btn.getAttribute('data-country')||'',
+                  category:btn.getAttribute('data-category')||'incident',
+                  eventCode:btn.getAttribute('data-event-code')||'',
+                  rootCode:btn.getAttribute('data-root-code')||'',
+                  subEventType:btn.getAttribute('data-sub-event-type')||''
+                })
+              })
                 .then(function(r){return r.json();})
                 .then(function(d){
-                  var tr=d&&d.responseData&&d.responseData.translatedText;
+                  var tr=d&&(d.title||d.fr);
                   if(tr){box.textContent=tr;btn.textContent='✓ FR';}
                   else{btn.textContent='ERR';}
                 })

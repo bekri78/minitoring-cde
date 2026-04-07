@@ -72,7 +72,7 @@ function buildPrompt(events) {
   return `Normalize and translate OSINT event titles for a geopolitical monitoring dashboard.
 
 Handle romanized languages such as greeklish, arabizi, Russian/Ukrainian transliteration, and normal non-English scripts.
-Use CAMEO fields only as supporting context. Reject local crime, sports, business, entertainment, court-only stories, accidents, and unrelated lifestyle items.
+Use CAMEO fields only as supporting context. Always translate the requested title. Use category "discard" only when the title has no meaningful news/security content.
 
 Return ONLY a valid JSON array. One object per input:
 {
@@ -206,4 +206,61 @@ async function normalizeEventsWithGemini(events) {
   return normalized;
 }
 
-module.exports = { normalizeEventsWithGemini };
+async function normalizeTitleWithGemini(event) {
+  if (!GEMINI_API_KEY) {
+    const err = new Error('GEMINI_API_KEY missing');
+    err.status = 503;
+    throw err;
+  }
+
+  const title = String(event?.title || '').trim();
+  if (!title) {
+    const err = new Error('title required');
+    err.status = 400;
+    throw err;
+  }
+
+  const id = event.id || `title_${Date.now()}`;
+  const baseEvent = {
+    ...event,
+    id,
+    title,
+    category: event.category || 'incident',
+  };
+  const [result] = await normalizeBatch([baseEvent]);
+  const merged = mergeResult(baseEvent, result);
+
+  if (!merged) {
+    return {
+      id,
+      keep: result?.keep !== false,
+      originalTitle: title,
+      title: result?.fr || title,
+      fr: result?.fr || title,
+      headline: result?.en || null,
+      notes: result?.notes || null,
+      category: VALID_CATEGORIES.has(result?.category) ? result.category : 'incident',
+      relevance: Number(result?.relevance || 0),
+      language: result?.language || null,
+      isRomanized: Boolean(result?.is_romanized),
+      nativeTitle: result?.native_text || null,
+    };
+  }
+
+  return {
+    id,
+    keep: true,
+    originalTitle: merged.originalTitle || title,
+    title: merged.title,
+    fr: merged.title,
+    headline: merged.headline,
+    notes: merged.notes,
+    category: merged.category,
+    relevance: merged.relevance,
+    language: merged.language,
+    isRomanized: merged.isRomanized,
+    nativeTitle: merged.nativeTitle,
+  };
+}
+
+module.exports = { normalizeEventsWithGemini, normalizeTitleWithGemini };

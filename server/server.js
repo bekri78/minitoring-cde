@@ -18,6 +18,7 @@ const { fetchAircraftPhoto }                                         = require('
 const { fetchShipPhoto }                                             = require('./shipphotos');
 const { attachNearbyEvents }                                         = require('./proximity');
 const { refreshSignals, getSignalsCache, isStale }                   = require('./signals');
+const { normalizeTitleWithGemini }                                   = require('./gemini-normalizer');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -145,6 +146,17 @@ app.get('/events', (req, res) => {
     date:       cache.date,
     status:     cache.status
   });
+});
+
+app.post('/translate-title', async (req, res) => {
+  try {
+    const translated = await normalizeTitleWithGemini(req.body || {});
+    res.json(translated);
+  } catch (err) {
+    res.status(err.status || 500).json({
+      error: err.message || 'translation_failed',
+    });
+  }
 });
 
 app.get('/decay', (req, res) => {

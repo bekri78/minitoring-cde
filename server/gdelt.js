@@ -1,7 +1,6 @@
 'use strict';
 
 const { BigQuery } = require('@google-cloud/bigquery');
-const { normalizeEventsWithGemini } = require('./gemini-normalizer');
 
 // ── Table CAMEO EventCode → subEventType ──────────────────────────────────
 const CAMEO_SUBTYPE = {
@@ -772,10 +771,7 @@ async function fetchTodayEvents() {
   // Russia (RS), China (CH), North Korea (KN), Iran (IR),
   // Syria (SY), Ukraine (UP), Iraq (IZ) often score lower due to
   // non-English URLs (same rationale as original gdelt.js)
-  const selected = selectDiverseEvents(Array.from(dedupMap.values()));
-  const events = (await normalizeEventsWithGemini(selected))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_DASHBOARD_EVENTS);
+  const events = selectDiverseEvents(Array.from(dedupMap.values()));
 
   const strategicCount = events.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)).length;
   console.log(`[gdelt-bq] done — ${events.length} events (${strategicCount} strategic)`);
