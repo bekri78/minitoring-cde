@@ -214,10 +214,10 @@ export function WorldMap({
       const catColor  = p.categoryColor || getCategoryColor(p.category || 'incident');
       const tone      = Number(p.tone);
       const score     = Number(p.score || 0);
-      // Rayon basé sur le score (équivalent num_mentions) : 5 à 12px
+      // Rayon basé sur le score : 5 à 12px
       const radius    = Math.max(5, Math.min(12, 5 + score / 20));
-      // Couleur selon sévérité Goldstein (tone négatif = rouge, positif = vert)
-      const dotColor  = tone <= -7 ? '#ff2244' : tone <= -4 ? '#ff6600' : tone <= -1 ? '#ff8800' : '#4a9eff';
+      // Couleur par catégorie : military=rouge, protest=jaune, incident=bleu
+      const dotColor  = catColor;
 
       const marker = L.circleMarker([lat, lon], {
         radius,

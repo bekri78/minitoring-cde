@@ -124,55 +124,38 @@ const MILITARY_CRISIS_KEYWORDS = [
   'paramilitary'
 ];
 
-// ── Classification opérationnelle ─────────────────────────────────────────
+// ── Classification opérationnelle — 3 catégories ──────────────────────────
+// MILITARY  : combat armé, frappes, opérations militaires
+// PROTEST   : manifestations, émeutes, soulèvements, coups d'état
+// INCIDENT  : diplomatie coercitive, crises, menaces, incidents sécuritaires
 const CATEGORY_RULES = [
   {
-    key: 'terrorism',
-    cameo: ['181', '182', '183', '1831', '1832', '1833', '185', '186', '200', '201', '202', '203', '204'],
-    keywords: ['terrorist', 'terrorism', 'suicide bomb', 'isis', 'isil', 'daesh',
-               'al-qaeda', 'al qaeda', 'jihad', 'ied', 'car bomb', 'beheading',
-               'kidnap', 'hostage', 'extremist', 'mass shooting', 'gunman',
-               'massacre', 'ethnic cleansing', 'wmd', 'chemical weapon']
-  },
-  {
     key: 'military',
-    cameo: ['150', '151', '152', '153', '154', '190', '191', '192', '193', '194', '195', '196'],
+    cameo: ['15','18','19','20'],  // préfixes CAMEO : assault, use of force, fight, coerce
     keywords: ['airstrike', 'air strike', 'missile', 'artillery', 'shelling',
-               'bombardment', 'navy', 'air force', 'fighter jet', 'warplane',
-               'tank', 'drone strike', 'mobilization', 'armed forces',
-               'military operation', 'offensive', 'siege', 'air raid',
-               'rocket attack', 'troops deployed', 'naval', 'ground assault',
-               'military advance', 'frontline', 'ceasefire violation']
-  },
-  {
-    key: 'conflict',
-    cameo: ['180', '184', '186', '193', '194', '195'],
-    keywords: ['war', 'battle', 'combat', 'fighting', 'clashes', 'gunfire',
-               'killed', 'wounded', 'dead', 'casualties', 'rebels', 'insurgent',
-               'insurgency', 'border clash', 'shootout', 'armed clash', 'militia',
-               'raid', 'bombing', 'blast', 'explosion', 'ambush', 'convoy attack']
+               'bombardment', 'navy', 'air force', 'warplane', 'fighter jet',
+               'tank', 'drone strike', 'armed forces', 'military operation',
+               'offensive', 'siege', 'air raid', 'rocket attack', 'troops',
+               'frontline', 'ceasefire violation', 'combat', 'war', 'battle',
+               'killed', 'wounded', 'casualties', 'bombing', 'blast', 'explosion',
+               'ambush', 'militia', 'rebels', 'insurgent', 'terrorist', 'attack',
+               'hostage', 'gunfire', 'shooting', 'raid', 'naval', 'submarine',
+               'nuclear', 'wmd', 'chemical weapon', 'coup']
   },
   {
     key: 'protest',
-    cameo: ['140', '141', '142', '143', '144', '145'],
+    cameo: ['14'],
     keywords: ['protest', 'riot', 'demonstration', 'unrest', 'march', 'rally',
                'uprising', 'civil unrest', 'dissent', 'blockade', 'occupy',
-               'walkout', 'coup', 'stormed', 'clashed with police']
+               'walkout', 'stormed', 'clashed with police', 'strike', 'boycott']
   },
   {
-    key: 'threat',
-    cameo: ['130', '131', '132', '133', '137', '138', '139'],
-    keywords: ['ultimatum', 'threatened', 'threatens', 'warned', 'warning',
-               'nuclear threat', 'military threat', 'sanctions threat',
-               'blockade threat', 'invasion threat', 'attack threat']
-  },
-  {
-    key: 'crisis',
-    cameo: ['160', '161', '162', '163', '170', '172', '173', '174', '175'],
-    keywords: ['crisis', 'emergency', 'martial law', 'sanction', 'evacuation',
-               'displaced', 'refugee', 'state of emergency', 'crackdown',
-               'detained', 'arrested', 'expelled', 'deported', 'coup',
-               'sanctions imposed', 'diplomatic expulsion']
+    key: 'incident',
+    cameo: ['03','04','05','13','17'],
+    keywords: ['sanction', 'expel', 'expelled', 'detained', 'arrested', 'crisis',
+               'emergency', 'martial law', 'evacuation', 'displaced', 'refugee',
+               'state of emergency', 'crackdown', 'deported', 'ultimatum',
+               'threatened', 'warning', 'diplomatic', 'tension', 'border']
   }
 ];
 
@@ -370,12 +353,15 @@ const RECENT_EVENTS_SQL = `
     AND ActionGeo_Long != 0
     AND SOURCEURL IS NOT NULL
     AND SOURCEURL != ''
-    AND QuadClass IN (3, 4)
-    AND EventRootCode IN ('03','04','05','14','18','19','20')
     AND (
-      (QuadClass = 4 AND GoldsteinScale <= -1.0)
+      -- MILITARY : combat, violence, conflits armés (QuadClass 4)
+      (QuadClass = 4 AND EventRootCode IN ('18','19','20') AND GoldsteinScale <= -1.0)
       OR
-      (QuadClass = 3 AND GoldsteinScale <= -5.0)
+      -- PROTEST : manifestations, insurrections, coups (QuadClass 3 ou 4)
+      (EventRootCode = '14' AND GoldsteinScale <= -3.0)
+      OR
+      -- INCIDENT : diplomatie coercitive, menaces, crises (QuadClass 3)
+      (QuadClass = 3 AND EventRootCode IN ('03','04','05','13','17') AND GoldsteinScale <= -4.0)
     )
   ORDER BY bq_signal_score DESC
   LIMIT 5000
@@ -437,12 +423,12 @@ const HOTSPOTS_SQL = `
     AND ActionGeo_Long IS NOT NULL
     AND ActionGeo_Lat  != 0
     AND ActionGeo_Long != 0
-    AND QuadClass IN (3, 4)
-    AND EventRootCode IN ('03','04','05','14','18','19','20')
     AND (
-      (QuadClass = 4 AND GoldsteinScale <= -1.0)
+      (QuadClass = 4 AND EventRootCode IN ('18','19','20') AND GoldsteinScale <= -1.0)
       OR
-      (QuadClass = 3 AND GoldsteinScale <= -5.0)
+      (EventRootCode = '14' AND GoldsteinScale <= -3.0)
+      OR
+      (QuadClass = 3 AND EventRootCode IN ('03','04','05','13','17') AND GoldsteinScale <= -4.0)
     )
   GROUP BY latitude, longitude
   HAVING event_count > 1 OR severity_score >= 80
