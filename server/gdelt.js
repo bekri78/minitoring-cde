@@ -249,15 +249,37 @@ function safeDomainFromUrl(url) {
 
 // Termes civils qui invalident une classification MILITARY (même si CAMEO le suggère)
 const CIVILIAN_OVERRIDE = [
+  // Médical / santé
   'clinical trial', 'phase i', 'phase ii', 'phase iii', 'clinical study',
   'drug trial', 'patient', 'vaccine', 'antibody', 'immunotherapy',
   'cancer', 'tumor', 'oncology', 'therapy', 'treatment', 'hospital',
   'biotech', 'pharmaceutical', 'fda', 'ema', 'approval', 'dosing',
+  // Politique / élections
   'election', 'vote', 'ballot', 'parliament', 'legislation', 'law passed',
+  // Économie / finance / transport civil
   'economic growth', 'gdp', 'inflation', 'interest rate', 'trade deal',
-  'earthquake', 'flood', 'hurricane', 'wildfire', 'disaster relief',
-  'accident', 'crash', 'collision', 'train', 'car accident',
-  'sports', 'tournament', 'championship', 'olympic',
+  'fuel surcharge', 'surcharge', 'airline', 'airfare', 'ticket price',
+  'stock market', 'share price', 'earnings', 'revenue', 'profit', 'loss',
+  'trade war tariff', 'import duty', 'export ban', 'supply chain',
+  'oil price', 'gas price', 'energy cost', 'subsidy',
+  // Catastrophes naturelles
+  'earthquake', 'flood', 'hurricane', 'wildfire', 'disaster relief', 'tsunami',
+  // Accidents / faits divers
+  'accident', 'crash', 'collision', 'car accident', 'road accident',
+  'plane crash', 'train derail', 'building collapse',
+  // Sport / culture
+  'sports', 'tournament', 'championship', 'olympic', 'soccer', 'football',
+  'concert', 'festival', 'movie', 'film',
+];
+
+// Keywords militaires confirmant qu'un événement à code CAMEO militaire est réellement militaire
+const MILITARY_CONFIRM_KEYWORDS = [
+  'military', 'army', 'troops', 'soldier', 'forces', 'war', 'battle', 'combat',
+  'missile', 'airstrike', 'air strike', 'shelling', 'artillery', 'drone strike',
+  'bombing', 'blast', 'explosion', 'attack', 'killed', 'wounded', 'casualties',
+  'insurgent', 'terrorist', 'hostage', 'gunfire', 'shooting', 'raid',
+  'navy', 'naval', 'air force', 'warplane', 'tank', 'frontline', 'siege',
+  'offensive', 'ceasefire', 'coup', 'militia', 'rebels', 'ambush',
 ];
 
 function classifyEvent(text, eventCode = '') {
@@ -267,9 +289,17 @@ function classifyEvent(text, eventCode = '') {
   const isCivilian = CIVILIAN_OVERRIDE.some(k => normalized.includes(normalizeText(k)));
 
   if (!isCivilian) {
-    for (const cat of CATEGORY_RULES) {
-      if (cat.cameo && cat.cameo.some(c => eventCode.startsWith(c))) {
-        return cat.key;
+    // CAMEO code militaire : confirmer avec au moins un keyword militaire dans le titre
+    const cameoIsMilitary = CATEGORY_RULES[0].cameo.some(c => eventCode.startsWith(c));
+    if (cameoIsMilitary) {
+      const confirmed = MILITARY_CONFIRM_KEYWORDS.some(k => normalized.includes(normalizeText(k)));
+      if (confirmed) return 'military';
+      // Code CAMEO militaire mais aucun keyword → passer aux règles suivantes
+    } else {
+      for (const cat of CATEGORY_RULES) {
+        if (cat.cameo && cat.cameo.some(c => eventCode.startsWith(c))) {
+          return cat.key;
+        }
       }
     }
   }
