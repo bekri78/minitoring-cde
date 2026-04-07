@@ -13,10 +13,11 @@ import type { Track } from '../types/track';
 import { buildGeoJSON } from '../utils/geo';
 import { getCategoryColor, getCategoryLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
-import helicopterSvgRaw from '../assets/helicoptere.svg?raw';
+import helicopterTopViewUrl from '../assets/helicopter-top-view.webp';
 
 const RAILWAY_URL = 'https://minitoring-cde-production.up.railway.app';
 const QUAKE_MIN_MAG = 5.5;
+const HELICOPTER_COLOR = '#00f5d4';
 
 interface Props {
   events:        Event[];
@@ -32,12 +33,6 @@ interface Props {
 
 // ── SVG icons ────────────────────────────────────────────────────────────────
 const airplaneSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><g transform="translate(8.77 13.875)"><path fill="COLOR" fill-rule="evenodd" d="M194.67321 0 70.641958 53.625c-10.38227-6.92107-34.20058-21.27539-38.90545-23.44898-39.4400301-18.22079-36.9454001 14.73107-20.34925 24.6052 4.53917 2.70065 27.72352 17.17823 43.47345 26.37502l17.90625 133.9375 22.21875 13.15625 11.531252-120.9375 71.53125 36.6875 3.84375 39.21875 14.53125 8.625 11.09375-42.40625.125.0625 30.8125-31.53125-14.875-8-35.625 16.90625-68.28125-42.4375L217.36071 12.25 194.67321 0z"/></g></svg>`;
-
-const helicopterSvg = helicopterSvgRaw
-  .replace(/<\?xml[\s\S]*?\?>/g, '')
-  .replace(/<!DOCTYPE[\s\S]*?>/g, '')
-  .replace(/<metadata>[\s\S]*?<\/metadata>/g, '')
-  .replace(/fill="#000000"/g, 'fill="COLOR"');
 
 const shipSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 612 612" fill="COLOR"><g><path d="M612,342.869l-72.243,150.559c-9.036,17.516-27.098,28.521-46.808,28.521H66.974c-7.85,0-12.942-8.277-9.402-15.285l0.179-0.355c5.778-11.439,2.35-25.383-8.074-32.836l-0.589-0.422c-24.197-17.305-38.554-45.225-38.554-74.973v-34.141h379.228v-0.211c0-11.52,9.338-20.857,20.856-20.857H612L612,342.869z M368.693,216.46h-73.738c-5.818,0-10.534,4.716-10.534,10.534v115.875c0,5.818,4.716,10.535,10.534,10.535h73.738c5.817,0,10.534-4.717,10.534-10.535V226.994C379.228,221.176,374.511,216.46,368.693,216.46z M495.102,258.596h-84.272c-5.817,0-10.534,4.716-10.534,10.534v42.135c0,5.818,4.717,10.535,10.534,10.535h84.272c5.818,0,10.534-4.717,10.534-10.535V269.13C505.636,263.312,500.92,258.596,495.102,258.596z M168.545,353.402h84.272c5.818,0,10.534-4.717,10.534-10.533v-84.273c0-5.818-4.716-10.534-10.534-10.534h-84.272c-5.818,0-10.534,4.716-10.534,10.534v84.273C158.012,348.686,162.728,353.402,168.545,353.402z M163.155,195.391l-26.211,21.069v136.942H31.602V216.46H0v-21.069h73.738v-30.546H46.506v-12.296h27.232V90.051h10.534v62.498h27.233v12.296H84.272v30.546H163.155z M117.913,282.062h-34.28v31.457h34.28V282.062z M117.913,231.651h-34.28v31.458h34.28V231.651z"/></g></svg>`;
 
@@ -57,6 +52,22 @@ function makeSvgIcon(
   const svgNoEvents = svg.replace('<svg ', '<svg style="pointer-events:none;" ');
   return L.divIcon({
     html: `<div style="width:${size}px;height:${size}px;transform:rotate(${rotateDeg}deg);transform-origin:center;filter:drop-shadow(0 0 2px rgba(0,0,0,0.8));cursor:pointer;">${svgNoEvents}</div>`,
+    className: '',
+    iconSize:   [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
+
+function makeMaskedIcon(
+  imageUrl: string,
+  color: string,
+  size: number,
+  rotateDeg = 0,
+): L.DivIcon {
+  return L.divIcon({
+    html: `<div style="width:${size}px;height:${size}px;transform:rotate(${rotateDeg}deg);transform-origin:center;filter:drop-shadow(0 0 3px rgba(0,0,0,0.9));cursor:pointer;">
+      <div style="width:100%;height:100%;background:${color};-webkit-mask:url('${imageUrl}') center / contain no-repeat;mask:url('${imageUrl}') center / contain no-repeat;pointer-events:none;"></div>
+    </div>`,
     className: '',
     iconSize:   [size, size],
     iconAnchor: [size / 2, size / 2],
@@ -312,8 +323,9 @@ export function WorldMap({
     airTracks.forEach(t => {
       if (t.lat == null || t.lon == null) return;
       const isHeli = (t as any).isHelicopter;
-      const svg    = isHeli ? helicopterSvg : airplaneSvg;
-      const icon   = makeSvgIcon(svg, t.color || '#4a9eff', 28, t.heading ?? 0);
+      const icon   = isHeli
+        ? makeMaskedIcon(helicopterTopViewUrl, HELICOPTER_COLOR, 30, t.heading ?? 0)
+        : makeSvgIcon(airplaneSvg, t.color || '#4a9eff', 28, t.heading ?? 0);
 
       const marker = L.marker([t.lat, t.lon], { icon, zIndexOffset: 500 });
 
