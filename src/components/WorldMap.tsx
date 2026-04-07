@@ -348,7 +348,7 @@ export function WorldMap({
 
     seaTracks.forEach(t => {
       if (t.lat == null || t.lon == null) return;
-      const icon   = makeSvgIcon(shipSvg, t.color || '#60ddff', 32, 0); // vue de profil — pas de rotation
+      const icon   = makeSvgIcon(shipSvg, t.color || '#60ddff', 20, 0); // vue de profil — pas de rotation
       const marker = L.marker([t.lat, t.lon], { icon, zIndexOffset: 400 });
 
       const tc     = tierColor(t.milTier || '');
