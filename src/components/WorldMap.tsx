@@ -233,28 +233,33 @@ export function WorldMap({
       const rawTitle  = p.title || p.domain || '';
       const popId = `ev-${p.id || Math.random().toString(36).slice(2)}`;
 
+      // Titre stocké en data-attribute pour éviter les problèmes d'échappement dans onclick
       marker.bindPopup(mono(`
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
-          <button id="${popId}-btn" onclick="(function(){
-            var btn=document.getElementById('${popId}-btn');
-            var box=document.getElementById('${popId}-title');
-            if(!btn||!box)return;
-            btn.textContent='...';btn.disabled=true;
-            fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(${JSON.stringify(rawTitle)})+'&langpair=en|fr')
-              .then(function(r){return r.json();})
-              .then(function(d){
-                var tr=d&&d.responseData&&d.responseData.translatedText;
-                if(tr){box.textContent=tr;btn.textContent='✓ FR';}
-                else{btn.textContent='ERR';}
-              })
-              .catch(function(){btn.textContent='ERR';btn.disabled=false;});
-          })()" style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#00d4ff;border:1px solid #1a4a5a;cursor:pointer;font-family:inherit;flex-shrink:0;">FR</button>
+          <button id="${popId}-btn"
+            data-title="${escapeHtml(rawTitle)}"
+            onclick="(function(){
+              var btn=document.getElementById('${popId}-btn');
+              var box=document.getElementById('${popId}-title');
+              if(!btn||!box)return;
+              var q=btn.getAttribute('data-title');
+              btn.textContent='...';btn.disabled=true;
+              fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(q)+'&langpair=en|fr')
+                .then(function(r){return r.json();})
+                .then(function(d){
+                  var tr=d&&d.responseData&&d.responseData.translatedText;
+                  if(tr){box.textContent=tr;btn.textContent='✓ FR';}
+                  else{btn.textContent='ERR';}
+                })
+                .catch(function(){btn.textContent='ERR';btn.disabled=false;});
+            })()"
+            style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#00d4ff;border:1px solid #1a4a5a;cursor:pointer;font-family:inherit;flex-shrink:0;">FR</button>
           <span style="padding:1px 6px;font-size:9px;background:${catColor}22;color:${catColor};border:1px solid ${catColor}55;">${catLabel}</span>
           <span style="font-size:9px;color:#4a6a7a;margin-left:auto;white-space:nowrap;">${dateStr}</span>
         </div>
         <p id="${popId}-title" style="margin:0 0 8px 0;font-size:11px;line-height:1.5;color:#e8f4ff;">${escapeHtml(rawTitle)}</p>
-        <div style="font-size:9px;color:#2a4a5a;border-top:1px solid #0e1a24;padding-top:6px;">
-          ${p.url ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener" style="color:#2a5a6a;text-decoration:none;">↗ ${domain}</a>` : domain}
+        <div style="font-size:9px;border-top:1px solid #0e1a24;padding-top:6px;">
+          ${p.url ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener" style="color:#2a5a6a;text-decoration:none;">↗ ${domain}</a>` : `<span style="color:#2a4a5a;">${domain}</span>`}
         </div>
       `), { maxWidth: 340 });
 
