@@ -204,7 +204,9 @@ function titleFromUrl(url) {
         .replace(/[-_+]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
+      // Accepte : 3+ lettres latines OU caractères CJK/Hangul/Kana
       if (/[a-zA-Z]{3,}/.test(cleaned)) return cleaned;
+      if (/[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff]/.test(cleaned)) return cleaned;
     }
     return domain;
   } catch {
@@ -513,11 +515,15 @@ function rowToEvent(row, hotspotIndex) {
   const base = scoreEvent(text, goldstein, domain);
 
   // bq_signal_score : score composite calculé dans BigQuery
-  // (ABS(goldstein)*10 + log mentions/sources/articles + bonus récence)
   const bqBonus = Math.min(50, Number(row.bq_signal_score || 0));
 
   // Boost géographique depuis les hotspots agrégés
   const hotspotBonus = hotspotIndex ? getHotspotBoost(lat, lon, hotspotIndex) : 0;
+
+  // Bonus pour zones stratégiques asiatiques — compense les titres non-latins
+  // qui ne matchent pas les keywords anglais de scoreEvent()
+  const countryCode = (row.country_code || '').trim();
+  const asiaBonus   = ['CH','KN','KS','TW','VM','AF','PK'].includes(countryCode) ? 30 : 0;
 
   return {
     id:           row.id || `gdelt_bq_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -538,7 +544,7 @@ function rowToEvent(row, hotspotIndex) {
     color:        getColor(goldstein),
     severity:     getSeverityLabel(goldstein),
     category,
-    score:        base + bqBonus + hotspotBonus,
+    score:        base + bqBonus + hotspotBonus + asiaBonus,
     dataSource:   'gdelt-bq',
   };
 }
