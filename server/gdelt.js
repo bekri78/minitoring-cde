@@ -49,6 +49,12 @@ const NOISE_KEYWORDS = [
   'weekend', 'lifestyle', 'recipe', 'restaurant', 'horoscope', 'tourism', 'travel',
   'stock', 'market', 'earnings', 'real estate', 'deal', 'shopping', 'review',
   'ipo', 'startup', 'funding round', 'quarterly results', 'revenue',
+  'investment strategy', 'investing', 'shares', 'shareholders', 'analyst forecast',
+  'samsung', 'semiconductor', 'semiconductors', 'memory chips', 'ai chips',
+  'chip demand', 'artificial intelligence demand',
+  'acciones', 'bolsa', 'inversion', 'inversión', 'resultados', 'beneficio',
+  'crece', 'crecimiento', 'esperado', 'demanda', 'chips de memoria',
+  'inteligencia artificial',
   'pleads guilty', 'pleads not guilty', 'plead guilty', 'not guilty plea',
   'found guilty', 'found not guilty', 'convicted of', 'acquitted',
   'sentenced to', 'sentencing hearing', 'faces sentencing',
@@ -84,7 +90,8 @@ const NOISE_DOMAINS = new Set([
   'tmz.com', 'people.com', 'eonline.com', 'variety.com', 'hollywoodreporter.com',
   'buzzfeed.com', 'buzzfeednews.com', 'foodnetwork.com', 'allrecipes.com',
   'techcrunch.com', 'engadget.com', 'theverge.com', 'wired.com',
-  'marketwatch.com', 'investopedia.com', 'fool.com'
+  'marketwatch.com', 'investopedia.com', 'fool.com',
+  'estrategiasdeinversion.com'
 ]);
 
 // ── Boost de score pour les sources étatiques stratégiques ─────────────────
@@ -301,6 +308,10 @@ const CIVILIAN_OVERRIDE = [
   'stock market', 'share price', 'earnings', 'revenue', 'profit', 'loss',
   'trade war tariff', 'import duty', 'export ban', 'supply chain',
   'oil price', 'gas price', 'energy cost', 'subsidy',
+  'samsung', 'semiconductor', 'semiconductors', 'memory chips', 'chip demand',
+  'artificial intelligence demand', 'acciones', 'bolsa', 'inversion',
+  'inversión', 'resultados', 'beneficio', 'crece', 'crecimiento',
+  'esperado', 'demanda', 'chips de memoria', 'inteligencia artificial',
   // Catastrophes naturelles
   'earthquake', 'flood', 'hurricane', 'wildfire', 'disaster relief', 'tsunami',
   // Accidents / faits divers

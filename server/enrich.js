@@ -9,7 +9,8 @@ const AI_FILTER_ENABLED = process.env.AI_FILTER_ENABLED !== 'false';
 
 const TARGET_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 600);
 const MAX_AI_CANDIDATES = Number(process.env.GDELT_AI_CANDIDATES || 900);
-const BATCH_SIZE = Number(process.env.GDELT_AI_BATCH || 35);
+const BATCH_SIZE = Number(process.env.GDELT_AI_BATCH || 25);
+const OPENAI_TIMEOUT_MS = Number(process.env.OPENAI_FILTER_TIMEOUT_MS || 120000);
 
 const REGION_QUOTAS = {
   france: 40,
@@ -29,6 +30,23 @@ const VALID_CATEGORIES = new Set([
   'terrorism', 'military', 'conflict', 'protest',
   'cyber', 'strategic', 'crisis', 'incident',
 ]);
+
+const BUSINESS_NOISE_TERMS = [
+  'stock', 'market', 'earnings', 'revenue', 'profit', 'loss', 'shares',
+  'share price', 'analyst forecast', 'quarterly results', 'investing',
+  'investment', 'samsung', 'semiconductor', 'semiconductors', 'memory chips',
+  'chip demand', 'artificial intelligence demand',
+  'acciones', 'bolsa', 'inversion', 'inversión', 'resultados', 'beneficio',
+  'crece', 'crecimiento', 'esperado', 'demanda', 'chips de memoria',
+  'inteligencia artificial',
+];
+
+const SECURITY_TERMS = [
+  'war', 'attack', 'airstrike', 'strike', 'missile', 'drone', 'military',
+  'army', 'navy', 'troops', 'terror', 'terrorism', 'hostage', 'bomb',
+  'explosion', 'coup', 'riot', 'protest', 'sanction', 'border', 'cyberattack',
+  'ransomware', 'hack', 'espionage', 'export ban', 'arms embargo',
+];
 
 const cache = new Map();
 
@@ -62,6 +80,26 @@ function regionForEvent(event) {
 
 function sortByScore(events) {
   return [...events].sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s:/._-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function hasAnyTerm(text, terms) {
+  const normalized = normalizeText(text);
+  return terms.some(term => normalized.includes(normalizeText(term)));
+}
+
+function isBusinessNoise(event) {
+  const text = `${event.title || ''} ${event.url || ''} ${event.domain || ''} ${event.actor1 || ''} ${event.actor2 || ''}`;
+  return hasAnyTerm(text, BUSINESS_NOISE_TERMS) && !hasAnyTerm(text, SECURITY_TERMS);
 }
 
 function pickRegionalCandidates(events, totalLimit = MAX_AI_CANDIDATES) {
@@ -132,6 +170,7 @@ Keep:
 Reject:
 - sports, entertainment, lifestyle, routine business, ordinary crime, local accidents, courts-only procedural stories, weather-only events
 - duplicate-looking weak items, vague non-events, opinion/explainer pieces unless they contain a concrete new event
+- business/stock/earnings/chip-demand stories such as Samsung growth or AI memory-chip demand unless they mention sanctions, export bans, cyberattack, military use, or national-security action
 
 Return ONLY a JSON object:
 {"events":[{"id":"same id","keep":true,"priority":0,"category":"military|conflict|terrorism|protest|cyber|strategic|crisis|incident|discard","title_fr":"French title <= 14 words","headline":"English headline <= 14 words","notes":"French operational summary <= 18 words"}]}
@@ -156,7 +195,7 @@ async function classifyBatch(events, attempt = 0) {
       max_tokens: Math.max(1200, events.length * 70),
       response_format: { type: 'json_object' },
     }),
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
   });
 
   if (resp.status === 429 && attempt < 2) {
@@ -181,6 +220,8 @@ async function classifyBatch(events, attempt = 0) {
 }
 
 function mergeAiResult(event, result) {
+  if (isBusinessNoise(event)) return null;
+
   const keep = result?.keep !== false && result?.category !== 'discard';
   if (!keep) return null;
 
@@ -206,7 +247,7 @@ function mergeAiResult(event, result) {
 }
 
 function selectFinalEvents(events, totalLimit = TARGET_EVENTS) {
-  const sorted = sortByScore(events);
+  const sorted = sortByScore(events.filter(event => !isBusinessNoise(event)));
   const selected = [];
   const seen = new Set();
 
@@ -231,8 +272,9 @@ function selectFinalEvents(events, totalLimit = TARGET_EVENTS) {
 async function enrichEvents(events) {
   if (!events?.length) return [];
 
-  const candidates = pickRegionalCandidates(events);
-  console.log(`[enrich] OpenAI filter ${AI_FILTER_ENABLED ? 'enabled' : 'disabled'} — ${candidates.length}/${events.length} candidates, target ${TARGET_EVENTS}`);
+  const cleaned = events.filter(event => !isBusinessNoise(event));
+  const candidates = pickRegionalCandidates(cleaned);
+  console.log(`[enrich] OpenAI filter ${AI_FILTER_ENABLED ? 'enabled' : 'disabled'} — ${candidates.length}/${events.length} candidates, target ${TARGET_EVENTS} (${events.length - cleaned.length} business noise removed)`);
 
   if (!AI_FILTER_ENABLED || !OPENAI_API_KEY) {
     if (!OPENAI_API_KEY) console.warn('[enrich] OPENAI_API_KEY missing; using local regional selection');
@@ -270,7 +312,7 @@ async function enrichEvents(events) {
         enriched.push(event);
       }
     }
-    if (i + BATCH_SIZE < uncached.length) await sleep(500);
+    if (i + BATCH_SIZE < uncached.length) await sleep(250);
   }
 
   const finalEvents = selectFinalEvents(enriched);
