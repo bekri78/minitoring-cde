@@ -21,6 +21,8 @@ const CATEGORY_OPTIONS: FilterOption[] = [
   { value: 'military',  label: 'MILITARY',  color: '#ff6600' },
   { value: 'conflict',  label: 'CONFLICT',  color: '#ff8800' },
   { value: 'protest',   label: 'PROTEST',   color: '#ffcc00' },
+  { value: 'cyber',     label: 'CYBER',     color: '#00ff88' },
+  { value: 'strategic', label: 'STRATEGIC', color: '#4488ff' },
   { value: 'crisis',    label: 'CRISIS',    color: '#cc44ff' },
   { value: 'incident',  label: 'INCIDENT',  color: '#4a6a7a' },
 ];

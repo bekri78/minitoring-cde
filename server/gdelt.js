@@ -108,7 +108,20 @@ const STRATEGIC_COUNTRY_CODES = new Set([
   'IR', 'SY', 'UP', 'IZ', 'AF', 'PK',
   'LY', 'YM', 'SU',
 ]);
-const STRATEGIC_MIN_EVENTS = 300; // 300/800 = 37% réservés aux zones stratégiques
+const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 260);
+const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 70);
+const MIN_RELEVANCE_SCORE  = Number(process.env.GDELT_MIN_SCORE || 85);
+
+const CATEGORY_QUOTAS = {
+  terrorism: 35,
+  conflict:  70,
+  military:  55,
+  protest:   35,
+  cyber:     20,
+  strategic: 35,
+  crisis:    35,
+  incident:  20,
+};
 
 // ── Mots-clés opérationnels ────────────────────────────────────────────────
 const MILITARY_CRISIS_KEYWORDS = [
@@ -124,23 +137,20 @@ const MILITARY_CRISIS_KEYWORDS = [
   'paramilitary'
 ];
 
-// ── Classification opérationnelle — 3 catégories ──────────────────────────
-// MILITARY  : combat armé, frappes, opérations militaires
-// PROTEST   : manifestations, émeutes, soulèvements, coups d'état
-// INCIDENT  : diplomatie coercitive, crises, menaces, incidents sécuritaires
 const CATEGORY_RULES = [
   {
-    key: 'military',
-    cameo: ['15','18','19','20'],  // préfixes CAMEO : assault, use of force, fight, coerce
-    keywords: ['airstrike', 'air strike', 'missile', 'artillery', 'shelling',
-               'bombardment', 'warplane', 'fighter jet', 'military aircraft',
-               'tank', 'drone strike', 'armed forces', 'military operation',
-               'offensive', 'siege', 'air raid', 'rocket attack', 'troops',
-               'frontline', 'ceasefire violation', 'combat', 'war', 'battle',
-               'ambush', 'militia', 'rebels', 'insurgent', 'terrorist attack',
-               'hostage', 'gunfire', 'naval battle', 'submarine', 'navy vessel',
-               'nuclear weapon', 'wmd', 'chemical weapon', 'coup d\'état', 'coup',
-               'military convoy', 'military base', 'military strike', 'air force base']
+    key: 'terrorism',
+    cameo: ['181','1831','1832','1833'],
+    keywords: ['terrorist', 'terrorism', 'isis', 'islamic state', 'al qaeda',
+               'al-qaeda', 'boko haram', 'suicide bombing', 'ied', 'car bomb',
+               'hostage', 'mass hostage', 'beheaded']
+  },
+  {
+    key: 'cyber',
+    cameo: ['155'],
+    keywords: ['cyberattack', 'cyber attack', 'cybersecurity', 'ransomware',
+               'hacked', 'hackers', 'malware', 'ddos', 'electronic warfare',
+               'cyber forces', 'data breach', 'critical infrastructure']
   },
   {
     key: 'protest',
@@ -150,12 +160,41 @@ const CATEGORY_RULES = [
                'walkout', 'stormed', 'clashed with police', 'strike', 'boycott']
   },
   {
-    key: 'incident',
-    cameo: ['03','04','05','13','17'],
+    key: 'strategic',
+    cameo: ['13','16','17'],
+    keywords: ['sanction', 'arms embargo', 'nuclear', 'ballistic missile',
+               'hypersonic', 'wmd', 'weapons of mass destruction', 'naval incident',
+               'border tension', 'military standoff', 'diplomatic rupture',
+               'break relations', 'asset freeze', 'strategic']
+  },
+  {
+    key: 'conflict',
+    cameo: ['18','19','20'],
+    keywords: ['clashes', 'fighting', 'battle', 'combat', 'frontline',
+               'war', 'rebels', 'insurgent', 'militia', 'armed group',
+               'civil war', 'offensive', 'counteroffensive', 'siege']
+  },
+  {
+    key: 'military',
+    cameo: ['15','180','184','185','186','190','193','194','195','196','204'],
+    keywords: ['airstrike', 'air strike', 'missile', 'artillery', 'shelling',
+               'bombardment', 'warplane', 'fighter jet', 'military aircraft',
+               'tank', 'drone strike', 'armed forces', 'military operation',
+               'military exercise', 'troops', 'mobilization', 'navy', 'naval',
+               'submarine', 'warship', 'military base', 'air force base']
+  },
+  {
+    key: 'crisis',
+    cameo: ['13','16','17'],
     keywords: ['sanction', 'expel', 'expelled', 'detained', 'arrested', 'crisis',
                'emergency', 'martial law', 'evacuation', 'displaced', 'refugee',
                'state of emergency', 'crackdown', 'deported', 'ultimatum',
                'threatened', 'warning', 'diplomatic', 'tension', 'border']
+  },
+  {
+    key: 'incident',
+    cameo: [],
+    keywords: ['security incident', 'incident', 'police operation', 'checkpoint']
   }
 ];
 
@@ -273,42 +312,28 @@ const CIVILIAN_OVERRIDE = [
 ];
 
 // Keywords militaires confirmant qu'un événement à code CAMEO militaire est réellement militaire
-const MILITARY_CONFIRM_KEYWORDS = [
-  'military', 'army', 'troops', 'soldier', 'forces', 'war', 'battle', 'combat',
-  'missile', 'airstrike', 'air strike', 'shelling', 'artillery', 'drone strike',
-  'bombing', 'blast', 'explosion', 'attack', 'killed', 'wounded', 'casualties',
-  'insurgent', 'terrorist', 'hostage', 'gunfire', 'shooting', 'raid',
-  'navy', 'naval', 'air force', 'warplane', 'tank', 'frontline', 'siege',
-  'offensive', 'ceasefire', 'coup', 'militia', 'rebels', 'ambush',
-];
-
 function classifyEvent(text, eventCode = '') {
   const normalized = normalizeText(text);
+  const normalizedCode = String(eventCode || '');
 
-  // Si le texte contient des termes clairement civils → jamais MILITARY
+  // Si le texte contient des termes clairement civils → ne pas l'envoyer en faux positif sécurité.
   const isCivilian = CIVILIAN_OVERRIDE.some(k => normalized.includes(normalizeText(k)));
+  if (isCivilian) return 'discard';
 
-  if (!isCivilian) {
-    // CAMEO code militaire : confirmer avec au moins un keyword militaire dans le titre
-    const cameoIsMilitary = CATEGORY_RULES[0].cameo.some(c => eventCode.startsWith(c));
-    if (cameoIsMilitary) {
-      const confirmed = MILITARY_CONFIRM_KEYWORDS.some(k => normalized.includes(normalizeText(k)));
-      if (confirmed) return 'military';
-      // Code CAMEO militaire mais aucun keyword → passer aux règles suivantes
-    } else {
-      for (const cat of CATEGORY_RULES) {
-        if (cat.cameo && cat.cameo.some(c => eventCode.startsWith(c))) {
-          return cat.key;
-        }
-      }
-    }
-  }
-
+  // Les mots du titre/article priment sur CAMEO: GDELT mappe souvent des articles
+  // civils ou policiers vers des racines "force" trop larges.
   for (const cat of CATEGORY_RULES) {
     if (cat.keywords.some(k => normalized.includes(normalizeText(k)))) {
       return cat.key;
     }
   }
+
+  for (const cat of CATEGORY_RULES) {
+    if (cat.cameo && cat.cameo.some(c => normalizedCode.startsWith(c))) {
+      return cat.key;
+    }
+  }
+
   return 'incident';
 }
 
@@ -321,7 +346,8 @@ function scoreEvent(text, tone, domain) {
   const bonuses = {
     missile: 25, war: 25, attack: 22, airstrike: 24, bombing: 24,
     terrorist: 24, military: 20, drone: 20, strike: 20, hostage: 20,
-    protest: 18, riot: 18, explosion: 18, troops: 16, crisis: 15, incident: 12
+    protest: 18, riot: 18, explosion: 18, troops: 16, crisis: 15, incident: 12,
+    cyberattack: 24, ransomware: 20, sanctions: 16, nuclear: 25, clashes: 18
   };
   for (const [word, bonus] of Object.entries(bonuses)) {
     if (normalized.includes(word)) score += bonus;
@@ -330,6 +356,27 @@ function scoreEvent(text, tone, domain) {
     score += PRIORITY_DOMAIN_BOOST[domain];
   }
   return score;
+}
+
+function isRelevantEvent(event) {
+  if (!event || event.category === 'discard') return false;
+
+  const score = Number(event.score || 0);
+  if (score >= MIN_RELEVANCE_SCORE) return true;
+
+  // Les catégories rares mais utiles doivent passer avec un score un peu plus bas,
+  // sinon le flux redevient une simple liste de combats très médiatisés.
+  if (['cyber', 'strategic', 'protest'].includes(event.category) && score >= MIN_RELEVANCE_SCORE - 20) {
+    return true;
+  }
+
+  // On tolère les sources stratégiques connues quand la région et le code CAMEO
+  // indiquent un signal de sécurité, même si le titre non latin score mal.
+  if (STRATEGIC_COUNTRY_CODES.has(event.countryCode) && PRIORITY_DOMAIN_BOOST[event.domain] && score >= MIN_RELEVANCE_SCORE - 25) {
+    return true;
+  }
+
+  return false;
 }
 
 function isNoiseEvent(title, url, domain) {
@@ -424,9 +471,11 @@ const RECENT_EVENTS_SQL = `
     -- Titre réel de l'article depuis la table GKG (PAGE_TITLE dans Extras)
     REGEXP_EXTRACT(g.Extras, r'<PAGE_TITLE>([^<]{4,300})</PAGE_TITLE>') AS page_title,
     CASE
+      WHEN e.EventCode = '155'                 THEN 'cyber'
+      WHEN e.EventCode IN ('181','1831','1832','1833') THEN 'terrorism'
       WHEN e.EventRootCode IN ('18','19','20') THEN 'hard_events'
       WHEN e.EventRootCode = '14'             THEN 'protests'
-      WHEN e.EventRootCode IN ('03','04','05') THEN 'diplomacy'
+      WHEN e.EventRootCode IN ('13','16','17') THEN 'strategic_crisis'
       ELSE 'other'
     END AS layer_type,
     -- Score composite BigQuery : sévérité + médias + bonus récence
@@ -458,10 +507,16 @@ const RECENT_EVENTS_SQL = `
       (e.EventRootCode IN ('18','19','20') AND e.GoldsteinScale <= -3.0)
       OR
       -- Insurrections violentes / coups d'état (seulement les plus graves)
-      (e.EventRootCode = '14' AND e.GoldsteinScale <= -6.0)
+      (e.EventRootCode = '15' AND e.GoldsteinScale <= -2.0)
+      OR
+      (e.EventRootCode = '14' AND e.GoldsteinScale <= -3.5)
+      OR
+      (e.EventRootCode IN ('13','16','17') AND e.GoldsteinScale <= -4.0)
+      OR
+      (e.EventCode = '155')
     )
   ORDER BY bq_signal_score DESC
-  LIMIT 5000
+  LIMIT 3000
 `;
 
 // ── Couche 2 — signal_hotspots_24h ───────────────────────────────────────
@@ -474,9 +529,11 @@ const HOTSPOTS_SQL = `
     ANY_VALUE(ActionGeo_FullName)                           AS location_name,
     ANY_VALUE(ActionGeo_CountryCode)                        AS country_code,
     CASE
+      WHEN COUNTIF(EventCode = '155') > 0                  THEN 'cyber'
+      WHEN COUNTIF(EventCode IN ('181','1831','1832','1833')) > 0 THEN 'terrorism'
       WHEN COUNTIF(EventRootCode IN ('18','19','20')) > 0  THEN 'hard_events'
       WHEN COUNTIF(EventRootCode = '14') > 0               THEN 'protests'
-      ELSE 'diplomacy'
+      ELSE 'strategic_crisis'
     END                                                     AS layer_type,
     COUNT(*)                                                AS event_count,
     SUM(NumMentions)                                        AS total_mentions,
@@ -489,8 +546,9 @@ const HOTSPOTS_SQL = `
       WHEN '19' THEN 100
       WHEN '18' THEN 80
       WHEN '20' THEN 80
+      WHEN '15' THEN 65
       WHEN '14' THEN 50
-      ELSE 20
+      ELSE 35
     END)                                                    AS severity_score,
     -- Score médias (log pour éviter la surreprésentation des grands médias)
     ROUND(LN(1 + SUM(NumMentions) + SUM(NumSources) * 2 + SUM(NumArticles)) * 5) AS media_score,
@@ -503,7 +561,7 @@ const HOTSPOTS_SQL = `
     -- Score final plafonné à 200
     LEAST(200, ROUND(
       MAX(CASE EventRootCode
-        WHEN '19' THEN 100 WHEN '18' THEN 80 WHEN '20' THEN 80 WHEN '14' THEN 50 ELSE 20
+        WHEN '19' THEN 100 WHEN '18' THEN 80 WHEN '20' THEN 80 WHEN '15' THEN 65 WHEN '14' THEN 50 ELSE 35
       END)
       * MAX(CASE
           WHEN ${DATEADDED_FILTER(2)} THEN 1.5
@@ -525,7 +583,11 @@ const HOTSPOTS_SQL = `
       OR
       (EventRootCode = '14' AND GoldsteinScale <= -3.0)
       OR
-      (QuadClass = 3 AND EventRootCode IN ('03','04','05','13','17') AND GoldsteinScale <= -4.0)
+      (EventRootCode = '15' AND GoldsteinScale <= -2.0)
+      OR
+      (QuadClass = 3 AND EventRootCode IN ('13','16','17') AND GoldsteinScale <= -4.0)
+      OR
+      (EventCode = '155')
     )
   GROUP BY latitude, longitude
   HAVING event_count > 1 OR severity_score >= 80
@@ -557,6 +619,35 @@ function getHotspotBoost(lat, lon, hotspotIndex) {
 }
 
 // ── Map one BigQuery row → existing event schema ──────────────────────────
+function selectDiverseEvents(events) {
+  const sorted = [...events].sort((a, b) => b.score - a.score);
+  const selected = [];
+  const seen = new Set();
+
+  function take(list, limit) {
+    for (const event of list) {
+      if (selected.length >= MAX_DASHBOARD_EVENTS || limit <= 0) break;
+      if (seen.has(event.id)) continue;
+      selected.push(event);
+      seen.add(event.id);
+      limit--;
+    }
+  }
+
+  for (const [category, limit] of Object.entries(CATEGORY_QUOTAS)) {
+    take(sorted.filter(e => e.category === category), limit);
+  }
+
+  const strategicCount = selected.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)).length;
+  take(
+    sorted.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)),
+    Math.max(0, STRATEGIC_MIN_EVENTS - strategicCount)
+  );
+
+  take(sorted, MAX_DASHBOARD_EVENTS - selected.length);
+  return selected.sort((a, b) => b.score - a.score);
+}
+
 function rowToEvent(row, hotspotIndex) {
   const url = (row.source_url || '').trim();
   if (!url) return null;
@@ -569,8 +660,9 @@ function rowToEvent(row, hotspotIndex) {
 
   // Re-apply Goldstein thresholds (the SQL already filters, but views may not)
   if (isNaN(goldstein)) return null;
-  if (quadClass === '4' && goldstein > -1) return null;
-  if (quadClass === '3' && goldstein > -5) return null;
+  if (eventCode !== '155' && quadClass === '4' && goldstein > -1) return null;
+  if (quadClass === '3' && ['13','16','17'].includes(rootCode) && goldstein > -4) return null;
+  if (quadClass === '3' && !['13','16','17'].includes(rootCode) && goldstein > -5) return null;
   // For rows from a pre-created view with no quad_class, accept any negative value
   if (!quadClass && goldstein >= 0) return null;
 
@@ -597,8 +689,9 @@ function rowToEvent(row, hotspotIndex) {
 
   if (isNoiseEvent(title, url, domain)) return null;
 
-  const text     = `${title} ${url}`;
+  const text     = `${title} ${url} ${row.actor1 || ''} ${row.actor2 || ''} ${getSubEventType(eventCode)}`;
   const category = classifyEvent(text, eventCode);
+  if (category === 'discard') return null;
   const base = scoreEvent(text, goldstein, domain);
 
   // bq_signal_score : score composite calculé dans BigQuery
@@ -611,6 +704,7 @@ function rowToEvent(row, hotspotIndex) {
   // qui ne matchent pas les keywords anglais de scoreEvent()
   const countryCode = (row.country_code || '').trim();
   const asiaBonus   = ['CH','KN','KS','TW','VM','AF','PK'].includes(countryCode) ? 30 : 0;
+  const finalScore   = base + bqBonus + hotspotBonus + asiaBonus;
 
   return {
     id:           row.id || `gdelt_bq_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -631,7 +725,7 @@ function rowToEvent(row, hotspotIndex) {
     color:        getColor(goldstein),
     severity:     getSeverityLabel(goldstein),
     category,
-    score:        base + bqBonus + hotspotBonus + asiaBonus,
+    score:        finalScore,
     dataSource:   'gdelt-bq',
   };
 }
@@ -663,7 +757,7 @@ async function fetchTodayEvents() {
   const dedupMap = new Map();
   for (const row of rawRows) {
     const ev = rowToEvent(row, hotspotIndex);
-    if (!ev) continue;
+    if (!isRelevantEvent(ev)) continue;
 
     const existing = dedupMap.get(ev.url);
     if (!existing || ev.score > existing.score) {
@@ -677,7 +771,7 @@ async function fetchTodayEvents() {
   // Russia (RS), China (CH), North Korea (KN), Iran (IR),
   // Syria (SY), Ukraine (UP), Iraq (IZ) often score lower due to
   // non-English URLs (same rationale as original gdelt.js)
-  const allSorted      = Array.from(dedupMap.values()).sort((a, b) => b.score - a.score);
+  const allSorted      = selectDiverseEvents(Array.from(dedupMap.values()));
   const strategic      = allSorted.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode));
   const others         = allSorted.filter(e => !STRATEGIC_COUNTRY_CODES.has(e.countryCode));
 

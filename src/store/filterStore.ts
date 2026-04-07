@@ -13,7 +13,7 @@ interface FilterStore {
 }
 
 const DEFAULT_SEVERITY   = new Set(['critical', 'severe', 'high', 'moderate', 'low']);
-const DEFAULT_CATEGORIES = new Set(['terrorism', 'military', 'conflict', 'protest', 'crisis', 'incident']);
+const DEFAULT_CATEGORIES = new Set(['terrorism', 'military', 'conflict', 'protest', 'cyber', 'strategic', 'crisis', 'incident']);
 const DEFAULT_REGIONS    = new Set(['europe', 'middleeast', 'asia', 'africa', 'americas', 'oceania']);
 
 export const useFilterStore = create<FilterStore>((set) => ({
