@@ -797,14 +797,36 @@ async function fetchTodayEvents() {
 
   // Parse, filter, and deduplicate (keep highest-scoring URL)
   const dedupMap = new Map();
+  let _dbg = { nullUrl:0, nullCoord:0, goldsteinFilter:0, noise:0, discard:0, lowScore:0, passed:0 };
   for (const row of rawRows) {
+    const url = (row.source_url || '').trim();
+    if (!url) { _dbg.nullUrl++; continue; }
+    const goldstein = parseFloat(row.goldstein);
+    if (isNaN(goldstein)) { _dbg.goldsteinFilter++; continue; }
+    const lat = parseFloat(row.latitude), lon = parseFloat(row.longitude);
+    if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) { _dbg.nullCoord++; continue; }
     const ev = rowToEvent(row, hotspotIndex);
-    if (!isRelevantEvent(ev)) continue;
-
+    if (!ev) { _dbg.noise++; continue; }
+    if (ev.category === 'discard') { _dbg.discard++; continue; }
+    if (!isRelevantEvent(ev)) { _dbg.lowScore++; continue; }
+    _dbg.passed++;
     const existing = dedupMap.get(ev.url);
     if (!existing || ev.score > existing.score) {
       dedupMap.set(ev.url, ev);
     }
+  }
+  console.log(`[gdelt-bq] filter breakdown — nullUrl:${_dbg.nullUrl} nullCoord:${_dbg.nullCoord} goldstein:${_dbg.goldsteinFilter} noise/null:${_dbg.noise} discard:${_dbg.discard} lowScore:${_dbg.lowScore} passed:${_dbg.passed}`);
+  // Sample first discard to help debug
+  for (const row of rawRows.slice(0, 50)) {
+    const url = (row.source_url || '').trim();
+    if (!url) continue;
+    const gkgTitle = decodeHtmlEntities(row.page_title || '').trim().replace(/\s+/g, ' ');
+    const title = gkgTitle.length > 4 ? gkgTitle : url.split('/').filter(Boolean).pop() || 'unknown';
+    const text = `${title} ${url} ${row.actor1 || ''} ${row.actor2 || ''}`;
+    const civilian = containsAnyKeyword(text, CIVILIAN_OVERRIDE);
+    const security = containsAnyKeyword(text, SECURITY_OVERRIDE_KEYWORDS);
+    const noise    = containsAnyKeyword(`${title} ${url}`, NOISE_KEYWORDS);
+    console.log(`[gdelt-dbg] gs=${row.goldstein} qc=${row.quad_class} noise=${noise} civ=${civilian} sec=${security} | ${title.slice(0,80)}`);
   }
 
   console.log(`[gdelt-bq] ${dedupMap.size} unique events after dedup and noise filter`);
