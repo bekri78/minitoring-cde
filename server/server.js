@@ -20,6 +20,7 @@ const { attachNearbyEvents }                                         = require('
 const { refreshSignals, getSignalsCache, isStale }                   = require('./signals');
 const { normalizeTitleWithGemini }                                   = require('./gemini-normalizer');
 const { fetchSignalMarkers, getCache: getSignalMarkersCache }        = require('./signalMarkers');
+const { fetchWorldEvents, getCache: getWorldEventsCache }            = require('./worldEvents');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -392,6 +393,14 @@ publicRouter.get('/earthquakes', (req, res) => {
   }));
 });
 
+publicRouter.get('/world-events', (_req, res) => {
+  const c = getWorldEventsCache();
+  res.json(publicEnvelope('world-events', c.events, {
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  }));
+});
+
 publicRouter.get('/signal-markers', (_req, res) => {
   const c = getSignalMarkersCache();
   res.json(publicEnvelope('signal-markers', c.markers, {
@@ -583,6 +592,11 @@ cron.schedule('*/30 * * * *', () => {
   fetchSignalMarkers().catch(err => console.error('[signal-markers-cron]', err.message));
 });
 
+// ── Cron 30min — World Events (world-monitor.com proxy) ──────────────────────
+cron.schedule('*/30 * * * *', () => {
+  fetchWorldEvents().catch(err => console.error('[world-events-cron]', err.message));
+});
+
 // ── Démarrage ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
@@ -597,4 +611,5 @@ app.listen(PORT, () => {
   fetchMilitary().catch(err => console.error('[startup-military]', err.message));
   startMilitaryShips();
   fetchSignalMarkers().catch(err => console.error('[startup-signal-markers]', err.message));
+  fetchWorldEvents().catch(err => console.error('[startup-world-events]', err.message));
 });
