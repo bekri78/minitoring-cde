@@ -19,6 +19,7 @@ const { fetchShipPhoto }                                             = require('
 const { attachNearbyEvents }                                         = require('./proximity');
 const { refreshSignals, getSignalsCache, isStale }                   = require('./signals');
 const { normalizeTitleWithGemini }                                   = require('./gemini-normalizer');
+const { fetchSignalMarkers, getCache: getSignalMarkersCache }        = require('./signalMarkers');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -391,6 +392,14 @@ publicRouter.get('/earthquakes', (req, res) => {
   }));
 });
 
+publicRouter.get('/signal-markers', (_req, res) => {
+  const c = getSignalMarkersCache();
+  res.json(publicEnvelope('signal-markers', c.markers, {
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  }));
+});
+
 publicRouter.get('/space-weather', (req, res) => {
   const c = getSwCache();
   res.json(publicEnvelope('space-weather', {
@@ -569,6 +578,11 @@ cron.schedule('*/5 * * * *', () => {
   fetchMilitary().catch(err => console.error('[military-aircraft-cron]', err.message));
 });
 
+// ── Cron 5min — Signal Markers (world-monitor.com proxy) ─────────────────────
+cron.schedule('*/5 * * * *', () => {
+  fetchSignalMarkers().catch(err => console.error('[signal-markers-cron]', err.message));
+});
+
 // ── Démarrage ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
@@ -582,4 +596,5 @@ app.listen(PORT, () => {
   fetchSpaceWeather().catch(err => console.error('[startup-spaceweather]', err.message));
   fetchMilitary().catch(err => console.error('[startup-military]', err.message));
   startMilitaryShips();
+  fetchSignalMarkers().catch(err => console.error('[startup-signal-markers]', err.message));
 });
