@@ -25,6 +25,15 @@ async function fetchSignalMarkers() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
     const data = await resp.json();
+
+    // Log la structure brute pour diagnostiquer
+    const keys = Array.isArray(data) ? `array[${data.length}]` : Object.keys(data || {}).join(', ');
+    console.log(`[signal-markers] raw structure: ${keys}`);
+    if (!Array.isArray(data) && typeof data === 'object') {
+      const sample = JSON.stringify(data).slice(0, 300);
+      console.log(`[signal-markers] raw sample: ${sample}`);
+    }
+
     const markers = Array.isArray(data) ? data : (data?.markers || data?.data || []);
 
     cache = { markers, lastUpdate: new Date().toISOString() };
