@@ -393,6 +393,16 @@ publicRouter.get('/earthquakes', (req, res) => {
   }));
 });
 
+publicRouter.get('/tracks', (req, res) => {
+  const { domain, country, minTier } = req.query;
+  const aircraft = getMilCache().aircraft || [];
+  const ships    = getShipCache().ships   || [];
+  const result   = runPipeline({ aircraft, ships, domain, country, minTier });
+  const radius   = req.query.radius ? Number(req.query.radius) : 300;
+  result.tracks  = attachNearbyEvents(result.tracks, cache.events, radius);
+  res.json(publicEnvelope('tracks', result.tracks, { meta: result.meta }));
+});
+
 publicRouter.get('/world-events', (_req, res) => {
   const c = getWorldEventsCache();
   res.json(publicEnvelope('world-events', c.events, {
