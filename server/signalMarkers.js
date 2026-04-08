@@ -12,7 +12,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const SIGNAL_MARKERS_URL = 'https://world-monitor.com/api/signal-markers';
-const CACHE_TTL_MS       = 5 * 60 * 1000; // 5 min
+const CACHE_TTL_MS       = 30 * 60 * 1000; // 30 min
 const CACHE_DIR          = process.env.CACHE_DIR || '/data';
 const DISK_PATH          = path.join(CACHE_DIR, 'signal-markers.json');
 

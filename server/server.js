@@ -578,8 +578,8 @@ cron.schedule('*/5 * * * *', () => {
   fetchMilitary().catch(err => console.error('[military-aircraft-cron]', err.message));
 });
 
-// ── Cron 5min — Signal Markers (world-monitor.com proxy) ─────────────────────
-cron.schedule('*/5 * * * *', () => {
+// ── Cron 30min — Signal Markers (world-monitor.com proxy) ────────────────────
+cron.schedule('*/30 * * * *', () => {
   fetchSignalMarkers().catch(err => console.error('[signal-markers-cron]', err.message));
 });
 
