@@ -105,13 +105,22 @@ function loadCache() {
 
 function saveCache() {
   try {
+    const list = [...ships.values()];
+    // Ne jamais écraser un bon cache avec un cache vide
+    if (list.length === 0) return;
     fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
     fs.writeFileSync(CACHE_FILE, JSON.stringify({
-      ships:   [...ships.values()],
+      ships:   list,
       savedAt: new Date().toISOString(),
     }));
   } catch (e) { console.warn('[military-ships] saveCache:', e.message); }
 }
+
+// Sauvegarder proprement sur SIGTERM (Railway graceful shutdown)
+process.on('SIGTERM', () => {
+  saveCache();
+  process.exit(0);
+});
 
 // ── Trail ─────────────────────────────────────────────────────────────────
 function updateTrail(ship, lon, lat) {
