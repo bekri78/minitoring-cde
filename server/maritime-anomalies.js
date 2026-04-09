@@ -37,7 +37,8 @@ function configuredQueryParams() {
 
 function defaultDateRange() {
   const end = new Date();
-  const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const days = Number(process.env.GFW_DATE_RANGE_DAYS) || 90;
+  const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
   return {
     start: start.toISOString().slice(0, 10),
     end: end.toISOString().slice(0, 10),

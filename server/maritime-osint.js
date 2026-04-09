@@ -55,7 +55,7 @@ const MARITIME_KEYWORD_WEIGHTS = new Map([
   ['maritime patrol', 8],
 ]);
 
-const MIN_MARITIME_SCORE = 16;
+const MIN_MARITIME_SCORE = 28;
 const RECENCY_HALF_LIFE_HOURS = 36;
 
 function haversineKm(lat1, lon1, lat2, lon2) {
@@ -139,7 +139,14 @@ function pickZone(lat, lon, zones) {
 function isMaritimeEvent(event) {
   if (!event || typeof event.lat !== 'number' || typeof event.lon !== 'number') return false;
   const text = normalizeText(event);
-  return scoreMaritimeRelevance(event, text).score >= MIN_MARITIME_SCORE;
+  const relevance = scoreMaritimeRelevance(event, text);
+  if (relevance.score < MIN_MARITIME_SCORE) return false;
+  // Require at least one maritime keyword OR location in a sensitive zone
+  if (relevance.keywordScore === 0) {
+    const ctx = buildContext(event);
+    if (!ctx.sensitiveZone) return false;
+  }
+  return true;
 }
 
 function detectEventType(text) {
