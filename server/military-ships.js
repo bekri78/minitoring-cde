@@ -7,7 +7,7 @@ const fs        = require('fs');
 // ── Config ────────────────────────────────────────────────────────────────
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
 const CACHE_FILE    = path.join(process.env.CACHE_DIR || '/data', 'military-ships.json');
-const SHIP_EXPIRE   = 30 * 60 * 1000;   // 30min sans signal → retiré
+const SHIP_EXPIRE   = 4 * 60 * 60 * 1000;   // 4h sans signal → retiré
 const TRAIL_MAX_PTS = 5;
 
 // ── MID (3 premiers chiffres du MMSI) → couleur pays ─────────────────────
@@ -93,10 +93,11 @@ setInterval(() => {
 function loadCache() {
   try {
     const raw = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-    // Ne charger QUE les navires validés (flag milVerified) — rejette l'ancien cache large
+    const cutoff = Date.now() - SHIP_EXPIRE;
     let loaded = 0;
     for (const s of (raw.ships || [])) {
-      if (s.milVerified) { ships.set(s.id, s); loaded++; }
+      // Accepter tous les navires (milVerified ou non) encore dans la fenêtre d'expiration
+      if ((s.lastSeen || 0) >= cutoff) { ships.set(s.id, s); loaded++; }
     }
     console.log(`[military-ships] cache chargé — ${loaded} navires vérifiés (${(raw.ships||[]).length - loaded} ignorés)`);
   } catch { /* premier démarrage */ }
