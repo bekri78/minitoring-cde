@@ -680,18 +680,18 @@ cron.schedule('*/15 * * * *', () => {
   fetchSpaceWeather().catch(err => console.error('[spaceweather-cron]', err.message));
 });
 
-// ── Cron 5min — Avions militaires OpenSky ─────────────────────────────────────
-cron.schedule('*/5 * * * *', () => {
+// ── Cron 10min — Avions militaires (réduit de 5min pour éviter le ban) ───────
+cron.schedule('*/10 * * * *', () => {
   fetchMilitary().catch(err => console.error('[military-aircraft-cron]', err.message));
 });
 
-// ── Cron 30min — Signal Markers (world-monitor.com proxy) ────────────────────
-cron.schedule('*/30 * * * *', () => {
+// ── Cron 2h — Signal Markers (world-monitor.com — zones stables) ─────────────
+cron.schedule('0 */2 * * *', () => {
   fetchSignalMarkers().catch(err => console.error('[signal-markers-cron]', err.message));
 });
 
-// ── Cron 30min — World Events (world-monitor.com proxy) ──────────────────────
-cron.schedule('*/30 * * * *', () => {
+// ── Cron 1h — World Events (world-monitor.com) ────────────────────────────────
+cron.schedule('30 * * * *', () => {
   fetchWorldEvents().catch(err => console.error('[world-events-cron]', err.message));
 });
 
