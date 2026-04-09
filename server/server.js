@@ -595,40 +595,25 @@ app.get('/tracks', (req, res) => {
   res.json(result);
 });
 
-// ── Diagnostic AIS (test WebSocket aisstream depuis Railway) ─────────────────
 app.get('/diag/ais', async (req, res) => {
   const WebSocket = require('ws');
   const key = (process.env.AISSTREAM_KEY || '').trim().replace(/^=+/, '');
   if (!key) return res.json({ ok: false, error: 'AISSTREAM_KEY not set' });
 
-  // ?via=proxy teste via le Worker Cloudflare, sinon direct
-  const proxyUrl = process.env.AIS_PROXY_URL || '';
-  const useProxy = req.query.via === 'proxy' && proxyUrl;
-  const targetUrl = useProxy ? proxyUrl : 'wss://stream.aisstream.io/v0/stream';
-
-  let result = {
-    ok: false,
-    key_prefix: key.slice(0, 8),
-    key_length: key.length,
-    via: useProxy ? 'cloudflare_worker' : 'direct',
-    url: targetUrl,
-    timeout_ms: 30000,
-    filter_types: ['PositionReport', 'ShipStaticData', 'StaticDataReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport'],
-  };
-  const ws = new WebSocket(targetUrl);
+  let result = { ok: false, key_prefix: key.slice(0, 8), key_length: key.length, via: 'direct', url: 'wss://stream.aisstream.io/v0/stream' };
+  const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
   const timeout = setTimeout(() => {
-    result.error = `timeout — no message after 30s${useProxy ? ' (Worker connecte mais aucun flux via Cloudflare)' : ' (connexion ouverte mais aucun flux direct)'}`;
+    result.error = 'timeout — no message after 15s';
     try { ws.terminate(); } catch {}
     res.json(result);
-  }, 30000);
+  }, 15000);
 
   ws.on('open', () => {
     result.connected = true;
-    result.opened_at = new Date().toISOString();
     ws.send(JSON.stringify({
       APIKey: key,
       BoundingBoxes: [[[-90, -180], [90, 180]]],
-      FilterMessageTypes: result.filter_types,
+      FilterMessageTypes: ['PositionReport'],
     }));
   });
   ws.on('message', (raw) => {
@@ -646,16 +631,6 @@ app.get('/diag/ais', async (req, res) => {
     clearTimeout(timeout);
     result.error = `HTTP ${r.statusCode}`;
     res.json(result);
-  });
-  ws.on('close', (code, reason) => {
-    result.closed = true;
-    result.close_code = code;
-    result.close_reason = reason?.toString() || '';
-    if (!res.headersSent && !result.ok) {
-      clearTimeout(timeout);
-      result.error = result.error || `socket closed (${code})`;
-      res.json(result);
-    }
   });
   ws.on('error', (err) => {
     clearTimeout(timeout);

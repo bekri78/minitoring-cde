@@ -8,7 +8,7 @@ const fs        = require('fs');
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
 const CACHE_FILE    = path.join(process.env.CACHE_DIR || '/data', 'military-ships.json');
 const SHIP_EXPIRE   = 4 * 60 * 60 * 1000;   // 4h sans signal → retiré
-const STREAM_STALE_AFTER = 20 * 60 * 1000;  // 20 min sans message live → conserver le cache en mode dégradé
+const RECONNECT_DELAY = 60_000;
 const TRAIL_MAX_PTS = 5;
 
 // ── MID (3 premiers chiffres du MMSI) → couleur pays ─────────────────────
@@ -79,29 +79,14 @@ const ships    = new Map();
 let ws             = null;
 let reconnectTimer = null;
 let pingTimer      = null;
-let wsFirstMsgLogged = false;
-let reconnectDelay = 30_000;   // backoff exponentiel: 30s → 60s → 120s → max 5min
 let msgCount       = 0;
 let milCount       = 0;
-let lastMessageAt  = 0;
-let lastConnectAt  = 0;
-let lastCloseAt    = 0;
-let lastCloseCode  = null;
-let lastCloseReason = '';
-let cacheSavedAt   = null;
-// Log stats toutes les 60s
-setInterval(() => {
-  if (msgCount > 0)
-    console.log(`[military-ships] stream: ${msgCount} msg/min — ${ships.size} navires affichés, ${milCount} nouveaux confirmés`);
-  msgCount = 0; milCount = 0;
-}, 60_000);
 
 // ── Persistance disque ────────────────────────────────────────────────────
 function loadCache() {
   try {
     const raw = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
     const all = raw.ships || [];
-    cacheSavedAt = raw.savedAt || null;
     console.log(`[military-ships] fichier cache — ${all.length} navires total, savedAt=${raw.savedAt || 'inconnu'}`);
 
     let loaded = 0;
@@ -140,10 +125,9 @@ function saveCache() {
       return;
     }
     fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
-    cacheSavedAt = new Date().toISOString();
     fs.writeFileSync(CACHE_FILE, JSON.stringify({
       ships:   list,
-      savedAt: cacheSavedAt,
+      savedAt: new Date().toISOString(),
     }));
     console.log(`[military-ships] cache sauvegardé — ${list.length} navires`);
   } catch (e) { console.warn('[military-ships] saveCache:', e.message); }
@@ -165,81 +149,10 @@ function updateTrail(ship, lon, lat) {
 }
 
 function purgeOld() {
-  if (!lastMessageAt || (Date.now() - lastMessageAt) > STREAM_STALE_AFTER) {
-    return;
-  }
   const cutoff = Date.now() - SHIP_EXPIRE;
   for (const [mmsi, s] of ships) {
     if (s.lastSeen < cutoff) ships.delete(mmsi);
   }
-}
-
-function getPositionPayload(type, msg) {
-  if (type === 'PositionReport') return msg.Message?.PositionReport || null;
-  if (type === 'StandardClassBPositionReport') return msg.Message?.StandardClassBPositionReport || null;
-  if (type === 'ExtendedClassBPositionReport') return msg.Message?.ExtendedClassBPositionReport || null;
-  return null;
-}
-
-function upsertShipMeta(mmsi, patch, confirmed) {
-  const countryMeta = countryFromMmsi(mmsi);
-  const existing = shipMeta.get(mmsi) || {};
-  const next = {
-    name:     patch.name || existing.name || mmsi,
-    callsign: patch.callsign ?? existing.callsign ?? '',
-    country:  patch.country || existing.country || countryMeta?.country || 'MIL',
-    color:    patch.color   || existing.color   || countryMeta?.color   || '#e8f4ff',
-    confirmed: Boolean(confirmed || existing.confirmed),
-  };
-
-  if (confirmed && !existing.confirmed) {
-    milCount++;
-  }
-
-  shipMeta.set(mmsi, next);
-
-  const ship = ships.get(mmsi);
-  if (ship) {
-    ship.name = next.name;
-    ship.callsign = next.callsign;
-    ship.country = next.country;
-    ship.color = next.color;
-  }
-
-  return next;
-}
-
-function buildConfirmedMeta(mmsi, name, callsign, shipType) {
-  const trimmedName = String(name || '').trim().replace(/@+$/, '');
-  const trimmedCallsign = String(callsign || '').trim();
-  const isMilName = trimmedName && MILITARY_NAME_RE.test(trimmedName);
-  const isMilType35 = shipType === 35;
-
-  if (!isMilName && !isMilType35) return null;
-
-  return upsertShipMeta(mmsi, {
-    name: trimmedName || mmsi,
-    callsign: trimmedCallsign,
-  }, true);
-}
-
-function getStreamState() {
-  const connected = ws?.readyState === WebSocket.OPEN;
-  const now = Date.now();
-  const dataAgeMs = lastMessageAt ? now - lastMessageAt : null;
-  const stale = ships.size > 0 && (!lastMessageAt || dataAgeMs > STREAM_STALE_AFTER);
-
-  let status = 'disconnected';
-  if (connected && lastMessageAt && dataAgeMs <= STREAM_STALE_AFTER) status = 'live';
-  else if (connected) status = 'connecting';
-  else if (stale) status = 'stale';
-
-  return {
-    connected,
-    status,
-    stale,
-    dataAgeMs,
-  };
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────
@@ -251,7 +164,6 @@ function wsConnect() {
     return;
   }
   console.log(`[military-ships] clé utilisée: ${key.slice(0,8)}...${key.slice(-4)} (longueur: ${key.length})`);
-  console.log(`[military-ships] URL: ${AISSTREAM_URL}`);
 
   if (ws) { try { ws.terminate(); } catch {} ws = null; }
   clearTimeout(reconnectTimer);
@@ -260,25 +172,19 @@ function wsConnect() {
   ws = new WebSocket(AISSTREAM_URL);
 
   ws.on('open', () => {
-    lastConnectAt = Date.now();
-    msgCount = 0;          // reset par connexion pour que le watchdog soit fiable
-    wsFirstMsgLogged = false;
-    console.log('[military-ships] WebSocket connecté → envoi souscription...');
+    msgCount = 0;
     ws.send(JSON.stringify({
       APIKey:             key,
       BoundingBoxes:      [[[-90, -180], [90, 180]]],
-      FilterMessageTypes: ['PositionReport', 'ShipStaticData', 'StaticDataReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport'],
+      FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
     }));
-    // Keepalive ping toutes les 25s pour éviter les déconnexions idle
     pingTimer = setInterval(() => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.ping();
       }
     }, 25_000);
-    // Watchdog : si aucun message dans les 45s, la souscription a échoué → reconnexion
     const watchdog = setTimeout(() => {
       if (msgCount === 0) {
-        console.warn('[military-ships] watchdog — aucun message en 45s, reconnexion forcée...');
         try { ws.terminate(); } catch {}
       }
     }, 45_000);
@@ -296,23 +202,13 @@ function wsConnect() {
 
   ws.on('message', (raw) => {
     msgCount++;
-    lastMessageAt = Date.now();
-    // Log du premier message pour diagnostiquer les erreurs d'auth/format
-    if (!wsFirstMsgLogged) {
-      wsFirstMsgLogged = true;
-      try {
-        const preview = JSON.parse(raw);
-        if (preview.error || preview.Error || preview.status === 'error') {
-          console.error('[military-ships] erreur serveur:', JSON.stringify(preview));
-        } else {
-          console.log('[military-ships] premier msg reçu — stream OK');
-        }
-      } catch {}
-    }
-    // Reset du backoff dès qu'on reçoit des données
-    reconnectDelay = 30_000;
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
+
+    if (msg.error || msg.Error || msg.status === 'error') {
+      console.error('[military-ships] erreur serveur:', JSON.stringify(msg));
+      return;
+    }
 
     const type = msg.MessageType;
     const meta = msg.MetaData || {};
@@ -322,21 +218,28 @@ function wsConnect() {
     // ── ShipStaticData → valider seulement les vrais militaires ──────────
     if (type === 'ShipStaticData') {
       const sd   = msg.Message?.ShipStaticData || {};
-      buildConfirmedMeta(mmsi, sd.Name, sd.CallSign, sd.Type);
+      const name = (sd.Name || '').trim().replace(/@+$/, '');
+      const c    = countryFromMmsi(mmsi);
+      const isMilName = name && MILITARY_NAME_RE.test(name);
+      const isMilType35 = sd.Type === 35;
+      if (isMilName || isMilType35) {
+        const entry = {
+          name:     name || mmsi,
+          callsign: (sd.CallSign || '').trim(),
+          country:  c ? c.country : 'MIL',
+          color:    c ? c.color   : '#e8f4ff',
+          confirmed: true,
+        };
+        shipMeta.set(mmsi, entry);
+        milCount++;
+        const s = ships.get(mmsi);
+        if (s) { s.name = entry.name; s.callsign = entry.callsign; }
+      }
       return;
     }
 
-    if (type === 'StaticDataReport') {
-      const sd = msg.Message?.StaticDataReport || {};
-      const reportA = sd.ReportA || {};
-      const reportB = sd.ReportB || {};
-      buildConfirmedMeta(mmsi, reportA.Name, reportB.CallSign, reportB.ShipType);
-      return;
-    }
-
-    // ── Position reports → accepter seulement les MMSI militaires confirmés ─
-    const pr = getPositionPayload(type, msg);
-    if (pr) {
+    if (type === 'PositionReport') {
+      const pr = msg.Message?.PositionReport || {};
       const lon = pr.Longitude ?? meta.longitude;
       const lat = pr.Latitude  ?? meta.latitude;
       if (lon == null || lat == null) return;
@@ -383,17 +286,9 @@ function wsConnect() {
 
   ws.on('close', (code, reason) => {
     clearInterval(pingTimer);
-    const reasonStr = reason?.toString() || '';
-    lastCloseAt = Date.now();
-    lastCloseCode = code;
-    lastCloseReason = reasonStr;
-    console.warn(`[military-ships] ws fermé (${code})${reasonStr ? ' — ' + reasonStr : ''} — reconnexion dans ${Math.round(reconnectDelay/1000)}s`);
     ws = null;
-    wsFirstMsgLogged = false;
     saveCache();
-    reconnectTimer = setTimeout(wsConnect, reconnectDelay);
-    // Backoff exponentiel: 30s, 60s, 2min, 4min, max 10min
-    reconnectDelay = Math.min(reconnectDelay * 2, 10 * 60_000);
+    reconnectTimer = setTimeout(wsConnect, RECONNECT_DELAY);
   });
 }
 
@@ -401,21 +296,11 @@ function wsConnect() {
 function getCache() {
   purgeOld();
   const list = [...ships.values()];
-  const stream = getStreamState();
   return {
     ships:      list,
     count:      list.length,
-    lastUpdate: lastMessageAt ? new Date(lastMessageAt).toISOString() : cacheSavedAt,
-    connected:  stream.connected,
-    status:     stream.status,
-    stale:      stream.stale,
-    dataAgeMs:  stream.dataAgeMs,
-    lastMessageAt: lastMessageAt ? new Date(lastMessageAt).toISOString() : null,
-    lastConnectAt: lastConnectAt ? new Date(lastConnectAt).toISOString() : null,
-    lastCloseAt: lastCloseAt ? new Date(lastCloseAt).toISOString() : null,
-    lastCloseCode,
-    lastCloseReason,
-    cacheSavedAt,
+    lastUpdate: new Date().toISOString(),
+    connected:  ws?.readyState === WebSocket.OPEN,
   };
 }
 
