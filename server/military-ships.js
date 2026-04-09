@@ -5,7 +5,7 @@ const path      = require('path');
 const fs        = require('fs');
 
 // ── Config ────────────────────────────────────────────────────────────────
-const AISSTREAM_URL = process.env.AIS_PROXY_URL || 'wss://stream.aisstream.io/v0/stream';
+const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
 const CACHE_FILE    = path.join(process.env.CACHE_DIR || '/data', 'military-ships.json');
 const SHIP_EXPIRE   = 4 * 60 * 60 * 1000;   // 4h sans signal → retiré
 const STREAM_STALE_AFTER = 20 * 60 * 1000;  // 20 min sans message live → conserver le cache en mode dégradé
