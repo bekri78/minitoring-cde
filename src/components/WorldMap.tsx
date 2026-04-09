@@ -10,6 +10,7 @@ import type { DecayObject } from '../types/decay';
 import type { TipObject } from '../types/tip';
 import type { Quake } from '../types/earthquake';
 import type { Track } from '../types/track';
+import type { MaritimeAnomaly } from '../types/maritime';
 import { buildGeoJSON } from '../utils/geo';
 import { getCategoryColor, getCategoryLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
@@ -29,6 +30,7 @@ interface Props {
   airTracks?:    Track[];
   seaTracks?:    Track[];
   launches?:     Launch[];
+  maritimeAnomalies?: MaritimeAnomaly[];
 }
 
 // ── SVG icons ────────────────────────────────────────────────────────────────
@@ -43,6 +45,8 @@ const helicopterSvg = helicopterSvgRaw
 const shipSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 612 612" fill="COLOR"><g><path d="M612,342.869l-72.243,150.559c-9.036,17.516-27.098,28.521-46.808,28.521H66.974c-7.85,0-12.942-8.277-9.402-15.285l0.179-0.355c5.778-11.439,2.35-25.383-8.074-32.836l-0.589-0.422c-24.197-17.305-38.554-45.225-38.554-74.973v-34.141h379.228v-0.211c0-11.52,9.338-20.857,20.856-20.857H612L612,342.869z M368.693,216.46h-73.738c-5.818,0-10.534,4.716-10.534,10.534v115.875c0,5.818,4.716,10.535,10.534,10.535h73.738c5.817,0,10.534-4.717,10.534-10.535V226.994C379.228,221.176,374.511,216.46,368.693,216.46z M495.102,258.596h-84.272c-5.817,0-10.534,4.716-10.534,10.534v42.135c0,5.818,4.717,10.535,10.534,10.535h84.272c5.818,0,10.534-4.717,10.534-10.535V269.13C505.636,263.312,500.92,258.596,495.102,258.596z M168.545,353.402h84.272c5.818,0,10.534-4.717,10.534-10.533v-84.273c0-5.818-4.716-10.534-10.534-10.534h-84.272c-5.818,0-10.534,4.716-10.534,10.534v84.273C158.012,348.686,162.728,353.402,168.545,353.402z M163.155,195.391l-26.211,21.069v136.942H31.602V216.46H0v-21.069h73.738v-30.546H46.506v-12.296h27.232V90.051h10.534v62.498h27.233v12.296H84.272v30.546H163.155z M117.913,282.062h-34.28v31.457h34.28V282.062z M117.913,231.651h-34.28v31.458h34.28V231.651z"/></g></svg>`;
 
 const rocketSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><path fill="COLOR" d="M128 24 C128 24 96 56 96 128 L96 176 L128 200 L160 176 L160 128 C160 56 128 24 128 24 Z"/><path fill="COLOR" d="M96 144 L64 168 L96 176 Z"/><path fill="COLOR" d="M160 144 L192 168 L160 176 Z"/><circle fill="COLOR" cx="128" cy="100" r="16"/></svg>`;
+
+const anchorSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="COLOR" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="22"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/></svg>`;
 
 function makeSvgIcon(
   svgTemplate: string,
@@ -101,10 +105,21 @@ function mono(content: string): string {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
+// Anomaly type → color & label
+const MARITIME_STYLE: Record<string, { color: string; label: string }> = {
+  dark_shipping:    { color: '#ff2244', label: 'AIS OFF' },
+  vessel_encounter: { color: '#ff8800', label: 'RENCONTRE' },
+  loitering:        { color: '#ffdd55', label: 'LOITERING' },
+  fishing_activity:  { color: '#00d4ff', label: 'PÊCHE' },
+  port_visit:       { color: '#4a9eff', label: 'PORT' },
+  maritime_anomaly: { color: '#cc44ff', label: 'ANOMALIE' },
+};
+
 export function WorldMap({
   events, loading,
   pads = [], decayObjects = [], tipObjects = [], quakes = [],
   airTracks = [], seaTracks = [], launches = [],
+  maritimeAnomalies = [],
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<L.Map | null>(null);
@@ -117,6 +132,7 @@ export function WorldMap({
   const decayLayerRef     = useRef<L.LayerGroup | null>(null);
   const tipLayerRef       = useRef<L.LayerGroup | null>(null);
   const quakesLayerRef    = useRef<L.LayerGroup | null>(null);
+  const maritimeLayerRef  = useRef<L.LayerGroup | null>(null);
 
   // Track currently open popup so we can re-open after layer refresh
   const openAircraftIdRef = useRef<string | null>(null);
@@ -169,14 +185,16 @@ export function WorldMap({
       },
     });
 
-    const aircraftLayer = L.layerGroup();
-    const shipsLayer    = L.layerGroup();
-    const padsLayer     = L.layerGroup();
-    const decayLayer    = L.layerGroup();
-    const tipLayer      = L.layerGroup();
-    const quakesLayer   = L.layerGroup();
+    const aircraftLayer  = L.layerGroup();
+    const shipsLayer     = L.layerGroup();
+    const padsLayer      = L.layerGroup();
+    const decayLayer     = L.layerGroup();
+    const tipLayer       = L.layerGroup();
+    const quakesLayer    = L.layerGroup();
+    const maritimeLayer  = L.layerGroup();
 
     eventsCluster.addTo(map);
+    maritimeLayer.addTo(map);
     quakesLayer.addTo(map);
     decayLayer.addTo(map);
     tipLayer.addTo(map);
@@ -191,6 +209,7 @@ export function WorldMap({
     decayLayerRef.current     = decayLayer;
     tipLayerRef.current       = tipLayer;
     quakesLayerRef.current    = quakesLayer;
+    maritimeLayerRef.current  = maritimeLayer;
 
     mapRef.current = map;
 
@@ -204,6 +223,7 @@ export function WorldMap({
       decayLayerRef.current = null;
       tipLayerRef.current = null;
       quakesLayerRef.current = null;
+      maritimeLayerRef.current = null;
     };
   }, []);
 
@@ -614,6 +634,69 @@ export function WorldMap({
       layer.addLayer(marker);
     });
   }, [quakes]);
+
+  // ── Update maritime anomalies (GFW) ───────────────────────────────────────
+  useEffect(() => {
+    const layer = maritimeLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+
+    maritimeAnomalies.forEach(a => {
+      if (!a.lat || !a.lon) return;
+      const style = MARITIME_STYLE[a.type] || MARITIME_STYLE.maritime_anomaly;
+      const color = a.context?.sensitiveZone ? '#ff2244' : style.color;
+      const radius = a.confidenceScore >= 80 ? 7 : a.confidenceScore >= 65 ? 5 : 4;
+
+      const marker = L.circleMarker([a.lat, a.lon], {
+        radius,
+        color,
+        weight:      1,
+        fillColor:   color,
+        fillOpacity: 0.65,
+      });
+
+      const vesselName = a.details?.vessel?.name || '—';
+      const vesselFlag = a.details?.vessel?.flag || '—';
+      const durationStr = a.details?.durationMin != null
+        ? a.details.durationMin > 1440
+          ? `${(a.details.durationMin / 1440).toFixed(0)}j`
+          : `${(a.details.durationMin / 60).toFixed(0)}h`
+        : '—';
+      const dateStr = a.timestamp
+        ? new Date(a.timestamp).toUTCString().replace(' GMT', ' UTC').slice(0, 22)
+        : '—';
+      const tags = a.context?.contextTags || [];
+      const tagsHtml = tags.map(t => {
+        const tagLabel = t.replace(/_/g, ' ').toUpperCase();
+        return `<span style="padding:1px 6px;font-size:8px;background:#ff224418;color:#ff6644;border:1px solid #ff224433;">${escapeHtml(tagLabel)}</span>`;
+      }).join(' ');
+
+      const zoneInfo = [
+        a.context?.nearestBase       ? `Base: ${escapeHtml(a.context.nearestBase.name)} (${a.context.nearestBase.distanceKm}km)` : '',
+        a.context?.nearestChokepoint ? `Détroit: ${escapeHtml(a.context.nearestChokepoint.name)} (${a.context.nearestChokepoint.distanceKm}km)` : '',
+        a.context?.strategicZone     ? `Zone: ${escapeHtml(a.context.strategicZone.name)} (${a.context.strategicZone.distanceKm}km)` : '',
+        a.context?.nearestPort       ? `Port: ${escapeHtml(a.context.nearestPort.name)} (${a.context.nearestPort.distanceKm}km)` : '',
+      ].filter(Boolean).join('<br>');
+
+      marker.bindPopup(mono(`
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+          <span style="padding:2px 8px;font-size:9px;background:${color}18;color:${color};border:1px solid ${color}44;">${style.label}</span>
+          ${tagsHtml}
+          <span style="font-size:9px;color:#4a6a7a;margin-left:auto;">${a.confidenceScore}%</span>
+        </div>
+        <p style="color:#e8f4ff;margin:0 0 4px 0;font-size:12px;">${escapeHtml(vesselName)}</p>
+        <p style="color:#4a6a7a;margin:0 0 8px 0;font-size:9px;">Pavillon: ${escapeHtml(vesselFlag)} · ${escapeHtml(a.source)}</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9px;border-top:1px solid #1a2a3a;padding-top:8px;">
+          <div><span style="color:#4a6a7a;">DURÉE</span><br><span style="color:#c8d8e8;">${durationStr}</span></div>
+          <div><span style="color:#4a6a7a;">DATE</span><br><span style="color:#c8d8e8;">${dateStr}</span></div>
+        </div>
+        ${zoneInfo ? `<div style="margin-top:6px;font-size:9px;color:#6a8a9a;line-height:1.6;border-top:1px solid #1a2a3a;padding-top:6px;">${zoneInfo}</div>` : ''}
+        <div style="margin-top:6px;font-size:9px;color:#4a6a7a;">${a.lat.toFixed(3)}°, ${a.lon.toFixed(3)}°</div>
+      `), { maxWidth: 340 });
+
+      layer.addLayer(marker);
+    });
+  }, [maritimeAnomalies]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
