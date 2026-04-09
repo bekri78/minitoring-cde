@@ -179,6 +179,8 @@ function wsConnect() {
   ws = new WebSocket(AISSTREAM_URL);
 
   ws.on('open', () => {
+    msgCount = 0;          // reset par connexion pour que le watchdog soit fiable
+    wsFirstMsgLogged = false;
     console.log('[military-ships] WebSocket connecté → envoi souscription...');
     ws.send(JSON.stringify({
       APIKey:             key,
