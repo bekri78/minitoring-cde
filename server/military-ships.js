@@ -106,13 +106,21 @@ function loadCache() {
 function saveCache() {
   try {
     const list = [...ships.values()];
-    // Ne jamais écraser un bon cache avec un cache vide
+    // Lire le cache existant pour comparer
+    let existingCount = 0;
+    try {
+      const existing = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+      existingCount = existing?.ships?.length || 0;
+    } catch { /* pas de fichier existant */ }
+    // Ne jamais écraser avec moins de bateaux que ce qui est déjà sur disque
+    if (list.length < existingCount) return;
     if (list.length === 0) return;
     fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
     fs.writeFileSync(CACHE_FILE, JSON.stringify({
       ships:   list,
       savedAt: new Date().toISOString(),
     }));
+    console.log(`[military-ships] cache sauvegardé — ${list.length} navires`);
   } catch (e) { console.warn('[military-ships] saveCache:', e.message); }
 }
 
@@ -303,7 +311,7 @@ function getCache() {
 function startMilitaryShips() {
   loadCache();
   wsConnect();
-  setInterval(() => { purgeOld(); saveCache(); }, 5 * 60 * 1000);
+  setInterval(() => { purgeOld(); saveCache(); }, 60 * 1000); // sauvegarde toutes les minutes
 }
 
 module.exports = { startMilitaryShips, getCache };
