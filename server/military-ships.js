@@ -93,11 +93,11 @@ setInterval(() => {
 function loadCache() {
   try {
     const raw = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-    const cutoff = Date.now() - SHIP_EXPIRE;
     let loaded = 0;
     for (const s of (raw.ships || [])) {
-      // Accepter tous les navires (milVerified ou non) encore dans la fenêtre d'expiration
-      if ((s.lastSeen || 0) >= cutoff) { ships.set(s.id, s); loaded++; }
+      // Charger uniquement les navires militaires confirmés, sans vérifier lastSeen
+      // (purgeOld() s'occupera d'expirer les vieux au fil du temps)
+      if (s.milVerified) { s.lastSeen = Date.now(); ships.set(s.id, s); loaded++; }
     }
     console.log(`[military-ships] cache chargé — ${loaded} navires vérifiés (${(raw.ships||[]).length - loaded} ignorés)`);
   } catch { /* premier démarrage */ }
