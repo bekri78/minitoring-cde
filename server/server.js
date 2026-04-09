@@ -590,10 +590,15 @@ app.get('/diag/ais', async (req, res) => {
   const key = (process.env.AISSTREAM_KEY || '').trim().replace(/^=+/, '');
   if (!key) return res.json({ ok: false, error: 'AISSTREAM_KEY not set' });
 
-  let result = { ok: false, key_prefix: key.slice(0, 8), key_length: key.length };
-  const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
+  // ?via=proxy teste via le Worker Cloudflare, sinon direct
+  const proxyUrl = process.env.AIS_PROXY_URL || '';
+  const useProxy = req.query.via === 'proxy' && proxyUrl;
+  const targetUrl = useProxy ? proxyUrl : 'wss://stream.aisstream.io/v0/stream';
+
+  let result = { ok: false, key_prefix: key.slice(0, 8), key_length: key.length, via: useProxy ? 'cloudflare_worker' : 'direct', url: targetUrl };
+  const ws = new WebSocket(targetUrl);
   const timeout = setTimeout(() => {
-    result.error = 'timeout — no message after 15s (IP may be banned)';
+    result.error = `timeout — no message after 15s${useProxy ? ' (Worker connecte mais aisstream bloque Cloudflare aussi ?)' : ' (IP Railway bannie)'}`;
     try { ws.terminate(); } catch {}
     res.json(result);
   }, 15000);
