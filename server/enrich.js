@@ -39,6 +39,11 @@ const BUSINESS_NOISE_TERMS = [
   'acciones', 'bolsa', 'inversion', 'inversión', 'resultados', 'beneficio',
   'crece', 'crecimiento', 'esperado', 'demanda', 'chips de memoria',
   'inteligencia artificial',
+  // Aviation civile — certifications, équipements cockpit, avions de lutte contre les incendies
+  'waterbomber', 'water bomber', 'flight deck certified', 'avionics certified',
+  'certified for', 'faa certified', 'easa certified', 'type certificate',
+  'air tanker', 'fire bomber', 'firefighting aircraft', 'cl-415', 'cl415',
+  'insight flight deck', 'cockpit upgrade', 'avionics upgrade',
 ];
 
 const MEDICAL_NOISE_TERMS = [
@@ -201,6 +206,8 @@ Reject:
 - duplicate-looking weak items, vague non-events, opinion/explainer pieces unless they contain a concrete new event
 - business/stock/earnings/chip-demand stories such as Samsung growth or AI memory-chip demand unless they mention sanctions, export bans, cyberattack, military use, or national-security action
 - medical/hospital/birth stories such as safe delivery of triplets unless they mention attack, war, terrorism, or a security incident
+- civilian aviation news: aircraft certifications, flight deck upgrades, commercial airline routes, airport infrastructure, unless linked to a military operation or attack
+- firefighting aircraft, waterbombers, air tankers used for civilian purposes (e.g. CL-415, air tractor)
 
 Return ONLY a JSON object:
 {"events":[{"id":"same id","keep":true,"priority":0,"category":"military|conflict|terrorism|protest|cyber|strategic|crisis|incident|discard","title_fr":"French title <= 14 words","headline":"English headline <= 14 words","notes":"French operational summary <= 18 words"}]}
