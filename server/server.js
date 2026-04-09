@@ -504,6 +504,48 @@ publicRouter.get('/all', (req, res) => {
 
 app.use('/api/public', publicRouter);
 
+// ── Proxy image (base64) ──────────────────────────────────────────────────────
+const IMAGE_PROXY_WHITELIST = new Set([
+  'cdn.jetphotos.com',
+  't.plnspttrs.net',
+  'photos.marinetraffic.com',
+  'www.marinetraffic.com',
+]);
+const IMAGE_MAX_BYTES = 500 * 1024; // 500 Ko
+
+app.get('/proxy/image', requirePublicApiKey, async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  const raw = String(req.query.url || '').trim();
+  if (!raw.startsWith('https://')) {
+    return res.status(400).json({ error: 'url must start with https://' });
+  }
+
+  let hostname;
+  try { hostname = new URL(raw).hostname; } catch {
+    return res.status(400).json({ error: 'invalid url' });
+  }
+
+  if (!IMAGE_PROXY_WHITELIST.has(hostname)) {
+    return res.status(400).json({ error: `domain not allowed: ${hostname}` });
+  }
+
+  try {
+    const resp = await fetch(raw, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) return res.status(502).json({ error: `upstream HTTP ${resp.status}` });
+
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (buf.length > IMAGE_MAX_BYTES) {
+      return res.status(413).json({ error: 'image too large (max 500 KB)' });
+    }
+
+    const mime = resp.headers.get('content-type') || 'image/jpeg';
+    res.json({ b64: `data:${mime};base64,${buf.toString('base64')}` });
+  } catch (err) {
+    res.status(504).json({ error: err.message });
+  }
+});
+
 // ── Signals géopolitiques (synthèse Groq par zone) ────────────────────────
 app.get('/api/signals', (req, res) => {
   const c = getSignalsCache();
