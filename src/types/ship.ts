@@ -16,6 +16,10 @@ export interface MilShip {
 export interface MilShipData {
   ships:      MilShip[];
   count:      number;
-  lastUpdate: string;
+  lastUpdate: string | null;
   connected:  boolean;
+  status?:    'live' | 'connecting' | 'stale' | 'disconnected';
+  stale?:     boolean;
+  dataAgeMs?: number | null;
+  cacheSavedAt?: string | null;
 }

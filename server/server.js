@@ -362,7 +362,9 @@ publicRouter.get('/ships', (req, res) => {
   const limit = readLimit(req, ships.length || 250, 1000);
   res.json(publicEnvelope('ships', ships.slice(0, limit), {
     lastUpdate: c.lastUpdate,
-    status:     c.lastUpdate ? 'ok' : 'initializing',
+    status:     c.status || (c.lastUpdate ? 'ok' : 'initializing'),
+    stale:      c.stale,
+    connected:  c.connected,
   }));
 });
 
@@ -396,10 +398,17 @@ publicRouter.get('/earthquakes', (req, res) => {
 publicRouter.get('/tracks', (req, res) => {
   const { domain, country, minTier } = req.query;
   const aircraft = getMilCache().aircraft || [];
-  const ships    = getShipCache().ships   || [];
+  const shipCache = getShipCache();
+  const ships    = shipCache.ships || [];
   const result   = runPipeline({ aircraft, ships, domain, country, minTier });
   const radius   = req.query.radius ? Number(req.query.radius) : 300;
   result.tracks  = attachNearbyEvents(result.tracks, cache.events, radius);
+  result.meta.shipStream = {
+    status: shipCache.status,
+    stale: shipCache.stale,
+    connected: shipCache.connected,
+    lastUpdate: shipCache.lastUpdate,
+  };
   res.json(publicEnvelope('tracks', result.tracks, { meta: result.meta }));
 });
 
@@ -463,7 +472,9 @@ publicRouter.get('/all', (req, res) => {
       ships:      c.ships || [],
       count:      c.ships?.length || 0,
       lastUpdate: c.lastUpdate,
-      status:     c.lastUpdate ? 'ok' : 'initializing',
+      status:     c.status || (c.lastUpdate ? 'ok' : 'initializing'),
+      stale:      c.stale,
+      connected:  c.connected,
     };
   }
   if (wants.has('space')) {
@@ -595,20 +606,29 @@ app.get('/diag/ais', async (req, res) => {
   const useProxy = req.query.via === 'proxy' && proxyUrl;
   const targetUrl = useProxy ? proxyUrl : 'wss://stream.aisstream.io/v0/stream';
 
-  let result = { ok: false, key_prefix: key.slice(0, 8), key_length: key.length, via: useProxy ? 'cloudflare_worker' : 'direct', url: targetUrl };
+  let result = {
+    ok: false,
+    key_prefix: key.slice(0, 8),
+    key_length: key.length,
+    via: useProxy ? 'cloudflare_worker' : 'direct',
+    url: targetUrl,
+    timeout_ms: 30000,
+    filter_types: ['PositionReport', 'ShipStaticData', 'StaticDataReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport'],
+  };
   const ws = new WebSocket(targetUrl);
   const timeout = setTimeout(() => {
-    result.error = `timeout — no message after 15s${useProxy ? ' (Worker connecte mais aisstream bloque Cloudflare aussi ?)' : ' (IP Railway bannie)'}`;
+    result.error = `timeout — no message after 30s${useProxy ? ' (Worker connecte mais aucun flux via Cloudflare)' : ' (connexion ouverte mais aucun flux direct)'}`;
     try { ws.terminate(); } catch {}
     res.json(result);
-  }, 15000);
+  }, 30000);
 
   ws.on('open', () => {
     result.connected = true;
+    result.opened_at = new Date().toISOString();
     ws.send(JSON.stringify({
       APIKey: key,
       BoundingBoxes: [[[-90, -180], [90, 180]]],
-      FilterMessageTypes: ['PositionReport'],
+      FilterMessageTypes: result.filter_types,
     }));
   });
   ws.on('message', (raw) => {
@@ -626,6 +646,16 @@ app.get('/diag/ais', async (req, res) => {
     clearTimeout(timeout);
     result.error = `HTTP ${r.statusCode}`;
     res.json(result);
+  });
+  ws.on('close', (code, reason) => {
+    result.closed = true;
+    result.close_code = code;
+    result.close_reason = reason?.toString() || '';
+    if (!res.headersSent && !result.ok) {
+      clearTimeout(timeout);
+      result.error = result.error || `socket closed (${code})`;
+      res.json(result);
+    }
   });
   ws.on('error', (err) => {
     clearTimeout(timeout);
