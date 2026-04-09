@@ -140,13 +140,9 @@ function dedupeAnomalies(anomalies) {
   return [...byKey.values()];
 }
 
-/* ── URL builder ────────────────────────────────────────────── */
-function buildEventsUrl(datasets) {
+/* ── URL + body builder (V3 = POST with JSON body) ─────────── */
+function buildEventsRequest(datasets) {
   const url = new URL(`${GFW_BASE_URL}/events`);
-  datasets.forEach((ds, i) => url.searchParams.append(`datasets[${i}]`, ds));
-  const range = defaultDateRange();
-  url.searchParams.set('start-date', range.start);
-  url.searchParams.set('end-date', range.end);
   url.searchParams.set('limit', String(EVENTS_PER_REQUEST));
   url.searchParams.set('offset', '0');
 
@@ -154,18 +150,32 @@ function buildEventsUrl(datasets) {
   for (const [k, v] of Object.entries(extra)) {
     if (v != null) url.searchParams.set(k, String(v));
   }
-  return url.toString();
+
+  const range = defaultDateRange();
+  const body = {
+    datasets,
+    startDate: range.start,
+    endDate: range.end,
+  };
+
+  return { url: url.toString(), body };
 }
 
 /* ── fetcher ────────────────────────────────────────────────── */
 async function fetchGfwEvents(datasets) {
+  const { url, body } = buildEventsRequest(datasets);
+
   const headers = {
     accept: 'application/json',
+    'content-type': 'application/json',
     authorization: `Bearer ${SOURCE_TOKEN}`,
   };
 
-  const url = buildEventsUrl(datasets);
-  const resp = await fetch(url, { headers, method: 'GET' });
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
