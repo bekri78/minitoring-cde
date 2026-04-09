@@ -40,6 +40,12 @@ function configuredQueryParams() {
   return readJsonEnv('GFW_HEATMAP_QUERY', {});
 }
 
+function defaultDateRange() {
+  const end = new Date();
+  const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+  return `${start.toISOString().slice(0, 10)},${end.toISOString().slice(0, 10)}`;
+}
+
 let cache = {
   anomalies: [],
   lastUpdate: null,
@@ -91,12 +97,17 @@ function cellCenterFromTile(tile, row, col, rows, cols) {
   return { lat, lon };
 }
 
-function buildHeatmapUrl(tile, dataset) {
+function buildHeatmapUrl(tile, datasets) {
   const url = new URL(`${GFW_BASE_URL}/4wings/tile/heatmap/${tile.z}/${tile.x}/${tile.y}`);
-  url.searchParams.set('datasets', dataset);
-  url.searchParams.set('format', 'json');
+  datasets.forEach((dataset, index) => {
+    url.searchParams.append(`datasets[${index}]`, dataset);
+  });
 
-  const extraParams = configuredQueryParams();
+  const extraParams = {
+    'date-range': defaultDateRange(),
+    interval: 'DAY',
+    ...configuredQueryParams(),
+  };
   for (const [key, value] of Object.entries(extraParams || {})) {
     if (value == null) continue;
     if (Array.isArray(value)) {
@@ -254,18 +265,24 @@ function dedupeAnomalies(anomalies) {
   return [...byKey.values()];
 }
 
-async function fetchDatasetTile(dataset, tile) {
+async function fetchHeatmapTile(tile, datasets) {
   const headers = {
     accept: 'application/json',
     authorization: `Bearer ${SOURCE_TOKEN}`,
   };
-  const resp = await fetch(buildHeatmapUrl(tile, dataset), { headers });
+  const resp = await fetch(buildHeatmapUrl(tile, datasets), { headers, method: 'GET' });
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
     throw new Error(`GFW ${resp.status} ${body.slice(0, 160)}`.trim());
   }
+
+  const contentType = String(resp.headers.get('content-type') || '').toLowerCase();
+  if (!contentType.includes('json')) {
+    throw new Error(`GFW returned unsupported content-type: ${contentType || 'unknown'}`);
+  }
+
   const payload = await resp.json();
-  return parseHeatmapCells(payload, tile, dataset);
+  return parseHeatmapCells(payload, tile, datasets.join(','));
 }
 
 async function fetchMaritimeAnomalies() {
@@ -289,11 +306,9 @@ async function fetchMaritimeAnomalies() {
     const tiles = configuredTiles();
     const collected = [];
 
-    for (const dataset of datasets) {
-      for (const tile of tiles) {
-        const anomalies = await fetchDatasetTile(dataset, tile);
-        collected.push(...anomalies);
-      }
+    for (const tile of tiles) {
+      const anomalies = await fetchHeatmapTile(tile, datasets);
+      collected.push(...anomalies);
     }
 
     const anomalies = dedupeAnomalies(collected);
