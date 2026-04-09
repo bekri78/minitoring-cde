@@ -584,6 +584,52 @@ app.get('/tracks', (req, res) => {
   res.json(result);
 });
 
+// ── Diagnostic AIS (test WebSocket aisstream depuis Railway) ─────────────────
+app.get('/diag/ais', async (req, res) => {
+  const WebSocket = require('ws');
+  const key = (process.env.AISSTREAM_KEY || '').trim().replace(/^=+/, '');
+  if (!key) return res.json({ ok: false, error: 'AISSTREAM_KEY not set' });
+
+  let result = { ok: false, key_prefix: key.slice(0, 8), key_length: key.length };
+  const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
+  const timeout = setTimeout(() => {
+    result.error = 'timeout — no message after 15s (IP may be banned)';
+    try { ws.terminate(); } catch {}
+    res.json(result);
+  }, 15000);
+
+  ws.on('open', () => {
+    result.connected = true;
+    ws.send(JSON.stringify({
+      APIKey: key,
+      BoundingBoxes: [[[-90, -180], [90, 180]]],
+      FilterMessageTypes: ['PositionReport'],
+    }));
+  });
+  ws.on('message', (raw) => {
+    clearTimeout(timeout);
+    try {
+      const msg = JSON.parse(raw);
+      result.ok = true;
+      result.first_message_type = msg.MessageType || 'unknown';
+      result.error_in_msg = msg.error || msg.Error || null;
+    } catch { result.ok = true; result.raw = String(raw).slice(0, 100); }
+    try { ws.terminate(); } catch {}
+    res.json(result);
+  });
+  ws.on('unexpected-response', (_req, r) => {
+    clearTimeout(timeout);
+    result.error = `HTTP ${r.statusCode}`;
+    res.json(result);
+  });
+  ws.on('error', (err) => {
+    clearTimeout(timeout);
+    result.error = err.message;
+    try { ws.terminate(); } catch {}
+    if (!res.headersSent) res.json(result);
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({
     ok:         cache.status === 'ok',
