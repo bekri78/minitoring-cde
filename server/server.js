@@ -21,6 +21,8 @@ const { refreshSignals, getSignalsCache, isStale }                   = require('
 const { normalizeTitleWithGemini }                                   = require('./gemini-normalizer');
 const { fetchSignalMarkers, getCache: getSignalMarkersCache }        = require('./signalMarkers');
 const { fetchWorldEvents, getCache: getWorldEventsCache }            = require('./worldEvents');
+const { getMaritimeEvents, getMaritimeAnomalies, getNavalActivity }  = require('./maritime-osint');
+const { fetchMaritimeAnomalies }                                     = require('./maritime-anomalies');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -595,6 +597,27 @@ app.get('/tracks', (req, res) => {
   res.json(result);
 });
 
+app.get('/api/maritime/events', (req, res) => {
+  const events = getMaritimeEvents(cache.events);
+  res.json({
+    events,
+    count: events.length,
+    lastUpdate: cache.lastUpdate,
+    status: cache.status,
+    generatedAt: new Date().toISOString(),
+  });
+});
+
+app.get('/api/maritime/anomalies', (_req, res) => {
+  const result = getMaritimeAnomalies();
+  res.json(result);
+});
+
+app.get('/api/maritime/naval-activity', (req, res) => {
+  const result = getNavalActivity(cache.events);
+  res.json(result);
+});
+
 app.get('/diag/ais', async (req, res) => {
   const WebSocket = require('ws');
   const key = (process.env.AISSTREAM_KEY || '').trim().replace(/^=+/, '');
@@ -705,6 +728,11 @@ cron.schedule('30 * * * *', () => {
   fetchWorldEvents().catch(err => console.error('[world-events-cron]', err.message));
 });
 
+// ── Cron 30min — anomalies maritimes (source configurable) ────────────────────
+cron.schedule('*/30 * * * *', () => {
+  fetchMaritimeAnomalies().catch(err => console.error('[maritime-anomalies-cron]', err.message));
+});
+
 // ── Démarrage ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
@@ -720,4 +748,5 @@ app.listen(PORT, () => {
   startMilitaryShips();
   fetchSignalMarkers().catch(err => console.error('[startup-signal-markers]', err.message));
   fetchWorldEvents().catch(err => console.error('[startup-world-events]', err.message));
+  fetchMaritimeAnomalies().catch(err => console.error('[startup-maritime-anomalies]', err.message));
 });
