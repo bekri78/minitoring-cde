@@ -115,16 +115,22 @@ function loadCache() {
 
 function saveCache() {
   try {
-    const list = [...ships.values()];
-    // Lire le cache existant pour comparer
+    const list = [...ships.values()].filter(s => s.milVerified);
+    // Règle absolue : ne jamais écrire un fichier vide ou inférieur à 10 navires
+    if (list.length < 10) {
+      console.log(`[military-ships] saveCache ignoré — seulement ${list.length} navires (min 10)`);
+      return;
+    }
+    // Lire le cache existant pour ne pas rétrograder
     let existingCount = 0;
     try {
       const existing = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
       existingCount = existing?.ships?.length || 0;
     } catch { /* pas de fichier existant */ }
-    // Ne jamais écraser avec moins de bateaux que ce qui est déjà sur disque
-    if (list.length < existingCount) return;
-    if (list.length === 0) return;
+    if (list.length < existingCount) {
+      console.log(`[military-ships] saveCache ignoré — ${list.length} < ${existingCount} (existant)`);
+      return;
+    }
     fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
     fs.writeFileSync(CACHE_FILE, JSON.stringify({
       ships:   list,
@@ -185,6 +191,14 @@ function wsConnect() {
         ws.ping();
       }
     }, 25_000);
+    // Watchdog : si aucun message dans les 45s, la souscription a échoué → reconnexion
+    const watchdog = setTimeout(() => {
+      if (msgCount === 0) {
+        console.warn('[military-ships] watchdog — aucun message en 45s, reconnexion forcée...');
+        try { ws.terminate(); } catch {}
+      }
+    }, 45_000);
+    ws.once('message', () => clearTimeout(watchdog));
   });
 
   // Réponse HTTP non-101 (ex: 401, 403, 429 rate limit)
