@@ -8,6 +8,7 @@ const GFW_BASE_URL = 'https://gateway.api.globalfishingwatch.org/v3';
 const SOURCE_TOKEN = String(process.env.GFW_API_TOKEN || process.env.MARITIME_ANOMALY_TOKEN || '').trim();
 const SOURCE_NAME = 'GlobalFishingWatch';
 const DEFAULT_DATASETS = ['public-global-presence:latest', 'public-global-sar-presence:latest'];
+const GFW_ALLOWED_FORMATS = new Set(['MVT', 'PNG', 'ORC', 'PARQUET', '4WINGS', 'INTARRAY']);
 const DEFAULT_TILES = [
   { z: 1, x: 0, y: 0, label: 'nw' },
   { z: 1, x: 1, y: 0, label: 'ne' },
@@ -44,6 +45,21 @@ function defaultDateRange() {
   const end = new Date();
   const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
   return `${start.toISOString().slice(0, 10)},${end.toISOString().slice(0, 10)}`;
+}
+
+function sanitizeFormat(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return GFW_ALLOWED_FORMATS.has(normalized) ? normalized : 'INTARRAY';
+}
+
+function buildResolvedQueryParams() {
+  const configured = configuredQueryParams() || {};
+  return {
+    ...configured,
+    'date-range': configured['date-range'] || defaultDateRange(),
+    interval: configured.interval || 'DAY',
+    format: sanitizeFormat(configured.format),
+  };
 }
 
 let cache = {
@@ -103,12 +119,7 @@ function buildHeatmapUrl(tile, datasets) {
     url.searchParams.append(`datasets[${index}]`, dataset);
   });
 
-  const extraParams = {
-    'date-range': defaultDateRange(),
-    format: 'INTARRAY',
-    interval: 'DAY',
-    ...configuredQueryParams(),
-  };
+  const extraParams = buildResolvedQueryParams();
   for (const [key, value] of Object.entries(extraParams || {})) {
     if (value == null) continue;
     if (Array.isArray(value)) {
@@ -268,7 +279,7 @@ function dedupeAnomalies(anomalies) {
 
 async function fetchHeatmapTile(tile, datasets) {
   const headers = {
-    accept: 'application/json',
+    accept: 'application/json, text/plain, application/octet-stream',
     authorization: `Bearer ${SOURCE_TOKEN}`,
   };
   const resp = await fetch(buildHeatmapUrl(tile, datasets), { headers, method: 'GET' });
@@ -278,11 +289,18 @@ async function fetchHeatmapTile(tile, datasets) {
   }
 
   const contentType = String(resp.headers.get('content-type') || '').toLowerCase();
-  if (!contentType.includes('json')) {
-    throw new Error(`GFW returned unsupported content-type: ${contentType || 'unknown'}`);
-  }
+  let payload;
 
-  const payload = await resp.json();
+  if (contentType.includes('json')) {
+    payload = await resp.json();
+  } else {
+    const text = await resp.text();
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      throw new Error(`GFW returned unsupported content-type: ${contentType || 'unknown'}`);
+    }
+  }
   return parseHeatmapCells(payload, tile, datasets.join(','));
 }
 
@@ -327,6 +345,7 @@ async function fetchMaritimeAnomalies() {
         endpoint: '/4wings/tile/heatmap/{z}/{x}/{y}',
         datasets,
         tiles,
+        query: buildResolvedQueryParams(),
         count: anomalies.length,
       },
     };
@@ -341,6 +360,7 @@ async function fetchMaritimeAnomalies() {
       endpoint: '/4wings/tile/heatmap/{z}/{x}/{y}',
       datasets: configuredDatasets(),
       tiles: configuredTiles(),
+      query: buildResolvedQueryParams(),
       configured: true,
     };
   }
