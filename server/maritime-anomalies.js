@@ -145,6 +145,7 @@ function buildEventsRequest(datasets) {
   const url = new URL(`${GFW_BASE_URL}/events`);
   url.searchParams.set('limit', String(EVENTS_PER_REQUEST));
   url.searchParams.set('offset', '0');
+  url.searchParams.set('sort', '-start');
 
   const extra = configuredQueryParams();
   for (const [k, v] of Object.entries(extra)) {
@@ -189,7 +190,18 @@ async function fetchGfwEvents(datasets) {
     payload.events ||
     (Array.isArray(payload) ? payload : []);
 
-  return entries.map((ev, i) => normalizeGfwEvent(ev, i)).filter(Boolean);
+  /* Filter out permanent fixtures (FPSO platforms, oil rigs, etc.) with
+     duration > MAX_EVENT_DURATION_DAYS. Their multi-year loitering skews data. */
+  const MAX_EVENT_DURATION_DAYS = Number(process.env.GFW_MAX_DURATION_DAYS) || 365;
+  const maxDurationMin = MAX_EVENT_DURATION_DAYS * 24 * 60;
+
+  return entries
+    .map((ev, i) => normalizeGfwEvent(ev, i))
+    .filter(Boolean)
+    .filter(a => {
+      if (a.details?.durationMin == null) return true;
+      return a.details.durationMin <= maxDurationMin;
+    });
 }
 
 /* ── main refresh ───────────────────────────────────────────── */
