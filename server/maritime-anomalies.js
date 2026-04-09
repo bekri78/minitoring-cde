@@ -105,6 +105,7 @@ function buildHeatmapUrl(tile, datasets) {
 
   const extraParams = {
     'date-range': defaultDateRange(),
+    format: 'INTARRAY',
     interval: 'DAY',
     ...configuredQueryParams(),
   };
