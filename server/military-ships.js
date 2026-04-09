@@ -93,14 +93,24 @@ setInterval(() => {
 function loadCache() {
   try {
     const raw = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+    const all = raw.ships || [];
+    console.log(`[military-ships] fichier cache — ${all.length} navires total, savedAt=${raw.savedAt || 'inconnu'}`);
+
     let loaded = 0;
-    for (const s of (raw.ships || [])) {
-      // Charger uniquement les navires militaires confirmés, sans vérifier lastSeen
-      // (purgeOld() s'occupera d'expirer les vieux au fil du temps)
+    for (const s of all) {
       if (s.milVerified) { s.lastSeen = Date.now(); ships.set(s.id, s); loaded++; }
     }
-    console.log(`[military-ships] cache chargé — ${loaded} navires vérifiés (${(raw.ships||[]).length - loaded} ignorés)`);
-  } catch { /* premier démarrage */ }
+
+    // Fallback : si aucun navire n'a le flag milVerified (ancien format), charger tous
+    if (loaded === 0 && all.length > 0) {
+      console.log(`[military-ships] fallback — aucun milVerified, chargement de tous les navires`);
+      for (const s of all) { s.lastSeen = Date.now(); s.milVerified = true; ships.set(s.id, s); loaded++; }
+    }
+
+    console.log(`[military-ships] cache chargé — ${loaded} navires vérifiés (${all.length - loaded} ignorés)`);
+  } catch (e) {
+    console.log(`[military-ships] pas de cache disque — ${e.message}`);
+  }
 }
 
 function saveCache() {
@@ -312,6 +322,7 @@ function startMilitaryShips() {
   loadCache();
   wsConnect();
   setInterval(() => { purgeOld(); saveCache(); }, 60 * 1000); // sauvegarde toutes les minutes
+  setTimeout(() => saveCache(), 90 * 1000); // première sauvegarde forcée à 90s
 }
 
 module.exports = { startMilitaryShips, getCache };
