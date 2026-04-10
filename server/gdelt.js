@@ -138,8 +138,8 @@ const DOMAIN_KEYWORDS_SPATIAL = [
   'spy satellite', 'reconnaissance satellite', 'military satellite', 'classified payload',
   // Commandements spatiaux
   'space force', 'space command', 'space domain', 'space weapon', 'space laser',
-  // Lancements & rentrées
-  'rocket launch', 'launch vehicle', 'reentry', 're-entry', 'deorbit',
+  // Lancements & rentrées (pas 'rocket launch' → trop de faux positifs militaires)
+  'launch vehicle', 'space launch', 'orbital launch', 'reentry', 're-entry', 'deorbit',
   'spaceplane', 'x-37', 'fractional orbital', 'fobs',
   // Brouillage GPS/GNSS (spécifique uniquement)
   'gps jamming', 'gps spoofing', 'gnss jamming', 'gnss spoofing',
