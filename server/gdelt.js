@@ -138,23 +138,37 @@ const DOMAIN_KEYWORDS_SPATIAL = [
   'spy satellite', 'reconnaissance satellite', 'military satellite', 'classified payload',
   // Commandements spatiaux
   'space force', 'space command', 'space domain', 'space weapon', 'space laser',
-  // Lancements & rentrées (pas 'rocket launch' → trop de faux positifs militaires)
-  'launch vehicle', 'space launch', 'orbital launch', 'reentry', 're-entry', 'deorbit',
+  // Lancements & rentrées
+  'launch vehicle', 'space launch', 'orbital launch', 'rocket test',
+  'reentry', 're-entry', 'deorbit',
   'spaceplane', 'x-37', 'fractional orbital', 'fobs',
-  // Brouillage GPS/GNSS (spécifique uniquement)
+  // Stratégique / missiles balistiques intercontinentaux
+  'icbm', 'intercontinental ballistic', 'hypersonic glide', 'hypersonic missile',
+  'missile defense', 'missile defence', 'ballistic missile submarine',
+  // Brouillage GPS/GNSS
   'gps jamming', 'gps spoofing', 'gnss jamming', 'gnss spoofing',
   // Débris & surveillance spatiale
   'space debris', 'space junk', 'space surveillance', 'space situational awareness',
   // Cosmodromes / bases de lancement
   'cosmodrome', 'baikonur', 'plesetsk', 'vostochny',
   'cape canaveral', 'vandenberg', 'jiuquan', 'xichang', 'wenchang',
-  // Constellations & orbites (termes précis uniquement)
+  'sriharikota', 'tanegashima', 'semnan',
+  // Constellations & orbites
   'starlink', 'oneweb', 'kuiper', 'leo constellation',
   'geostationary', 'geosynchronous', 'low earth orbit',
   'sun-synchronous', 'polar orbit',
   // Programmes spatiaux
   'space race', 'moon mission', 'lunar mission', 'mars mission',
-  'space station', 'tiangong',
+  'space station', 'tiangong', 'artemis',
+  // Agences spatiales
+  'nasa', 'esa ', 'roscosmos', 'isro', 'jaxa', 'cnsa', 'kari',
+  'cnes', 'dlr ', 'uksa',
+  // Entreprises spatiales
+  'spacex', 'blue origin', 'arianespace', 'rocket lab', 'relativity space',
+  'united launch alliance', 'northrop grumman', 'boeing starliner',
+  // Sites spécialisés (domaines connus)
+  'spacenews.com', 'spacedaily.com', 'nasaspaceflight.com', 'spaceflightnow.com',
+  'space.com', 'thespacereview.com',
 ];
 
 const DOMAIN_KEYWORDS_AVIATION = [
@@ -209,9 +223,14 @@ const DOMAIN_KEYWORDS_MARITIME = [
   'naval aviation', 'carrier-based', 'catapult launch',
 ];
 
+// Sites qui contiennent "space" dans le nom mais ne sont PAS des sites spatiaux
+const SPATIAL_DOMAIN_BLACKLIST = ['spacewar.com', 'myspace.com', 'airspacemag.com'];
+
 function detectEventDomain(event) {
   const text = `${event.title || ''} ${event.url || ''} ${event.actor1 || ''} ${event.actor2 || ''} ${event.subEventType || ''}`.toLowerCase();
-  if (DOMAIN_KEYWORDS_SPATIAL.some(k  => text.includes(k))) return 'spatial';
+  const url = (event.url || '').toLowerCase();
+  const isSpatialBlacklisted = SPATIAL_DOMAIN_BLACKLIST.some(d => url.includes(d));
+  if (!isSpatialBlacklisted && DOMAIN_KEYWORDS_SPATIAL.some(k => text.includes(k))) return 'spatial';
   if (DOMAIN_KEYWORDS_AVIATION.some(k => text.includes(k))) return 'aviation';
   if (DOMAIN_KEYWORDS_MARITIME.some(k => text.includes(k))) return 'maritime';
   return null;

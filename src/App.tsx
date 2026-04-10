@@ -69,15 +69,16 @@ export default function App() {
   }, [nextRefreshTime]);
 
   // Visible count depends on domain view
+  const spaceOsintCount = useMemo(() => filteredEvents.filter(e => e.properties?.osintDomain === 'spatial').length, [filteredEvents]);
   const visibleCount = useMemo(() => {
     switch (domainView) {
       case 'air':   return airTracks.length;
       case 'sea':   return seaTracks.length + navalEvents.length;
-      case 'space': return (launchData?.launches?.length || 0) + (decayData?.objects?.length || 0) + (tipData?.objects?.length || 0);
+      case 'space': return (launchData?.launches?.length || 0) + (decayData?.objects?.length || 0) + (tipData?.objects?.length || 0) + spaceOsintCount;
       case 'osint': return filteredEvents.length;
       default:      return filteredEvents.length + airTracks.length + seaTracks.length + navalEvents.length;
     }
-  }, [domainView, filteredEvents, airTracks, seaTracks, navalEvents, launchData, decayData, tipData]);
+  }, [domainView, filteredEvents, airTracks, seaTracks, navalEvents, launchData, decayData, tipData, spaceOsintCount]);
 
   const handleRefresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['events'] });
