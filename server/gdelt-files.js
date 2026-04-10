@@ -532,10 +532,11 @@ function scoreEvent(row, mention, tone, domain, flags, region) {
   return Math.round(score);
 }
 
-function shouldKeepEvent(row, flags) {
+function shouldKeepEvent(row, flags, isStructural = false) {
   const rootCode = String(row.rootCode || '');
   const eventCode = String(row.eventCode || '');
   const structuralKeep =
+    isStructural ||
     ['18', '19', '20'].includes(rootCode) ||
     STRUCTURAL_EVENT_CODES.has(eventCode) ||
     (['13', '14', '15', '16', '17'].includes(rootCode) && flags.military_keyword_flag) ||
@@ -726,7 +727,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
   for (const row of eventRows) {
     const rootCode = String(row.rootCode || '');
     const eventCode = String(row.eventCode || '');
-    if (!STRUCTURAL_ROOT_CODES.has(rootCode) && !STRUCTURAL_EVENT_CODES.has(eventCode)) continue;
+    const isStructural = STRUCTURAL_ROOT_CODES.has(rootCode) || STRUCTURAL_EVENT_CODES.has(eventCode);
 
     const mention = mentionMap.get(row.globalEventId) || null;
     const candidateUrl = mention?.bestIdentifier || row.sourceUrl;
@@ -756,7 +757,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
 
     const textBlob = buildTextBlob(title, row.actor1, row.actor2, candidateUrl || row.sourceUrl, themes, organizations, persons);
     const flags = buildFlags(textBlob);
-    if (!shouldKeepEvent(row, flags)) continue;
+    if (!shouldKeepEvent(row, flags, isStructural)) continue;
     if (shouldRejectLowQualityDomain(domain, flags, row)) continue;
     if (isDomesticSecurityNoise(textBlob, { countryCode: row.countryCode, domain })) continue;
 
