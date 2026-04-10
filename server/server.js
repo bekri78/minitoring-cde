@@ -73,7 +73,7 @@ async function fetchTodayEvents() {
   if (!events.length) {
     throw new Error('world_events_empty');
   }
-  console.log(`[events-source] using world feed instead of BigQuery — ${events.length} events`);
+  console.log(`[events-source] using world feed — ${events.length} events`);
   return events;
 }
 
@@ -81,12 +81,9 @@ async function enrichEvents(events) {
   return Array.isArray(events) ? events : [];
 }
 
-async function fetchAnalysisDistribution() {
-  throw new Error('analysis_disabled_bigquery_removed');
-}
 
-// ── Refresh GDELT ─────────────────────────────────────────────────────────
-const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1h — plus de BigQuery, on peut rafraîchir plus souvent
+// Refresh events feed
+const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1h
 
 async function refresh(force = false) {
   if (isRefreshing) {
@@ -128,28 +125,14 @@ async function refresh(force = false) {
   cache.status = 'refreshing';
 
   try {
-    const raw        = await fetchTodayEvents();
-    const MAX_ENRICH = Number(process.env.GDELT_AI_INPUT_MAX || 1200); // pool IA large pour meilleure couverture mondiale
-
-    // Diversité géographique : garder les zones stratégiques (Russie, Chine, etc.)
-    const STRATEGIC = new Set(['RS','CH','KN','KS','TW','VM','IR','SY','UP','IZ','AF','PK','LY','YM','SU']);
-    const STRATEGIC_MIN = Number(process.env.GDELT_AI_STRATEGIC_MIN || 350);
-    const rawSorted = [...raw].sort((a, b) => b.score - a.score);
-    const rawStrategic = rawSorted.filter(e => STRATEGIC.has(e.countryCode));
-    const rawOthers    = rawSorted.filter(e => !STRATEGIC.has(e.countryCode));
-    const toEnrich = [
-      ...rawOthers.slice(0, MAX_ENRICH - Math.min(rawStrategic.length, STRATEGIC_MIN)),
-      ...rawStrategic.slice(0, STRATEGIC_MIN),
-    ].sort((a, b) => b.score - a.score);
-
-    console.log(`[refresh] ${raw.length} raw events — enriching top ${toEnrich.length} with AI (rest discarded)...`);
-    const events     = await enrichEvents(toEnrich);
+    const raw = await fetchTodayEvents();
+    const events = await enrichEvents(raw);
     cache.events     = events;
     cache.lastUpdate = new Date().toISOString();
     cache.date       = today;
     cache.status     = 'ok';
     saveToDisk(today, events, cache.lastUpdate);
-    console.log(`[refresh] done — ${events.length} events after AI enrichment`);
+    console.log(`[refresh] done — ${events.length} events`);
     // Lancer la synthèse Groq en arrière-plan (pas besoin d'attendre)
     refreshSignals(events).catch(err => console.error('[signals]', err.message));
   } catch (err) {
@@ -215,10 +198,6 @@ app.get('/launches', (req, res) => {
 });
 
 // ── Historique — résumé par jour ──────────────────────────────────────────
-app.get('/analysis', async (_req, res) => {
-  res.status(410).json({ error: 'analysis_disabled_bigquery_removed' });
-});
-
 app.get('/history', (req, res) => {
   try {
     const files = fs.readdirSync(CACHE_DIR)
@@ -588,11 +567,6 @@ publicRouter.get('/signals', (_req, res) => {
   }));
 });
 
-// ── Analyse / calibrage (distribution BigQuery brute) ─────────────────────
-publicRouter.get('/analysis', async (_req, res) => {
-  res.status(410).json({ error: 'analysis_disabled_bigquery_removed' });
-});
-
 // ── Historique journalier ─────────────────────────────────────────────────
 publicRouter.get('/history', (_req, res) => {
   try {
@@ -887,3 +861,5 @@ app.listen(PORT, () => {
   fetchMaritimeAnomalies().catch(err => console.error('[startup-maritime-anomalies]', err.message));
   refreshOpenSkyCache().catch(err => console.error('[startup-opensky]', err.message));
 });
+
+
