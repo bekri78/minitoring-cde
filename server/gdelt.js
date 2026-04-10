@@ -1049,12 +1049,7 @@ function rowToEvent(row, hotspotIndex) {
 // ── AI Geo-correction ─────────────────────────────────────────────────────
 // Utilise GPT-4o-mini ou Mistral pour corriger le pays des events geo_type=1
 // (centroïde pays GDELT basse confiance) en analysant le titre.
-const GEO_AI_PROVIDER = process.env.GEO_AI_PROVIDER || 'openai';   // 'openai' | 'mistral'
-const GEO_AI_BATCH    = 30;
-const GEO_AI_KEY_OAI  = process.env.OPENAI_API_KEY || process.env.chatgpt;
-const GEO_AI_KEY_MIS  = process.env.MISTRAL_API_KEY;
-const GEO_AI_MODEL_OAI = process.env.GEO_AI_MODEL || 'gpt-4o-mini';
-const GEO_AI_MODEL_MIS = process.env.GEO_AI_MODEL_MISTRAL || 'mistral-small-latest';
+const GEO_AI_BATCH = 30;
 
 function buildGeoPrompt(batch) {
   return `You are a geolocation analyst. For each news headline below, determine the PRIMARY country the article is about.
@@ -1074,10 +1069,13 @@ ${batch.map(e => JSON.stringify({
 })).join('\n')}`;
 }
 
-async function callGeoAI(prompt, provider) {
-  const isOpenAI = provider === 'openai';
-  const apiKey = isOpenAI ? GEO_AI_KEY_OAI : GEO_AI_KEY_MIS;
-  const model  = isOpenAI ? GEO_AI_MODEL_OAI : GEO_AI_MODEL_MIS;
+async function callGeoAI(prompt) {
+  // Réutilise les mêmes clés API que gemini-normalizer.js
+  const oaiKey = process.env.OPENAI_API_KEY || process.env.chatgpt;
+  const misKey = process.env.MISTRAL_API_KEY;
+  const isOpenAI = !!oaiKey;
+  const apiKey = oaiKey || misKey;
+  const model  = isOpenAI ? 'gpt-4o-mini' : 'mistral-small-latest';
   const url    = isOpenAI
     ? 'https://api.openai.com/v1/chat/completions'
     : 'https://api.mistral.ai/v1/chat/completions';
@@ -1128,10 +1126,11 @@ async function callGeoAI(prompt, provider) {
 }
 
 async function aiGeoCorrectEvents(events) {
-  const provider = GEO_AI_PROVIDER;
-  const apiKey = provider === 'openai' ? GEO_AI_KEY_OAI : GEO_AI_KEY_MIS;
-  if (!apiKey) {
-    console.log(`[geo-ai] skipped: no API key for ${provider}`);
+  const oaiKey = process.env.OPENAI_API_KEY || process.env.chatgpt;
+  const misKey = process.env.MISTRAL_API_KEY;
+  const provider = oaiKey ? 'openai' : misKey ? 'mistral' : null;
+  if (!provider) {
+    console.log('[geo-ai] skipped: no OPENAI_API_KEY or MISTRAL_API_KEY');
     return events;
   }
 
@@ -1149,7 +1148,7 @@ async function aiGeoCorrectEvents(events) {
   for (let i = 0; i < candidates.length; i += GEO_AI_BATCH) {
     const batch = candidates.slice(i, i + GEO_AI_BATCH);
     try {
-      const results = await callGeoAI(buildGeoPrompt(batch), provider);
+      const results = await callGeoAI(buildGeoPrompt(batch));
       for (const r of results) {
         if (r.corrected && r.lat && r.lon && r.country) {
           corrections.set(r.id, r);
