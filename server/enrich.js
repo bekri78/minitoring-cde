@@ -229,7 +229,7 @@ async function classifyBatch(events, attempt = 0) {
         { role: 'user', content: buildPrompt(events) },
       ],
       temperature: 0,
-      max_tokens: Math.max(1200, events.length * 70),
+      max_tokens: Math.max(2000, events.length * 120),
       response_format: { type: 'json_object' },
     }),
     signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
