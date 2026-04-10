@@ -10,7 +10,7 @@ import type { DecayObject } from '../types/decay';
 import type { TipObject } from '../types/tip';
 import type { Quake } from '../types/earthquake';
 import type { Track } from '../types/track';
-import type { MaritimeAnomaly } from '../types/maritime';
+import type { NavalEvent } from '../types/maritime';
 import { buildGeoJSON } from '../utils/geo';
 import { getCategoryColor, getCategoryLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
@@ -30,7 +30,7 @@ interface Props {
   airTracks?:    Track[];
   seaTracks?:    Track[];
   launches?:     Launch[];
-  maritimeAnomalies?: MaritimeAnomaly[];
+  navalEvents?: NavalEvent[];
 }
 
 // ── SVG icons ────────────────────────────────────────────────────────────────
@@ -105,21 +105,22 @@ function mono(content: string): string {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-// Anomaly type → color & label
-const MARITIME_STYLE: Record<string, { color: string; label: string }> = {
-  dark_shipping:    { color: '#ff2244', label: 'AIS OFF' },
-  vessel_encounter: { color: '#ff8800', label: 'RENCONTRE' },
-  loitering:        { color: '#ffdd55', label: 'LOITERING' },
-  fishing_activity:  { color: '#00d4ff', label: 'PÊCHE' },
-  port_visit:       { color: '#4a9eff', label: 'PORT' },
-  maritime_anomaly: { color: '#cc44ff', label: 'ANOMALIE' },
+// Naval activity type → color & label (GDELT-based)
+const NAVAL_STYLE: Record<string, { color: string; label: string }> = {
+  naval_exercise:     { color: '#ffdd55', label: 'EXERCICE NAVAL' },
+  fleet_deployment:   { color: '#ff8800', label: 'DÉPLOIEMENT' },
+  maritime_incident:  { color: '#ff2244', label: 'INCIDENT' },
+  chokepoint_tension: { color: '#ff4466', label: 'DÉTROIT' },
+  logistics_operation:{ color: '#4a9eff', label: 'LOGISTIQUE' },
+  port_call:          { color: '#60ddff', label: 'ESCALE' },
+  maritime_activity:  { color: '#cc44ff', label: 'ACTIVITÉ NAVALE' },
 };
 
 export function WorldMap({
   events, loading,
   pads = [], decayObjects = [], tipObjects = [], quakes = [],
   airTracks = [], seaTracks = [], launches = [],
-  maritimeAnomalies = [],
+  navalEvents = [],
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<L.Map | null>(null);
@@ -635,68 +636,80 @@ export function WorldMap({
     });
   }, [quakes]);
 
-  // ── Update maritime anomalies (GFW) ───────────────────────────────────────
+  // ── Update naval activity (GDELT + GFW fusion) ───────────────────────────
   useEffect(() => {
     const layer = maritimeLayerRef.current;
     if (!layer) return;
     layer.clearLayers();
 
-    maritimeAnomalies.forEach(a => {
-      if (!a.lat || !a.lon) return;
-      const style = MARITIME_STYLE[a.type] || MARITIME_STYLE.maritime_anomaly;
-      const color = a.context?.sensitiveZone ? '#ff2244' : style.color;
-      const radius = a.confidenceScore >= 80 ? 7 : a.confidenceScore >= 65 ? 5 : 4;
+    navalEvents.forEach(ev => {
+      if (!ev.latitude || !ev.longitude) return;
+      const style = NAVAL_STYLE[ev.type] || NAVAL_STYLE.maritime_activity;
+      // Probable → rouge vif, possible → couleur du type, weak → atténué
+      const color = ev.activityClass === 'probable_naval_activity'
+        ? '#ff2244'
+        : ev.activityClass === 'possible_naval_activity'
+          ? style.color
+          : '#4a6a7a';
+      const radius = ev.confidenceScore >= 75 ? 8 : ev.confidenceScore >= 55 ? 6 : 4;
 
-      const marker = L.circleMarker([a.lat, a.lon], {
+      const marker = L.circleMarker([ev.latitude, ev.longitude], {
         radius,
         color,
-        weight:      1,
+        weight:      1.5,
         fillColor:   color,
-        fillOpacity: 0.65,
+        fillOpacity: ev.activityClass === 'weak_signal' ? 0.35 : 0.7,
       });
 
-      const vesselName = a.details?.vessel?.name || '—';
-      const vesselFlag = a.details?.vessel?.flag || '—';
-      const durationStr = a.details?.durationMin != null
-        ? a.details.durationMin > 1440
-          ? `${(a.details.durationMin / 1440).toFixed(0)}j`
-          : `${(a.details.durationMin / 60).toFixed(0)}h`
+      const title   = ev.titleFr || ev.title || '—';
+      const dateStr = ev.timestamp
+        ? new Date(ev.timestamp).toUTCString().replace(' GMT', ' UTC').slice(0, 22)
         : '—';
-      const dateStr = a.timestamp
-        ? new Date(a.timestamp).toUTCString().replace(' GMT', ' UTC').slice(0, 22)
-        : '—';
-      const tags = a.context?.contextTags || [];
-      const tagsHtml = tags.map(t => {
-        const tagLabel = t.replace(/_/g, ' ').toUpperCase();
-        return `<span style="padding:1px 6px;font-size:8px;background:#ff224418;color:#ff6644;border:1px solid #ff224433;">${escapeHtml(tagLabel)}</span>`;
-      }).join(' ');
+
+      const tagsHtml = [ev.type, ...ev.tags].map(t =>
+        `<span style="padding:1px 6px;font-size:8px;background:${color}18;color:${color};border:1px solid ${color}44;">${escapeHtml(t.replace(/_/g, ' ').toUpperCase())}</span>`
+      ).join(' ');
 
       const zoneInfo = [
-        a.context?.nearestBase       ? `Base: ${escapeHtml(a.context.nearestBase.name)} (${a.context.nearestBase.distanceKm}km)` : '',
-        a.context?.nearestChokepoint ? `Détroit: ${escapeHtml(a.context.nearestChokepoint.name)} (${a.context.nearestChokepoint.distanceKm}km)` : '',
-        a.context?.strategicZone     ? `Zone: ${escapeHtml(a.context.strategicZone.name)} (${a.context.strategicZone.distanceKm}km)` : '',
-        a.context?.nearestPort       ? `Port: ${escapeHtml(a.context.nearestPort.name)} (${a.context.nearestPort.distanceKm}km)` : '',
+        ev.context?.nearestBase       ? `Base: ${escapeHtml(ev.context.nearestBase.name)} (${ev.context.nearestBase.distanceKm}km)` : '',
+        ev.context?.nearestChokepoint ? `Détroit: ${escapeHtml(ev.context.nearestChokepoint.name)} (${ev.context.nearestChokepoint.distanceKm}km)` : '',
+        ev.context?.strategicZone     ? `Zone: ${escapeHtml(ev.context.strategicZone.name)} (${ev.context.strategicZone.distanceKm}km)` : '',
+        ev.context?.nearestPort       ? `Port: ${escapeHtml(ev.context.nearestPort.name)} (${ev.context.nearestPort.distanceKm}km)` : '',
       ].filter(Boolean).join('<br>');
+
+      const scoreHtml = ev.scoreBreakdown
+        ? `<div style="margin-top:6px;font-size:8px;color:#4a6a7a;line-height:1.6;border-top:1px solid #1a2a3a;padding-top:6px;">
+             Base ${ev.scoreBreakdown.baseConfidence} + anomalies +${ev.scoreBreakdown.anomalyBonus} − âge ${ev.scoreBreakdown.recencyPenalty} = ${ev.scoreBreakdown.finalConfidence}
+           </div>`
+        : '';
+
+      const anomalyBadge = ev.provenance?.anomalyCount
+        ? `<span style="font-size:8px;color:#ff8800;">⚓ ${ev.provenance.anomalyCount} anomalie(s) GFW</span>`
+        : '';
+
+      const sourceUrl = ev.rawEvent?.url
+        ? `<a href="${escapeHtml(ev.rawEvent.url)}" target="_blank" style="font-size:8px;color:#4a9eff;">source</a>`
+        : '';
 
       marker.bindPopup(mono(`
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
-          <span style="padding:2px 8px;font-size:9px;background:${color}18;color:${color};border:1px solid ${color}44;">${style.label}</span>
           ${tagsHtml}
-          <span style="font-size:9px;color:#4a6a7a;margin-left:auto;">${a.confidenceScore}%</span>
+          <span style="font-size:9px;color:#4a6a7a;margin-left:auto;">${ev.confidenceScore}%</span>
         </div>
-        <p style="color:#e8f4ff;margin:0 0 4px 0;font-size:12px;">${escapeHtml(vesselName)}</p>
-        <p style="color:#4a6a7a;margin:0 0 8px 0;font-size:9px;">Pavillon: ${escapeHtml(vesselFlag)} · ${escapeHtml(a.source)}</p>
+        <p style="color:#e8f4ff;margin:0 0 4px 0;font-size:12px;">${escapeHtml(title)}</p>
+        <p style="color:#4a6a7a;margin:0 0 8px 0;font-size:9px;">${escapeHtml(ev.country || '—')} · GDELT ${anomalyBadge ? '· ' + anomalyBadge : ''} ${sourceUrl}</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9px;border-top:1px solid #1a2a3a;padding-top:8px;">
-          <div><span style="color:#4a6a7a;">DURÉE</span><br><span style="color:#c8d8e8;">${durationStr}</span></div>
+          <div><span style="color:#4a6a7a;">CATÉGORIE</span><br><span style="color:#c8d8e8;">${escapeHtml(ev.category || '—')}</span></div>
           <div><span style="color:#4a6a7a;">DATE</span><br><span style="color:#c8d8e8;">${dateStr}</span></div>
         </div>
         ${zoneInfo ? `<div style="margin-top:6px;font-size:9px;color:#6a8a9a;line-height:1.6;border-top:1px solid #1a2a3a;padding-top:6px;">${zoneInfo}</div>` : ''}
-        <div style="margin-top:6px;font-size:9px;color:#4a6a7a;">${a.lat.toFixed(3)}°, ${a.lon.toFixed(3)}°</div>
-      `), { maxWidth: 340 });
+        ${scoreHtml}
+        <div style="margin-top:6px;font-size:9px;color:#4a6a7a;">${ev.latitude.toFixed(3)}°, ${ev.longitude.toFixed(3)}°</div>
+      `), { maxWidth: 360 });
 
       layer.addLayer(marker);
     });
-  }, [maritimeAnomalies]);
+  }, [navalEvents]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (

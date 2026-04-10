@@ -7,7 +7,7 @@ import { useTip }          from './hooks/useTip';
 import { useEarthquakes }       from './hooks/useEarthquakes';
 import { useSpaceWeather }      from './hooks/useSpaceWeather';
 import { useTracks } from './hooks/useTracks';
-import { useMaritimeAnomalies } from './hooks/useMaritimeAnomalies';
+import { useNavalActivity }     from './hooks/useNavalActivity';
 import { useHistory }      from './hooks/useHistory';
 import { useFilterStore } from './store/filterStore';
 import { Header }         from './components/Header';
@@ -29,7 +29,7 @@ export default function App() {
   const { data: quakeData }   = useEarthquakes();
   const { data: swData }      = useSpaceWeather();
   const { data: tracksData }  = useTracks();
-  const { data: maritimeData } = useMaritimeAnomalies();
+  const { data: navalData }    = useNavalActivity();
   const { data: historyData } = useHistory();
   const { severity, categories, regions } = useFilterStore();
 
@@ -41,7 +41,7 @@ export default function App() {
   const airTracks  = useMemo(() => (tracksData?.tracks.filter(t => t.domain === 'air') ?? [])
     .filter(t => t.country !== 'USA' || (t as any).milScore === 100), [tracksData]);
   const seaTracks  = useMemo(() => tracksData?.tracks.filter(t => t.domain === 'sea') ?? [], [tracksData]);
-  const maritimeAnomalies = useMemo(() => maritimeData?.anomalies ?? [], [maritimeData]);
+  const navalEvents = useMemo(() => navalData?.events ?? [], [navalData]);
 
   // Apply filters
   const filteredEvents = useMemo(() => allEvents.filter(e => {
@@ -79,7 +79,7 @@ export default function App() {
         onRefresh={handleRefresh}
       />
       <div style={{ position: 'relative', overflow: 'hidden' }}>
-        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} quakes={quakeData?.quakes} airTracks={airTracks} seaTracks={seaTracks} launches={launchData?.launches} maritimeAnomalies={maritimeAnomalies} />
+        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} quakes={quakeData?.quakes} airTracks={airTracks} seaTracks={seaTracks} launches={launchData?.launches} navalEvents={navalEvents} />
         <FilterPanel />
         <SpacePanel data={launchData} decay={decayData} tip={tipData} loading={launchStatus === 'pending'} />
         <TrendPanel data={historyData?.history ?? []} />

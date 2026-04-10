@@ -24,13 +24,61 @@ export interface MaritimeAnomaly {
   };
 }
 
+export interface NavalEvent {
+  id:              string;
+  sourceEventId:   string;
+  latitude:        number;
+  longitude:       number;
+  type:            string;   // naval_exercise, fleet_deployment, maritime_incident, chokepoint_tension…
+  tags:            string[];
+  confidenceScore: number;
+  maritimeScore:   number;
+  timestamp:       string;
+  title:           string;
+  titleFr:         string | null;
+  category:        string;
+  country:         string;
+  description:     string;
+  activityClass:   'probable_naval_activity' | 'possible_naval_activity' | 'weak_signal';
+  context: {
+    nearestBase:       { name: string; country: string; distanceKm: number } | null;
+    nearestChokepoint: { name: string; distanceKm: number } | null;
+    nearestPort:       { name: string; distanceKm: number } | null;
+    strategicZone:     { name: string; distanceKm: number } | null;
+    nearestSeaLane:    { name: string; distanceKm: number } | null;
+    contextTags:       string[];
+    sensitiveZone:     boolean;
+  };
+  scoreBreakdown: {
+    baseConfidence:  number;
+    anomalyBonus:    number;
+    recencyPenalty:  number;
+    finalConfidence: number;
+  };
+  nearbyAnomalies: unknown[];
+  provenance: {
+    gdelt:          Record<string, unknown>;
+    maritimeContext: Record<string, unknown>;
+    anomalySources: string[];
+    anomalyCount:   number;
+  };
+  rawEvent: {
+    url:      string | null;
+    domain:   string | null;
+    actor1:   string | null;
+    actor2:   string | null;
+    notes:    string | null;
+    headline: string | null;
+  };
+}
+
 export interface NavalActivityData {
-  events:    MaritimeAnomaly[];
+  events:    NavalEvent[];
   anomalies: MaritimeAnomaly[];
-  count:     number;
   meta: {
-    status:      string;
-    generatedAt: string;
-    lastUpdate:  string | null;
+    generatedAt:     string;
+    count:           number;
+    anomalyStatus:   string;
+    sourceBreakdown: { gdelt: number; maritimeContext: number; anomalies: number };
   };
 }
