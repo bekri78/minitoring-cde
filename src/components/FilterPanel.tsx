@@ -46,7 +46,7 @@ export function FilterPanel() {
       {/* Overlay */}
       <div
         onClick={togglePanel}
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200 }}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 999 }}
       />
 
       {/* Panel */}
@@ -58,7 +58,7 @@ export function FilterPanel() {
         height:     'calc(100vh - 44px)',
         background: '#0a0f16',
         borderLeft: '1px solid #1a2a3a',
-        zIndex:     201,
+        zIndex:     1000,
         overflowY:  'auto',
         fontFamily: "'Share Tech Mono', monospace",
       }}>
