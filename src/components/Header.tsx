@@ -28,10 +28,11 @@ export function Header({ eventCount, status, nextRefresh, onRefresh }: Props) {
   const dotColor    = status === 'error' ? '#ff4444' : '#00ff88';
 
   const domainBtns: { key: DomainView; label: string; icon: string }[] = [
-    { key: 'all',  label: 'ALL',  icon: '◉' },
+    { key: 'all',   label: 'ALL',   icon: '◉' },
     { key: 'osint', label: 'OSINT', icon: '🌐' },
-    { key: 'air',  label: 'AIR',  icon: '✈' },
-    { key: 'sea',  label: 'SEA',  icon: '⚓' },
+    { key: 'air',   label: 'AIR',   icon: '✈' },
+    { key: 'sea',   label: 'SEA',   icon: '⚓' },
+    { key: 'space', label: 'SPACE', icon: '🚀' },
   ];
 
   return (

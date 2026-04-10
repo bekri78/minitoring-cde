@@ -71,12 +71,13 @@ export default function App() {
   // Visible count depends on domain view
   const visibleCount = useMemo(() => {
     switch (domainView) {
-      case 'air':  return airTracks.length;
-      case 'sea':  return seaTracks.length + navalEvents.length;
+      case 'air':   return airTracks.length;
+      case 'sea':   return seaTracks.length + navalEvents.length;
+      case 'space': return (launchData?.launches?.length || 0) + (decayData?.objects?.length || 0) + (tipData?.objects?.length || 0);
       case 'osint': return filteredEvents.length;
-      default:     return filteredEvents.length + airTracks.length + seaTracks.length + navalEvents.length;
+      default:      return filteredEvents.length + airTracks.length + seaTracks.length + navalEvents.length;
     }
-  }, [domainView, filteredEvents, airTracks, seaTracks, navalEvents]);
+  }, [domainView, filteredEvents, airTracks, seaTracks, navalEvents, launchData, decayData, tipData]);
 
   const handleRefresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['events'] });

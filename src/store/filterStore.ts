@@ -3,7 +3,7 @@ import { create } from 'zustand';
 type FilterKey = 'severity' | 'categories' | 'regions';
 
 /** Vue domaine : quel type de données afficher sur la carte */
-export type DomainView = 'all' | 'air' | 'sea' | 'osint';
+export type DomainView = 'all' | 'air' | 'sea' | 'space' | 'osint';
 
 interface FilterStore {
   severity:   Set<string>;
