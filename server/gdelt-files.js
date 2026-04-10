@@ -354,11 +354,11 @@ function parseEventRows(text) {
   for (const line of String(text || '').split(/\r?\n/)) {
     if (!line) continue;
     const cols = line.split('\t');
-    if (cols.length < 58) continue;
-    const lat = Number(cols[53]);
-    const lon = Number(cols[54]);
+    if (cols.length < 61) continue;
+    const lat = Number(cols[56]);
+    const lon = Number(cols[57]);
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0)) continue;
-    const sourceUrl = cols[57] || '';
+    const sourceUrl = cols[60] || '';
     if (!sourceUrl) continue;
     out.push({
       globalEventId: cols[0],
@@ -373,12 +373,12 @@ function parseEventRows(text) {
       numSources: Number(cols[32] || 0),
       numArticles: Number(cols[33] || 0),
       avgTone: Number(cols[34] || 0),
-      actionGeoType: cols[49] || '',
-      location: cols[50] || '',
-      countryCode: cols[51] || '',
+      actionGeoType: cols[51] || '',
+      location: cols[52] || '',
+      countryCode: cols[53] || '',
       lat,
       lon,
-      dateAdded: cols[56] || '',
+      dateAdded: cols[59] || '',
       sourceUrl,
     });
   }
