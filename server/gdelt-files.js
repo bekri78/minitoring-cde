@@ -14,12 +14,29 @@ const SNAPSHOT_LOOKBACK_HOURS = Number(process.env.GDELT_LOOKBACK_HOURS || 24);
 const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 1200);
 const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 250);
 const MIN_RELEVANCE_SCORE = Number(process.env.GDELT_MIN_SCORE || 60);
+const FINAL_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 600);
 
 const STRATEGIC_COUNTRY_CODES = new Set([
   'RS', 'CH', 'KN', 'KS', 'TW', 'VM',
   'IR', 'SY', 'UP', 'IZ', 'AF', 'PK',
   'LY', 'YM', 'SU',
 ]);
+
+const REGION_QUOTAS = {
+  france: 35,
+  europe: 65,
+  russia_cis: 80,
+  east_asia: 75,
+  south_asia: 55,
+  middleeast: 95,
+  africa: 95,
+  south_america: 45,
+  north_america: 25,
+  oceania: 15,
+  other: 15,
+};
+
+const STRATEGIC_REGION_BOOST = new Set(['russia_cis', 'east_asia', 'middleeast', 'africa']);
 
 const CATEGORY_RULES = [
   { key: 'terrorism', cameo: ['181', '1831', '1832', '1833'], keywords: ['terrorist', 'terrorism', 'isis', 'al qaeda', 'boko haram', 'suicide bombing', 'ied', 'car bomb', 'hostage'] },
@@ -349,6 +366,25 @@ function getColor(tone) {
   return '#00d4ff';
 }
 
+function getRegionKey(lat, lon, countryCode) {
+  if (countryCode === 'FR') return 'france';
+  if (lat > 34 && lat < 72 && lon > -25 && lon < 45) {
+    if (['RS', 'UP', 'AM', 'AJ', 'GG', 'KG', 'KZ', 'MD'].includes(countryCode)) return 'russia_cis';
+    return 'europe';
+  }
+  if (lat > 12 && lat < 43 && lon > 25 && lon < 65) return 'middleeast';
+  if (lat > -12 && lat < 55 && lon > 95 && lon < 150) return 'east_asia';
+  if (lat > 0 && lat < 40 && lon > 60 && lon < 95) return 'south_asia';
+  if (lat > -35 && lat < 38 && lon > -20 && lon < 55) return 'africa';
+  if (lat > -60 && lat < 15 && lon > -90 && lon < -30) return 'south_america';
+  if (lat > 15 && lon > -170 && lon < -50) return 'north_america';
+  if (lat < -10 && lon > 110 && lon < 180) return 'oceania';
+  if (countryCode === 'CH' || countryCode === 'KN' || countryCode === 'KS' || countryCode === 'TW' || countryCode === 'VM') return 'east_asia';
+  if (countryCode === 'AF' || countryCode === 'PK' || countryCode === 'IN' || countryCode === 'BD') return 'south_asia';
+  if (countryCode === 'BR' || countryCode === 'AR' || countryCode === 'CL' || countryCode === 'CO' || countryCode === 'PE' || countryCode === 'VE') return 'south_america';
+  return 'other';
+}
+
 function parseEventRows(text) {
   const out = [];
   for (const line of String(text || '').split(/\r?\n/)) {
@@ -474,6 +510,11 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
     score += Math.min(40, Math.log1p(row.numMentions + row.numSources + row.numArticles) * 8);
     score += Math.min(30, Math.log1p(mention?.mentionCount || 0) * 10);
     if (themes.some(theme => /MILITARY|ARMED|TERROR|CYBER|NUCLEAR|MISSILE/i.test(theme))) score += 25;
+    const region = getRegionKey(row.lat, row.lon, row.countryCode || '');
+    if (STRATEGIC_COUNTRY_CODES.has(row.countryCode || '')) score += 35;
+    if (STRATEGIC_REGION_BOOST.has(region)) score += 15;
+    if (region === 'france') score += 10;
+    if (region === 'south_america') score += 10;
 
     const event = {
       id: row.globalEventId,
@@ -493,6 +534,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       severity: getSeverityLabel(tone),
       score,
       category,
+      region,
       dataSource: 'gdelt-files',
       actor1: row.actor1 || null,
       actor2: row.actor2 || null,
@@ -550,19 +592,60 @@ function mergeSnapshot(existingSnapshot, freshEvents) {
 
 function selectDiverseEvents(events) {
   const sorted = [...events].sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
-  const strategic = sorted.filter(event => STRATEGIC_COUNTRY_CODES.has(event.countryCode));
-  const others = sorted.filter(event => !STRATEGIC_COUNTRY_CODES.has(event.countryCode));
-  const selected = [
-    ...strategic.slice(0, STRATEGIC_MIN_EVENTS),
-    ...others,
-  ];
-  const dedup = new Map();
-  for (const event of selected) {
-    const key = event.url || `id:${event.id}`;
-    if (!dedup.has(key)) dedup.set(key, event);
-    if (dedup.size >= MAX_DASHBOARD_EVENTS) break;
+  const byRegion = new Map();
+  for (const event of sorted) {
+    const region = event.region || getRegionKey(event.lat, event.lon, event.countryCode || '');
+    if (!byRegion.has(region)) byRegion.set(region, []);
+    byRegion.get(region).push(event);
   }
-  return [...dedup.values()];
+
+  const selected = [];
+  const seen = new Set();
+  const takeFromList = (list, limit) => {
+    if (!Array.isArray(list) || limit <= 0) return;
+    for (const event of list) {
+      const key = event.url || `id:${event.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      selected.push(event);
+      if (selected.length >= FINAL_EVENTS) return;
+      if (limit && selected.filter(e => (e.region || 'other') === (event.region || 'other')).length >= limit) return;
+    }
+  };
+
+  for (const [region, quota] of Object.entries(REGION_QUOTAS)) {
+    const list = byRegion.get(region) || [];
+    let added = 0;
+    for (const event of list) {
+      const key = event.url || `id:${event.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      selected.push(event);
+      added += 1;
+      if (selected.length >= FINAL_EVENTS || added >= quota) break;
+    }
+    if (selected.length >= FINAL_EVENTS) break;
+  }
+
+  if (selected.length < Math.min(STRATEGIC_MIN_EVENTS, FINAL_EVENTS)) {
+    for (const event of sorted.filter(item => STRATEGIC_COUNTRY_CODES.has(item.countryCode))) {
+      const key = event.url || `id:${event.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      selected.push(event);
+      if (selected.length >= FINAL_EVENTS || selected.filter(item => STRATEGIC_COUNTRY_CODES.has(item.countryCode)).length >= STRATEGIC_MIN_EVENTS) break;
+    }
+  }
+
+  for (const event of sorted) {
+    const key = event.url || `id:${event.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selected.push(event);
+    if (selected.length >= FINAL_EVENTS) break;
+  }
+
+  return selected.slice(0, Math.min(FINAL_EVENTS, MAX_DASHBOARD_EVENTS));
 }
 
 async function processBatch(batch) {
