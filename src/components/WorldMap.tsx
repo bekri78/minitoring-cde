@@ -339,13 +339,13 @@ export function WorldMap({
         </div>
       `), { maxWidth: 340 });
 
-      // Route aviation/maritime OSINT events to dedicated layers
-      const evDomain = (p.domain || '').toLowerCase();
-      if (evDomain === 'aviation' && airOsintLayerRef.current) {
+      // Route aviation/maritime/spatial OSINT events to dedicated layers
+      const osintDomain = (p.osintDomain || '').toLowerCase();
+      if (osintDomain === 'aviation' && airOsintLayerRef.current) {
         airOsintLayerRef.current.addLayer(marker);
-      } else if (evDomain === 'maritime' && seaOsintLayerRef.current) {
+      } else if (osintDomain === 'maritime' && seaOsintLayerRef.current) {
         seaOsintLayerRef.current.addLayer(marker);
-      } else if (evDomain === 'spatial' && spaceOsintLayerRef.current) {
+      } else if (osintDomain === 'spatial' && spaceOsintLayerRef.current) {
         spaceOsintLayerRef.current.addLayer(marker);
       } else {
         cluster.addLayer(marker);

@@ -924,6 +924,9 @@ function rowToEvent(row, hotspotIndex) {
   if (category === 'discard') return null;
   const base = scoreEvent(text, goldstein, domain);
 
+  // Classify OSINT domain (spatial / aviation / maritime / null)
+  const osintDomain = detectEventDomain({ title, url, actor1: row.actor1, actor2: row.actor2, subEventType: getSubEventType(eventCode) });
+
   // bq_signal_score : score composite calculé dans BigQuery
   const bqBonus = Math.min(50, Number(row.bq_signal_score || 0));
 
@@ -956,6 +959,7 @@ function rowToEvent(row, hotspotIndex) {
     severity:     getSeverityLabel(goldstein),
     category,
     score:        finalScore,
+    osintDomain:  osintDomain || null,
     dedup_key:    row.dedup_key || null,
     dataSource:   'gdelt-bq',
   };

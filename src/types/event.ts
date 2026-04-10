@@ -24,4 +24,5 @@ export interface Event {
   actor2?: string;
   subType?: string;
   rootCode?: string;
+  osintDomain?: string;
 }

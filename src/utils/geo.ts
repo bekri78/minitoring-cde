@@ -71,6 +71,7 @@ export function buildGeoJSON(events: Event[]) {
           eventCode:     (e as any).eventCode || '',
           rootCode:      e.rootCode || '',
           subEventType:  (e as any).subEventType || e.subType || '',
+          osintDomain:   (e as any).osintDomain || '',
         },
       };
     }),
