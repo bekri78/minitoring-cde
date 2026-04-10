@@ -994,7 +994,7 @@ function rowToEvent(row, hotspotIndex) {
 // ── AI Geo-correction ─────────────────────────────────────────────────────
 // Utilise GPT-4o-mini ou Mistral pour corriger le pays des events geo_type=1
 // (centroïde pays GDELT basse confiance) en analysant le titre.
-const GEO_AI_BATCH = 30;
+const GEO_AI_BATCH = 20;
 
 function buildGeoPrompt(batch) {
   return `You are a geolocation analyst. For each news headline below, determine the PRIMARY country the article is about.
@@ -1031,7 +1031,7 @@ async function callGeoAI(prompt) {
   if (!apiKey) return [];
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), 60000);
   let resp;
   try {
     resp = await fetch(url, {
@@ -1105,11 +1105,25 @@ async function aiGeoCorrectEvents(events) {
       }
       console.log(`[geo-ai] batch ${Math.floor(i / GEO_AI_BATCH) + 1}: ${results.length} results`);
     } catch (err) {
-      console.warn(`[geo-ai] batch failed: ${err.message}`);
+      console.warn(`[geo-ai] batch ${Math.floor(i / GEO_AI_BATCH) + 1} failed: ${err.message}, retrying...`);
+      // Retry une fois après 2s
+      try {
+        await new Promise(r => setTimeout(r, 2000));
+        const results = await callGeoAI(buildGeoPrompt(batch));
+        for (const r of results) {
+          if (r.corrected && r.lat && r.lon && r.country) {
+            corrections.set(r.id, r);
+            corrected++;
+          }
+        }
+        console.log(`[geo-ai] batch ${Math.floor(i / GEO_AI_BATCH) + 1} retry OK: ${results.length} results`);
+      } catch (retryErr) {
+        console.warn(`[geo-ai] batch ${Math.floor(i / GEO_AI_BATCH) + 1} retry failed: ${retryErr.message}`);
+      }
     }
     // Rate-limit entre batches
     if (i + GEO_AI_BATCH < candidates.length) {
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 500));
     }
   }
 
