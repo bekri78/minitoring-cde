@@ -56,7 +56,7 @@ function isLikelyEnglish(text) {
   return /\b(the|and|for|with|in|of|to|is|are|was|were|has|have|been|will|from|that|this|after|before|over|into|its|their|says|said|report|new|more|as|on|at|by|an|it|he|she|we|us)\b/i.test(String(text || ''));
 }
 
-function needsGemini(event) {
+function needsMistral(event) {
   const title = event?.title || '';
   if (!title || title.length < 8) return false;
   // Always translate non-Latin scripts (Arabic, Cyrillic, Chinese, Korean, Japanese, etc.)
@@ -426,7 +426,7 @@ async function normalizeEventsWithMistral(events) {
     return events;
   }
 
-  const candidates = events.filter(needsGemini).slice(0, GEMINI_LIMIT);
+  const candidates = events.filter(needsMistral).slice(0, GEMINI_LIMIT);
   if (!candidates.length) {
     console.log('[mistral] skipped: no ambiguous titles');
     return events;
@@ -472,7 +472,7 @@ async function normalizeEventsWithGemini(events) {
     return events;
   }
 
-  const candidates = events.filter(needsGemini).slice(0, GEMINI_LIMIT);
+  const candidates = events.filter(needsMistral).slice(0, GEMINI_LIMIT);
   if (!candidates.length) {
     console.log('[gemini] skipped: no ambiguous titles');
     return events;
