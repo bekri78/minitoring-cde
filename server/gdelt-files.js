@@ -125,6 +125,26 @@ const NOISE_DOMAINS = new Set([
   'marketwatch.com', 'investopedia.com', 'fool.com', 'estrategiasdeinversion.com',
 ]);
 
+const LOW_QUALITY_NEWS_DOMAINS = new Set([
+  'dailytrib.com', 'amren.com', 'bearingarms.com', 'nydailynews.com',
+  'inquirer.com', 'ksl.com', 'norfolkdailynews.com', 'patch.com',
+  'winnipegfreepress.com',
+]);
+
+const DOMESTIC_SECURITY_KEYWORDS = [
+  'faa', 'sheriff', 'county', 'police department', 'police chief',
+  'state trooper', 'highway patrol', 'district attorney', 'court filing',
+  'organized crime', 'gang unit', 'local police', 'border patrol',
+  'county jail', 'public safety',
+];
+
+const GLOBAL_SECURITY_OVERRIDE = [
+  'pentagon', 'nato', 'iran', 'israel', 'russia', 'ukraine', 'china',
+  'taiwan', 'north korea', 'south china sea', 'red sea', 'hormuz',
+  'military', 'navy', 'air force', 'missile', 'warship', 'fighter jet',
+  'drone', 'spacecraft', 'satellite',
+];
+
 const PRIORITY_DOMAIN_BOOST = {
   'tass.ru': 65, 'tass.com': 65, 'ria.ru': 60, 'rt.com': 55,
   'sputniknews.com': 55, 'sputnikglobe.com': 55, 'interfax.ru': 60,
@@ -269,6 +289,50 @@ function safeDomainFromUrl(url) {
   }
 }
 
+function canonicalUrl(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = '';
+    const keepParams = ['id', 'article', 'story', 'news', 'p', 'pid'];
+    const next = new URL(parsed.origin + parsed.pathname);
+    for (const key of keepParams) {
+      if (parsed.searchParams.has(key)) next.searchParams.set(key, parsed.searchParams.get(key));
+    }
+    return next.toString().replace(/\/$/, '');
+  } catch {
+    return String(url || '').trim();
+  }
+}
+
+function normalizeTitleForDedup(title) {
+  return normalizeText(title)
+    .replace(/\b\d{5,}\b/g, ' ')
+    .replace(/\b[a-f0-9]{8,}\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140);
+}
+
+function editorialDedupKey(event) {
+  const hour = String(event.dateAdded || event.batchTs || '').slice(0, 10);
+  return [
+    event.countryCode || 'UNK',
+    event.domain || 'nodomain',
+    hour,
+    normalizeTitleForDedup(event.title || event.headline || ''),
+  ].join('|');
+}
+
+function isDomesticSecurityNoise(text, event) {
+  const country = String(event?.countryCode || '');
+  const domain = String(event?.domain || '');
+  const domesticGeo = country === 'US' || country === 'CA' || domain.endsWith('.us');
+  if (!domesticGeo) return false;
+  if (!containsAnyKeyword(text, DOMESTIC_SECURITY_KEYWORDS)) return false;
+  if (containsAnyKeyword(text, GLOBAL_SECURITY_OVERRIDE)) return false;
+  return true;
+}
+
 function titleFromUrl(url) {
   if (!url) return null;
   try {
@@ -345,6 +409,14 @@ function isCivilianNoise(text) {
 function isNoiseEvent(title, url, domain) {
   if (NOISE_DOMAINS.has(domain)) return true;
   return containsAnyKeyword(`${title} ${url}`, NOISE_KEYWORDS);
+}
+
+function shouldRejectLowQualityDomain(domain, flags, row) {
+  if (!LOW_QUALITY_NEWS_DOMAINS.has(domain)) return false;
+  if (flags.spatial_flag || flags.aviation_flag || flags.maritime_flag) return false;
+  if (STRUCTURAL_EVENT_CODES.has(String(row.eventCode || ''))) return false;
+  if (['18', '19', '20'].includes(String(row.rootCode || '')) && Number(row.goldstein || 0) <= -5) return false;
+  return true;
 }
 
 function buildTextBlob(title, actor1, actor2, url) {
@@ -663,6 +735,8 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
     const textBlob = buildTextBlob(title, row.actor1, row.actor2, candidateUrl || row.sourceUrl);
     const flags = buildFlags(textBlob);
     if (!shouldKeepEvent(row, flags)) continue;
+    if (shouldRejectLowQualityDomain(domain, flags, row)) continue;
+    if (isDomesticSecurityNoise(textBlob, { countryCode: row.countryCode, domain })) continue;
 
     const category = classifyEvent(text, row.eventCode, row.rootCode, flags);
     if (category === 'discard') continue;
@@ -674,6 +748,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
     const domain_bucket = domainBucketFromFlags(flags);
     const is_strategic = isStrategicEvent(row, score) ? 1 : 0;
     const dedup_key = buildDedupKey(row);
+    const canonical_url = canonicalUrl(candidateUrl || row.sourceUrl);
 
     const event = {
       id: row.globalEventId,
@@ -681,6 +756,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       originalTitle: title,
       nativeTitle: title,
       url: candidateUrl || row.sourceUrl,
+      canonical_url,
       domain,
       date: row.date,
       dateAdded: row.dateAdded,
@@ -698,6 +774,12 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       domain_bucket,
       is_strategic,
       dedup_key,
+      editorial_dedup_key: [
+        row.countryCode || 'UNK',
+        domain || 'nodomain',
+        String(row.dateAdded || '').slice(0, 10),
+        normalizeTitleForDedup(title),
+      ].join('|'),
       keep: true,
       dataSource: 'gdelt-files',
       actor1: row.actor1 || null,
@@ -742,34 +824,33 @@ function cutoffTimestamp(hours) {
 }
 
 function mergeSnapshot(existingSnapshot, freshEvents) {
-  const byKey = new Map();
-  for (const event of existingSnapshot || []) {
-    const key = event.dedup_key || event.url || `id:${event.id}`;
-    byKey.set(key, event);
-  }
-  for (const event of freshEvents) {
-    const key = event.dedup_key || event.url || `id:${event.id}`;
-    const existing = byKey.get(key);
-    const shouldReplace =
-      !existing ||
-      Number(event.score || 0) > Number(existing.score || 0) ||
-      (
-        Number(event.score || 0) === Number(existing.score || 0) &&
-        (
-          Number(event.numSources || 0) > Number(existing.numSources || 0) ||
-          (Number(event.numSources || 0) === Number(existing.numSources || 0) && Number(event.numArticles || 0) > Number(existing.numArticles || 0)) ||
-          (Number(event.numSources || 0) === Number(existing.numSources || 0) && Number(event.numArticles || 0) === Number(existing.numArticles || 0) && Number(event.mentionCount || 0) > Number(existing.mentionCount || 0))
-        )
-      );
-    if (shouldReplace) {
-      byKey.set(key, event);
-    }
+  const minTs = cutoffTimestamp(SNAPSHOT_LOOKBACK_HOURS);
+  const candidates = [...(existingSnapshot || []), ...(freshEvents || [])]
+    .filter(event => String(event.dateAdded || event.batchTs || '').localeCompare(minTs) >= 0)
+    .sort((a, b) =>
+      Number(b.score || 0) - Number(a.score || 0) ||
+      Number(b.numSources || 0) - Number(a.numSources || 0) ||
+      Number(b.numArticles || 0) - Number(a.numArticles || 0) ||
+      Number(b.mentionCount || 0) - Number(a.mentionCount || 0)
+    );
+
+  const dedupKeys = new Set();
+  const urlKeys = new Set();
+  const editorialKeys = new Set();
+  const kept = [];
+
+  for (const event of candidates) {
+    const dedupKey = event.dedup_key || `id:${event.id}`;
+    const urlKey = event.canonical_url || canonicalUrl(event.url || '');
+    const editorialKey = event.editorial_dedup_key || editorialDedupKey(event);
+    if (dedupKeys.has(dedupKey) || (urlKey && urlKeys.has(urlKey)) || editorialKeys.has(editorialKey)) continue;
+    dedupKeys.add(dedupKey);
+    if (urlKey) urlKeys.add(urlKey);
+    editorialKeys.add(editorialKey);
+    kept.push(event);
   }
 
-  const minTs = cutoffTimestamp(SNAPSHOT_LOOKBACK_HOURS);
-  return [...byKey.values()]
-    .filter(event => String(event.dateAdded || event.batchTs || '').localeCompare(minTs) >= 0)
-    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+  return kept;
 }
 
 function selectDiverseEvents(events) {
