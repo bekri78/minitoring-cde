@@ -276,6 +276,11 @@ export function WorldMap({
       const catLabel  = getCategoryLabel(p.category || 'incident');
       const domain    = escapeHtml(p.domain || '');
       const dateStr   = escapeHtml(formatDate(p.date));
+      const osintD    = (p.osintDomain || '').toLowerCase();
+      const domainBadge = osintD === 'aviation' ? { icon: '✈', label: 'AIR', color: '#00bfff' }
+                        : osintD === 'maritime' ? { icon: '⚓', label: 'SEA', color: '#00cca3' }
+                        : osintD === 'spatial'  ? { icon: '🚀', label: 'SPACE', color: '#b580ff' }
+                        : null;
       const rawTitle  = p.title || p.domain || '';
       const rawTitleFr = p.titleFr || '';
       const popId = `ev-${p.id || Math.random().toString(36).slice(2)}`;
@@ -331,6 +336,7 @@ export function WorldMap({
             })()"
             style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#00d4ff;border:1px solid #1a4a5a;cursor:pointer;font-family:inherit;flex-shrink:0;">FR</button>
           <span style="padding:1px 6px;font-size:9px;background:${catColor}22;color:${catColor};border:1px solid ${catColor}55;">${catLabel}</span>
+          ${domainBadge ? `<span style="padding:1px 6px;font-size:9px;background:${domainBadge.color}18;color:${domainBadge.color};border:1px solid ${domainBadge.color}55;">${domainBadge.icon} ${domainBadge.label}</span>` : ''}
           <span style="font-size:9px;color:#4a6a7a;margin-left:auto;white-space:nowrap;">${dateStr}</span>
         </div>
         <p id="${popId}-title" style="margin:0 0 8px 0;font-size:11px;line-height:1.5;color:#e8f4ff;">${escapeHtml(rawTitle)}</p>
