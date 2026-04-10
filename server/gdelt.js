@@ -133,24 +133,28 @@ const DOMAIN_MIN_MARITIME = Number(process.env.GDELT_MARITIME_MIN || 180);
 // Détection de domaine sur le texte brut GDELT (avant enrichissement IA)
 // Volontairement large : on veut des faux positifs plutôt que des manques.
 const DOMAIN_KEYWORDS_SPATIAL = [
-  'satellite', 'orbital', 'asat', 'anti-satellite', 'space force', 'space command',
-  'rocket launch', 'launch vehicle', 'reentry', 'deorbit', 'gps jamming', 'gps spoofing',
-  'gnss jamming', 'gnss spoofing', 'space weapon', 'fractional orbital', 'fobs',
-  'reconnaissance satellite', 'spy satellite', 'military satellite', 'classified payload',
-  'x-37', 'spaceplane', 'space domain', 'hypersonic missile',
-  // ── Ajouts : synonymes et vocabulaire élargi ──
-  'space debris', 'space junk', 'cosmos', 'cosmodrome', 'baikonur', 'vandenberg',
-  'cape canaveral', 'jiuquan', 'xichang', 'wenchang', 'plesetsk', 'vostochny',
-  'icbm', 'slbm', 'ballistic missile', 'missile test', 'missile launch',
-  'space surveillance', 'space situational awareness', 'ssa',
+  // Satellites & anti-satellite
+  'satellite', 'orbital', 'asat', 'anti-satellite',
+  'spy satellite', 'reconnaissance satellite', 'military satellite', 'classified payload',
+  // Commandements spatiaux
+  'space force', 'space command', 'space domain', 'space weapon', 'space laser',
+  // Lancements & rentrées
+  'rocket launch', 'launch vehicle', 'reentry', 're-entry', 'deorbit',
+  'spaceplane', 'x-37', 'fractional orbital', 'fobs',
+  // Brouillage GPS/GNSS (spécifique uniquement)
+  'gps jamming', 'gps spoofing', 'gnss jamming', 'gnss spoofing',
+  // Débris & surveillance spatiale
+  'space debris', 'space junk', 'space surveillance', 'space situational awareness',
+  // Cosmodromes / bases de lancement
+  'cosmodrome', 'baikonur', 'plesetsk', 'vostochny',
+  'cape canaveral', 'vandenberg', 'jiuquan', 'xichang', 'wenchang',
+  // Constellations & orbites (termes précis uniquement)
   'starlink', 'oneweb', 'kuiper', 'leo constellation',
-  'space race', 'moon mission', 'lunar', 'mars mission',
-  'anti-missile', 'missile defense', 'missile defence', 'thaad', 'aegis ashore',
-  'kinetic kill', 'directed energy weapon', 'space laser',
-  'electromagnetic pulse', 'emp', 'jamming', 'spoofing',
-  'orbit', 'geostationary', 'geosynchronous', 'low earth orbit',
-  'medium earth orbit', 'polar orbit', 'sun-synchronous',
-  'space station', 'tiangong', 'iss',
+  'geostationary', 'geosynchronous', 'low earth orbit',
+  'sun-synchronous', 'polar orbit',
+  // Programmes spatiaux
+  'space race', 'moon mission', 'lunar mission', 'mars mission',
+  'space station', 'tiangong',
 ];
 
 const DOMAIN_KEYWORDS_AVIATION = [
