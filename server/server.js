@@ -5,8 +5,6 @@ const cors    = require('cors');
 const cron    = require('node-cron');
 const fs      = require('fs');
 const path    = require('path');
-const { fetchTodayEvents, fetchAnalysisDistribution } = require('./gdelt');
-const { enrichEvents }          = require('./enrich');
 const { fetchAll: fetchLaunches, getCache: getLaunchCache } = require('./launches');
 const { fetchDecay, getCache: getDecayCache, fetchTip, getTipCache } = require('./spacetrack');
 const { fetchQuakes, getCache: getQuakeCache }                       = require('./earthquakes');
@@ -68,8 +66,27 @@ function loadFromDisk(date) {
   return null;
 }
 
+async function fetchTodayEvents() {
+  await fetchWorldEvents();
+  const worldFeed = getWorldEventsCache();
+  const events = Array.isArray(worldFeed.events) ? worldFeed.events : [];
+  if (!events.length) {
+    throw new Error('world_events_empty');
+  }
+  console.log(`[events-source] using world feed instead of BigQuery — ${events.length} events`);
+  return events;
+}
+
+async function enrichEvents(events) {
+  return Array.isArray(events) ? events : [];
+}
+
+async function fetchAnalysisDistribution() {
+  throw new Error('analysis_disabled_bigquery_removed');
+}
+
 // ── Refresh GDELT ─────────────────────────────────────────────────────────
-const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h — réduit les appels OpenAI de ~480 à ~52/jour
+const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1h — plus de BigQuery, on peut rafraîchir plus souvent
 
 async function refresh(force = false) {
   if (isRefreshing) {
@@ -198,14 +215,8 @@ app.get('/launches', (req, res) => {
 });
 
 // ── Historique — résumé par jour ──────────────────────────────────────────
-app.get('/analysis', async (req, res) => {
-  try {
-    const rows = await fetchAnalysisDistribution();
-    res.json({ rows, count: rows.length });
-  } catch (err) {
-    console.error('[analysis]', err.message);
-    res.status(500).json({ error: 'analysis_failed' });
-  }
+app.get('/analysis', async (_req, res) => {
+  res.status(410).json({ error: 'analysis_disabled_bigquery_removed' });
 });
 
 app.get('/history', (req, res) => {
@@ -579,13 +590,7 @@ publicRouter.get('/signals', (_req, res) => {
 
 // ── Analyse / calibrage (distribution BigQuery brute) ─────────────────────
 publicRouter.get('/analysis', async (_req, res) => {
-  try {
-    const rows = await fetchAnalysisDistribution();
-    res.json(publicEnvelope('analysis', rows));
-  } catch (err) {
-    console.error('[analysis]', err.message);
-    res.status(500).json({ error: 'analysis_failed' });
-  }
+  res.status(410).json({ error: 'analysis_disabled_bigquery_removed' });
 });
 
 // ── Historique journalier ─────────────────────────────────────────────────
