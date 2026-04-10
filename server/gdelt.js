@@ -680,10 +680,16 @@ const RECENT_EVENTS_SQL = `
       (e.EventCode = '155')
       OR
       -- Couche 6 : Domaines OSINT spécialisés — seuil Goldstein relâché
-      -- Capture aviation, spatial, maritime même avec Goldstein modéré
-      (e.GoldsteinScale <= -0.5 AND REGEXP_CONTAINS(
+      -- 6a : termes dans l'URL (couverture large)
+      OR (e.GoldsteinScale <= -0.5 AND REGEXP_CONTAINS(
         LOWER(e.SOURCEURL),
         r'satellite|orbital|asat|space.force|rocket.launch|gps.jam|hypersonic|icbm|slbm|reentry|missile.test|spaceplane|space.weapon|airstrike|fighter.jet|air.force|drone|uav|intercept|airspace|air.defense|bomber|sortie|no.fly|scramble|warplane|reconnaissance|surveillance.flight|naval|warship|destroyer|frigate|submarine|aircraft.carrier|fleet|strait|blockade|maritime|coast.guard|military.exercis|troop.deploy|naval.exercis'
+      ))
+      -- 6b : termes spatiaux/militaires dans le TITRE (page_title du GKG)
+      -- Seuil Goldstein encore plus relâché car les titres sont fiables
+      OR (e.GoldsteinScale <= 0 AND REGEXP_CONTAINS(
+        LOWER(IFNULL(REGEXP_EXTRACT(g.Extras, r'<PAGE_TITLE>([^<]{4,300})</PAGE_TITLE>'), '')),
+        r'satellite|orbital launch|rocket launch|space launch|icbm|hypersonic missile|hypersonic glide|ballistic missile|missile test|anti-satellite|asat|gps jamming|gnss jamming|space station|space force|space command|spaceplane|reentry vehicle|cosmodrome|spacex|starlink|roscosmos|nasa launch|esa launch|isro launch|jaxa launch|airstrike|air strike|fighter jet|warplane|combat drone|drone attack|drone strike|uav strike|bomber|military aircraft|air defense|missile defense|iron dome|patriot missile|s-400|no-fly zone|warship|naval battle|submarine|aircraft carrier|naval blockade|maritime incident|coast guard fire'
       ))
     )
   ORDER BY bq_signal_score DESC
