@@ -14,6 +14,7 @@ import type { NavalEvent } from '../types/maritime';
 import { buildGeoJSON } from '../utils/geo';
 import { getCategoryColor, getCategoryLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
+import { useFilterStore } from '../store/filterStore';
 import helicopterSvgRaw from '../assets/helicoptere.svg?raw';
 
 const RAILWAY_URL = 'https://minitoring-cde-production.up.railway.app';
@@ -710,6 +711,57 @@ export function WorldMap({
       layer.addLayer(marker);
     });
   }, [navalEvents]);
+
+  // ── Toggle layer visibility based on domain view ──────────────────────────
+  const { domainView } = useFilterStore();
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const show = (layer: L.LayerGroup | L.MarkerClusterGroup | null) => {
+      if (layer && !map.hasLayer(layer)) map.addLayer(layer);
+    };
+    const hide = (layer: L.LayerGroup | L.MarkerClusterGroup | null) => {
+      if (layer && map.hasLayer(layer)) map.removeLayer(layer);
+    };
+
+    // Events GDELT (OSINT) cluster
+    const evCluster  = eventsClusterRef.current;
+    // Air
+    const airLayer   = aircraftLayerRef.current;
+    // Sea
+    const seaLayer   = shipsLayerRef.current;
+    const navLayer   = maritimeLayerRef.current;
+    // Space / other (always visible in all, osint)
+    const padLayer   = padsLayerRef.current;
+    const decLayer   = decayLayerRef.current;
+    const tipLayer   = tipLayerRef.current;
+    const qLayer     = quakesLayerRef.current;
+
+    switch (domainView) {
+      case 'air':
+        show(airLayer);
+        hide(evCluster); hide(seaLayer); hide(navLayer);
+        hide(padLayer); hide(decLayer); hide(tipLayer); hide(qLayer);
+        break;
+      case 'sea':
+        show(seaLayer); show(navLayer);
+        hide(evCluster); hide(airLayer);
+        hide(padLayer); hide(decLayer); hide(tipLayer); hide(qLayer);
+        break;
+      case 'osint':
+        show(evCluster); show(qLayer);
+        show(padLayer); show(decLayer); show(tipLayer);
+        hide(airLayer); hide(seaLayer); hide(navLayer);
+        break;
+      case 'all':
+      default:
+        show(evCluster); show(airLayer); show(seaLayer); show(navLayer);
+        show(padLayer); show(decLayer); show(tipLayer); show(qLayer);
+        break;
+    }
+  }, [domainView]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (

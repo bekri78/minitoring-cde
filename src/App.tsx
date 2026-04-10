@@ -10,6 +10,7 @@ import { useTracks } from './hooks/useTracks';
 import { useNavalActivity }     from './hooks/useNavalActivity';
 import { useHistory }      from './hooks/useHistory';
 import { useFilterStore } from './store/filterStore';
+import type { DomainView } from './store/filterStore';
 import { Header }         from './components/Header';
 import { WorldMap }       from './components/WorldMap';
 import { FilterPanel }    from './components/FilterPanel';
@@ -32,6 +33,7 @@ export default function App() {
   const { data: navalData }    = useNavalActivity();
   const { data: historyData } = useHistory();
   const { severity, categories, regions } = useFilterStore();
+  const domainView = useFilterStore((s): DomainView => s.domainView);
 
   const [nextRefresh,     setNextRefresh]     = useState('—');
   const [nextRefreshTime, setNextRefreshTime] = useState(0);
@@ -66,6 +68,16 @@ export default function App() {
     return () => clearInterval(id);
   }, [nextRefreshTime]);
 
+  // Visible count depends on domain view
+  const visibleCount = useMemo(() => {
+    switch (domainView) {
+      case 'air':  return airTracks.length;
+      case 'sea':  return seaTracks.length + navalEvents.length;
+      case 'osint': return filteredEvents.length;
+      default:     return filteredEvents.length + airTracks.length + seaTracks.length + navalEvents.length;
+    }
+  }, [domainView, filteredEvents, airTracks, seaTracks, navalEvents]);
+
   const handleRefresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['events'] });
   }, [queryClient]);
@@ -73,7 +85,7 @@ export default function App() {
   return (
     <div style={{ height: '100vh', display: 'grid', gridTemplateRows: '44px 1fr' }}>
       <Header
-        eventCount={filteredEvents.length}
+        eventCount={visibleCount}
         status={gdeltStatus === 'pending' ? 'loading' : gdeltStatus === 'error' ? 'error' : 'success'}
         nextRefresh={nextRefresh}
         onRefresh={handleRefresh}

@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useFilterStore } from '../store/filterStore';
+import type { DomainView } from '../store/filterStore';
 
 interface Props {
   eventCount: number;
@@ -21,10 +22,17 @@ const btnStyle: CSSProperties = {
 };
 
 export function Header({ eventCount, status, nextRefresh, onRefresh }: Props) {
-  const { isOpen, togglePanel } = useFilterStore();
+  const { isOpen, togglePanel, domainView, setDomainView } = useFilterStore();
 
   const statusText  = status === 'loading' ? 'FETCHING' : status === 'error' ? 'OFFLINE' : 'LIVE';
   const dotColor    = status === 'error' ? '#ff4444' : '#00ff88';
+
+  const domainBtns: { key: DomainView; label: string; icon: string }[] = [
+    { key: 'all',  label: 'ALL',  icon: '◉' },
+    { key: 'osint', label: 'OSINT', icon: '🌐' },
+    { key: 'air',  label: 'AIR',  icon: '✈' },
+    { key: 'sea',  label: 'SEA',  icon: '⚓' },
+  ];
 
   return (
     <header style={{
@@ -57,6 +65,29 @@ export function Header({ eventCount, status, nextRefresh, onRefresh }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontFamily: "'Share Tech Mono', monospace", fontSize: '11px' }}>
         <span style={{ color: '#4a6a7a' }}>NEXT</span>
         <span style={{ color: '#4a6a7a', fontSize: '10px' }}>{nextRefresh}</span>
+      </div>
+
+      {/* Domain view filter */}
+      <div style={{ display: 'flex', gap: '4px', padding: '0 8px', borderLeft: '1px solid #1a2a3a', borderRight: '1px solid #1a2a3a' }}>
+        {domainBtns.map(d => {
+          const active = domainView === d.key;
+          return (
+            <button
+              key={d.key}
+              onClick={() => setDomainView(d.key)}
+              style={{
+                ...btnStyle,
+                borderColor: active ? '#00d4ff' : '#1a2a3a',
+                color:       active ? '#00d4ff' : '#4a6a7a',
+                background:  active ? 'rgba(0,212,255,0.08)' : 'transparent',
+                padding:     '4px 10px',
+                fontSize:    '10px',
+              }}
+            >
+              {d.icon} {d.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Buttons */}
