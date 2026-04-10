@@ -869,6 +869,71 @@ function selectDiverseEvents(events) {
   return selected.sort((a, b) => b.score - a.score);
 }
 
+// ── Géo-correction : titre → pays réel ────────────────────────────────────
+// Utilisé quand geo_type === '1' (centroïde pays, basse confiance GDELT)
+// et que le titre mentionne explicitement un pays différent.
+const TITLE_COUNTRY_MAP = [
+  // Moyen-Orient
+  { patterns: ['iran', 'tehran', 'iranian'], lat: 32.4, lon: 53.7, code: 'IR' },
+  { patterns: ['iraq', 'baghdad', 'iraqi'], lat: 33.2, lon: 43.7, code: 'IZ' },
+  { patterns: ['syria', 'syrian', 'damascus'], lat: 35.0, lon: 38.5, code: 'SY' },
+  { patterns: ['yemen', 'yemeni', 'sanaa', 'houthi'], lat: 15.6, lon: 48.5, code: 'YM' },
+  { patterns: ['lebanon', 'lebanese', 'beirut', 'hezbollah'], lat: 33.9, lon: 35.9, code: 'LE' },
+  { patterns: ['israel', 'israeli', 'tel aviv', 'jerusalem', 'gaza'], lat: 31.5, lon: 34.8, code: 'IS' },
+  { patterns: ['saudi arabia', 'saudi', 'riyadh'], lat: 24.7, lon: 45.1, code: 'SA' },
+  { patterns: ['emirates', 'uae', 'abu dhabi', 'dubai'], lat: 24.5, lon: 54.4, code: 'AE' },
+  // Asie
+  { patterns: ['china', 'chinese', 'beijing', 'shanghai'], lat: 35.9, lon: 104.2, code: 'CH' },
+  { patterns: ['taiwan', 'taiwanese', 'taipei'], lat: 23.7, lon: 121.0, code: 'TW' },
+  { patterns: ['north korea', 'pyongyang', 'dprk'], lat: 40.3, lon: 127.5, code: 'KN' },
+  { patterns: ['south korea', 'seoul'], lat: 36.5, lon: 127.8, code: 'KS' },
+  { patterns: ['japan', 'japanese', 'tokyo'], lat: 36.2, lon: 138.3, code: 'JA' },
+  { patterns: ['india', 'indian', 'new delhi', 'mumbai'], lat: 22.0, lon: 79.0, code: 'IN' },
+  { patterns: ['pakistan', 'pakistani', 'islamabad', 'karachi'], lat: 30.4, lon: 69.3, code: 'PK' },
+  { patterns: ['afghanistan', 'afghan', 'kabul', 'taliban'], lat: 33.9, lon: 67.7, code: 'AF' },
+  { patterns: ['thailand', 'thai', 'bangkok'], lat: 15.9, lon: 100.9, code: 'TH' },
+  { patterns: ['philippines', 'philippine', 'manila'], lat: 12.9, lon: 121.8, code: 'RP' },
+  { patterns: ['myanmar', 'burmese', 'burma'], lat: 21.9, lon: 95.9, code: 'BM' },
+  // Europe / Ex-URSS
+  { patterns: ['ukraine', 'ukrainian', 'kyiv', 'kiev'], lat: 48.4, lon: 31.2, code: 'UP' },
+  { patterns: ['russia', 'russian', 'moscow', 'kremlin'], lat: 61.5, lon: 105.3, code: 'RS' },
+  // Afrique
+  { patterns: ['nigeria', 'nigerian', 'abuja', 'lagos'], lat: 9.1, lon: 8.7, code: 'NI' },
+  { patterns: ['sudan', 'sudanese', 'khartoum'], lat: 12.9, lon: 30.2, code: 'SU' },
+  { patterns: ['libya', 'libyan', 'tripoli'], lat: 26.3, lon: 17.2, code: 'LY' },
+  { patterns: ['somalia', 'somali', 'mogadishu'], lat: 5.2, lon: 46.2, code: 'SO' },
+  { patterns: ['ethiopia', 'ethiopian', 'addis ababa'], lat: 9.1, lon: 40.5, code: 'ET' },
+  { patterns: ['congo', 'congolese', 'kinshasa'], lat: -4.0, lon: 21.8, code: 'CG' },
+  // Amériques
+  { patterns: ['venezuela', 'venezuelan', 'caracas', 'maduro'], lat: 6.4, lon: -66.6, code: 'VE' },
+  { patterns: ['colombia', 'colombian', 'bogota'], lat: 4.6, lon: -74.3, code: 'CO' },
+  { patterns: ['mexico', 'mexican', 'mexico city'], lat: 23.6, lon: -102.6, code: 'MX' },
+  { patterns: ['cuba', 'cuban', 'havana'], lat: 21.5, lon: -77.8, code: 'CU' },
+];
+
+/**
+ * Si geo_type=1 (centroïde pays, basse confiance), scanne le titre pour
+ * des pays mentionnés différents du country_code GDELT.
+ * - 1 seul pays étranger trouvé → on corrige les coordonnées
+ * - 2+ pays trouvés → ambigu, on ne corrige pas (on garde GDELT)
+ * - 0 pays étranger → pas de correction
+ */
+function geoCorrectFromTitle(title, geoType, currentCode) {
+  if (geoType !== '1') return null; // geo_type précis → pas de correction
+  const lower = (title || '').toLowerCase();
+  const found = [];
+  for (const entry of TITLE_COUNTRY_MAP) {
+    if (entry.code === currentCode) continue; // même pays que GDELT → ignorer
+    const matched = entry.patterns.some(p => lower.includes(p));
+    if (matched) found.push(entry);
+  }
+  // Correction seulement si exactement 1 pays étranger est détecté
+  if (found.length === 1) {
+    return { lat: found[0].lat, lon: found[0].lon, country: found[0].patterns[0], code: found[0].code };
+  }
+  return null;
+}
+
 function rowToEvent(row, hotspotIndex) {
   const url = (row.source_url || '').trim();
   if (!url) return null;
@@ -921,6 +986,16 @@ function rowToEvent(row, hotspotIndex) {
               || titleFromUrl(url)
               || buildFallbackTitle(row);
 
+  // ── Géo-correction titre/pays ───────────────────────────────────────────
+  // Si geo_type=1 (centroïde pays, basse confiance) et le titre mentionne
+  // un pays différent → on corrige les coordonnées vers le bon pays.
+  const countryCode = (row.country_code || '').trim();
+  const geoFix = geoCorrectFromTitle(title, geoType, countryCode);
+  if (geoFix) {
+    lat = geoFix.lat + (Math.random() - 0.5) * 4;
+    lon = geoFix.lon + (Math.random() - 0.5) * 4;
+  }
+
   if (isNoiseEvent(title, url, domain)) return null;
 
   const text     = `${title} ${url} ${row.actor1 || ''} ${row.actor2 || ''} ${getSubEventType(eventCode)}`;
@@ -939,8 +1014,8 @@ function rowToEvent(row, hotspotIndex) {
 
   // Bonus pour zones stratégiques asiatiques — compense les titres non-latins
   // qui ne matchent pas les keywords anglais de scoreEvent()
-  const countryCode = (row.country_code || '').trim();
-  const asiaBonus   = ['CH','KN','KS','TW','VM','AF','PK'].includes(countryCode) ? 30 : 0;
+  const finalCountryCode = geoFix ? geoFix.code : countryCode;
+  const asiaBonus   = ['CH','KN','KS','TW','VM','AF','PK'].includes(finalCountryCode) ? 30 : 0;
   const finalScore   = base + bqBonus + hotspotBonus + asiaBonus;
 
   return {
@@ -949,8 +1024,8 @@ function rowToEvent(row, hotspotIndex) {
     url,
     domain,
     date:         String(row.date || ''),
-    country:      row.location || '',
-    countryCode:  (row.country_code || '').trim(),
+    country:      geoFix ? geoFix.country : (row.location || ''),
+    countryCode:  finalCountryCode,
     rootCode,
     eventCode,
     actor1:       row.actor1 || null,
@@ -964,11 +1039,148 @@ function rowToEvent(row, hotspotIndex) {
     category,
     score:        finalScore,
     osintDomain:  osintDomain || null,
+    geoType,
     dedup_key:    row.dedup_key || null,
     dataSource:   'gdelt-bq',
   };
 }
 
+
+// ── AI Geo-correction ─────────────────────────────────────────────────────
+// Utilise GPT-4o-mini ou Mistral pour corriger le pays des events geo_type=1
+// (centroïde pays GDELT basse confiance) en analysant le titre.
+const GEO_AI_PROVIDER = process.env.GEO_AI_PROVIDER || 'openai';   // 'openai' | 'mistral'
+const GEO_AI_BATCH    = 30;
+const GEO_AI_KEY_OAI  = process.env.OPENAI_API_KEY || process.env.chatgpt;
+const GEO_AI_KEY_MIS  = process.env.MISTRAL_API_KEY;
+const GEO_AI_MODEL_OAI = process.env.GEO_AI_MODEL || 'gpt-4o-mini';
+const GEO_AI_MODEL_MIS = process.env.GEO_AI_MODEL_MISTRAL || 'mistral-small-latest';
+
+function buildGeoPrompt(batch) {
+  return `You are a geolocation analyst. For each news headline below, determine the PRIMARY country the article is about.
+Return ONLY a valid JSON array with one object per input:
+{ "id": "same id", "country": "Country Name", "lat": 0.0, "lon": 0.0, "corrected": true/false }
+- "corrected": true if the title clearly refers to a DIFFERENT country than "current_country"
+- "corrected": false if the current country is already correct or uncertain
+- lat/lon should be approximate center of the identified country
+- If the title mentions 2+ countries equally, set corrected=false (ambiguous)
+
+Events:
+${batch.map(e => JSON.stringify({
+  id: e.id,
+  title: e.title,
+  current_country: e.country,
+  current_countryCode: e.countryCode,
+})).join('\n')}`;
+}
+
+async function callGeoAI(prompt, provider) {
+  const isOpenAI = provider === 'openai';
+  const apiKey = isOpenAI ? GEO_AI_KEY_OAI : GEO_AI_KEY_MIS;
+  const model  = isOpenAI ? GEO_AI_MODEL_OAI : GEO_AI_MODEL_MIS;
+  const url    = isOpenAI
+    ? 'https://api.openai.com/v1/chat/completions'
+    : 'https://api.mistral.ai/v1/chat/completions';
+
+  if (!apiKey) return [];
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'You are a precise geolocation analyst. Return only valid JSON.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0,
+        ...(isOpenAI ? { response_format: { type: 'json_object' } } : {}),
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    console.warn(`[geo-ai] ${provider} HTTP ${resp.status}: ${body.slice(0, 200)}`);
+    return [];
+  }
+
+  const data = await resp.json();
+  const text = data.choices?.[0]?.message?.content || '';
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : (parsed.events || parsed.results || []);
+  } catch (_) {
+    const match = text.match(/\[[\s\S]*\]/);
+    if (match) return JSON.parse(match[0]);
+    return [];
+  }
+}
+
+async function aiGeoCorrectEvents(events) {
+  const provider = GEO_AI_PROVIDER;
+  const apiKey = provider === 'openai' ? GEO_AI_KEY_OAI : GEO_AI_KEY_MIS;
+  if (!apiKey) {
+    console.log(`[geo-ai] skipped: no API key for ${provider}`);
+    return events;
+  }
+
+  // Filtrer seulement les events geo_type=1 non déjà corrigés par TITLE_COUNTRY_MAP
+  const candidates = events.filter(e => e.geoType === '1');
+  if (!candidates.length) {
+    console.log('[geo-ai] skipped: no geo_type=1 events');
+    return events;
+  }
+
+  console.log(`[geo-ai] correcting ${candidates.length} geo_type=1 events via ${provider}...`);
+  const corrections = new Map();
+  let corrected = 0;
+
+  for (let i = 0; i < candidates.length; i += GEO_AI_BATCH) {
+    const batch = candidates.slice(i, i + GEO_AI_BATCH);
+    try {
+      const results = await callGeoAI(buildGeoPrompt(batch), provider);
+      for (const r of results) {
+        if (r.corrected && r.lat && r.lon && r.country) {
+          corrections.set(r.id, r);
+          corrected++;
+        }
+      }
+      console.log(`[geo-ai] batch ${Math.floor(i / GEO_AI_BATCH) + 1}: ${results.length} results`);
+    } catch (err) {
+      console.warn(`[geo-ai] batch failed: ${err.message}`);
+    }
+    // Rate-limit entre batches
+    if (i + GEO_AI_BATCH < candidates.length) {
+      await new Promise(r => setTimeout(r, 300));
+    }
+  }
+
+  // Appliquer les corrections
+  const out = events.map(e => {
+    const fix = corrections.get(e.id);
+    if (!fix) return e;
+    return {
+      ...e,
+      lat: fix.lat + (Math.random() - 0.5) * 4,
+      lon: fix.lon + (Math.random() - 0.5) * 4,
+      country: fix.country,
+    };
+  });
+
+  console.log(`[geo-ai] done: ${corrected}/${candidates.length} events geo-corrected`);
+  return out;
+}
 
 // ── Main fetch function ───────────────────────────────────────────────────
 async function fetchTodayEvents() {
@@ -1050,10 +1262,13 @@ async function fetchTodayEvents() {
   // ── Simulation des quotas ───────────────────────────────────────────────
   logQuotaSimulation(events);
 
-  const strategicCount = events.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)).length;
-  console.log(`[gdelt-bq] done — ${events.length} events (${strategicCount} strategic)`);
+  // ── Phase AI : géo-correction par IA ────────────────────────────────────
+  const geoFixed = await aiGeoCorrectEvents(events);
 
-  return events;
+  const strategicCount = geoFixed.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)).length;
+  console.log(`[gdelt-bq] done — ${geoFixed.length} events (${strategicCount} strategic)`);
+
+  return geoFixed;
 }
 
 // ── Requête A — analyse/calibrage (distribution GDELT brute) ──────────────
