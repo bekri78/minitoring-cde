@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const unzipper = require('unzipper');
-const { normalizeEventsWithGemini } = require('./gemini-normalizer');
+const { normalizeEventsWithMistral } = require('./gemini-normalizer');
 
 const MASTERFILELIST_URL = process.env.GDELT_MASTERFILELIST_URL || 'http://data.gdeltproject.org/gdeltv2/masterfilelist.txt';
 const MASTERFILELIST_TRANSLATION_URL = process.env.GDELT_MASTERFILELIST_TRANSLATION_URL || 'http://data.gdeltproject.org/gdeltv2/masterfilelist-translation.txt';
@@ -1112,7 +1112,7 @@ async function fetchTodayEvents(options = {}) {
   console.log(`[gdelt-files] snapshot ready — ${snapshot.length} events`);
   const selected = selectDiverseEvents(snapshot);
   logCalibration(snapshot, selected);
-  const normalized = await normalizeEventsWithGemini(selected);
+  const normalized = await normalizeEventsWithMistral(selected);
   return normalized;
 }
 

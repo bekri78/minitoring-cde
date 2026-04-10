@@ -363,6 +363,98 @@ async function translateTitleWithMistral(event) {
   };
 }
 
+async function normalizeBatchWithMistral(events) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+  let resp;
+  try {
+    resp = await fetch(MISTRAL_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${MISTRAL_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: MISTRAL_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an OSINT geopolitical analyst. Return ONLY a valid JSON array, no prose.',
+          },
+          {
+            role: 'user',
+            content: buildPrompt(events),
+          },
+        ],
+        temperature: 0,
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    const err = new Error(`Mistral HTTP_${resp.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
+    err.status = resp.status >= 500 ? 502 : 503;
+    throw err;
+  }
+
+  const data = await resp.json();
+  const content = data.choices?.[0]?.message?.content;
+  const text = Array.isArray(content)
+    ? content.map(part => part?.text || part?.content || '').join('\n')
+    : String(content || '');
+  return extractJsonArray(text);
+}
+
+async function normalizeEventsWithMistral(events) {
+  if (!MISTRAL_API_KEY) {
+    console.log('[mistral] skipped: MISTRAL_API_KEY missing');
+    return events;
+  }
+
+  const candidates = events.filter(needsGemini).slice(0, GEMINI_LIMIT);
+  if (!candidates.length) {
+    console.log('[mistral] skipped: no ambiguous titles');
+    return events;
+  }
+
+  const byId = new Map();
+  const rejectedIds = new Set();
+  let rejected = 0;
+
+  for (let i = 0; i < candidates.length; i += GEMINI_BATCH) {
+    const batch = candidates.slice(i, i + GEMINI_BATCH);
+    try {
+      const results = await normalizeBatchWithMistral(batch);
+      for (const result of results) {
+        const original = batch.find(e => e.id === result.id);
+        if (!original) continue;
+        const merged = mergeResult(original, result);
+        if (merged) byId.set(original.id, merged);
+        else {
+          rejectedIds.add(original.id);
+          rejected++;
+        }
+      }
+      console.log(`[mistral] normalized batch ${Math.floor(i / GEMINI_BATCH) + 1}: ${results.length}/${batch.length}`);
+    } catch (err) {
+      console.warn('[mistral] batch failed:', err.message);
+    }
+
+    if (i + GEMINI_BATCH < candidates.length) await sleep(350);
+  }
+
+  const normalized = events
+    .map(event => byId.get(event.id) || event)
+    .filter(event => !rejectedIds.has(event.id));
+
+  console.log(`[mistral] done: ${byId.size} normalized, ${rejected} rejected, ${candidates.length} checked`);
+  return normalized;
+}
+
 async function normalizeEventsWithGemini(events) {
   if (!GEMINI_API_KEY) {
     console.log('[gemini] skipped: GEMINI_API_KEY missing');
@@ -483,4 +575,4 @@ async function normalizeTitleWithGemini(event) {
   };
 }
 
-module.exports = { normalizeEventsWithGemini, normalizeTitleWithGemini };
+module.exports = { normalizeEventsWithGemini, normalizeEventsWithMistral, normalizeTitleWithGemini };
