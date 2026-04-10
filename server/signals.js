@@ -66,6 +66,78 @@ function makePool(n) {
 }
 const pool = makePool(CONCURRENCY);
 
+function stripCodeFences(text) {
+  return String(text || '')
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+}
+
+function extractBalancedJsonObject(text) {
+  const cleaned = stripCodeFences(text);
+  const start = cleaned.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < cleaned.length; i += 1) {
+    const ch = cleaned[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return cleaned.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseSignalResponse(text) {
+  const jsonText = extractBalancedJsonObject(text);
+  if (!jsonText) throw new Error('no JSON object in response');
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (err) {
+    throw new Error(`invalid JSON: ${err.message}`);
+  }
+
+  return {
+    location_name: String(parsed.location_name || '').trim(),
+    summary: String(parsed.summary || '').trim(),
+    key_points: Array.isArray(parsed.key_points)
+      ? parsed.key_points
+        .slice(0, 5)
+        .map(item => ({
+          point: String(item?.point || '').trim(),
+          category: String(item?.category || 'conflict').trim().toLowerCase(),
+        }))
+        .filter(item => item.point)
+      : [],
+  };
+}
+
 // ── Appel Groq pour un cluster ─────────────────────────────────────────────
 async function summarizeCluster(cluster) {
   // Prendre les 10 meilleurs events du cluster (par score)
@@ -121,19 +193,7 @@ Rules: max 5 key_points, English only, factual and concise, no speculation.`;
 
     const data = await resp.json();
     const text = data.choices?.[0]?.message?.content || '';
-
-    // Extraire le JSON de la réponse (tolérant aux préfixes texte)
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error('no JSON in response');
-
-    // Parser avec tolérance aux JSON tronqués
-    try {
-      return JSON.parse(match[0]);
-    } catch {
-      // Essayer de réparer le JSON tronqué (fermer les accolades manquantes)
-      const repaired = match[0].replace(/,\s*$/, '') + '}}';
-      return JSON.parse(repaired);
-    }
+    return parseSignalResponse(text);
   }
   throw lastErr;
 }
