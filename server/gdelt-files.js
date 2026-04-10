@@ -168,36 +168,6 @@ const GDELT_FIPS_TO_ISO = {
   'SN': 'SG', 'RI': 'RS', // Serbia ISO code
 };
 
-// ccTLD → ISO country code for geoloc correction
-const TLD_TO_ISO = {
-  'ru': 'RU', 'ua': 'UA', 'fr': 'FR', 'de': 'DE', 'cn': 'CN',
-  'ir': 'IR', 'il': 'IL', 'tr': 'TR', 'jp': 'JP', 'kr': 'KR',
-  'it': 'IT', 'es': 'ES', 'pl': 'PL', 'ro': 'RO', 'bg': 'BG',
-  'gr': 'GR', 'rs': 'RS', 'hr': 'HR', 'sk': 'SK', 'si': 'SI',
-  'cz': 'CZ', 'hu': 'HU', 'by': 'BY', 'kz': 'KZ', 'az': 'AZ',
-  'ge': 'GE', 'am': 'AM', 'uz': 'UZ', 'pk': 'PK', 'in': 'IN',
-  'bd': 'BD', 'nl': 'NL', 'be': 'BE', 'se': 'SE', 'no': 'NO',
-  'dk': 'DK', 'fi': 'FI', 'pt': 'PT', 'ch': 'CH', 'at': 'AT',
-  'ly': 'LY', 'eg': 'EG', 'tn': 'TN', 'dz': 'DZ', 'ma': 'MA',
-  'sy': 'SY', 'iq': 'IQ', 'ye': 'YE', 'sa': 'SA', 'ae': 'AE',
-  'jo': 'JO', 'lb': 'LB', 'br': 'BR', 'ar': 'AR', 'mx': 'MX',
-  'co': 'CO', 'cl': 'CL', 'pe': 'PE', 've': 'VE', 'au': 'AU',
-  'nz': 'NZ', 'za': 'ZA', 'ng': 'NG', 'ke': 'KE', 'et': 'ET',
-  'mk': 'MK', 'al': 'AL', 'ba': 'BA', 'vn': 'VN', 'th': 'TH',
-  'id': 'ID', 'my': 'MY', 'ph': 'PH', 'tw': 'TW',
-};
-
-// Regions that are clearly different continents — used for geoloc mismatch detection
-const REGION_GROUP = {
-  RU: 'eurasia', UA: 'eurasia', BY: 'eurasia', KZ: 'eurasia', AZ: 'eurasia', GE: 'eurasia', AM: 'eurasia',
-  CN: 'asia', JP: 'asia', KR: 'asia', TW: 'asia', VN: 'asia', TH: 'asia', ID: 'asia', MY: 'asia', PH: 'asia', IN: 'asia', PK: 'asia', BD: 'asia',
-  IR: 'mideast', IQ: 'mideast', SY: 'mideast', IL: 'mideast', LB: 'mideast', JO: 'mideast', SA: 'mideast', AE: 'mideast', YE: 'mideast',
-  US: 'americas', CA: 'americas', MX: 'americas', BR: 'americas', AR: 'americas', CL: 'americas', CO: 'americas', PE: 'americas', VE: 'americas',
-  GB: 'europe', FR: 'europe', DE: 'europe', IT: 'europe', ES: 'europe', PL: 'europe', RO: 'europe', GR: 'europe', TR: 'europe',
-  NG: 'africa', KE: 'africa', ET: 'africa', SD: 'africa', LY: 'africa', EG: 'africa', MA: 'africa', ZA: 'africa',
-  AU: 'oceania', NZ: 'oceania',
-};
-
 const LOW_QUALITY_NEWS_DOMAINS = new Set([
   'dailytrib.com', 'amren.com', 'bearingarms.com', 'nydailynews.com',
   'inquirer.com', 'ksl.com', 'norfolkdailynews.com', 'patch.com',
@@ -417,32 +387,14 @@ function isDomesticSecurityNoise(text, event) {
 }
 
 /**
- * Normalise the GDELT FIPS country code to ISO 3166-1 alpha-2.
- * Also attempts to correct obviously wrong geolocations using domain ccTLD.
- * Returns { countryCode, geoSuspect } — geoSuspect=true means the geocoding
- * looks wrong but we could not confidently correct it.
+ * Normalise the GDELT FIPS 10-4 country code to ISO 3166-1 alpha-2.
+ * GDELT uses FIPS codes (UP=Ukraine, RS=Russia, IS=Israel…) not ISO,
+ * which causes wrong region assignment. This is a pure code remap —
+ * geolocation (lat/lon/location string) is never changed.
  */
-function correctCountryCode(rawCode, domain) {
+function correctCountryCode(rawCode) {
   const fips = String(rawCode || '').toUpperCase();
-  const iso = GDELT_FIPS_TO_ISO[fips] || fips;
-
-  // Try to extract ccTLD from domain
-  const tldMatch = String(domain || '').match(/\.([a-z]{2})(?:\.[a-z]{2})?$/);
-  const tld = tldMatch ? tldMatch[1] : null;
-  const tldCountry = tld ? TLD_TO_ISO[tld] : null;
-
-  if (tldCountry && tldCountry !== iso) {
-    const tldRegion = REGION_GROUP[tldCountry];
-    const isoRegion = REGION_GROUP[iso];
-    // Only remap when the domain country and event country are in clearly different regions
-    // AND the domain country seems to be the origin of the article (ccTLD)
-    if (tldRegion && isoRegion && tldRegion !== isoRegion) {
-      // Remap: the article is likely domestic to the domain's country
-      return { countryCode: tldCountry, geoSuspect: true };
-    }
-  }
-
-  return { countryCode: iso, geoSuspect: false };
+  return { countryCode: GDELT_FIPS_TO_ISO[fips] || fips, geoSuspect: false };
 }
 
 function titleFromUrl(url) {
@@ -870,7 +822,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
     if (category === 'discard') continue;
 
     const tone = Number.isFinite(row.goldstein) ? row.goldstein : (toneFromV2Tone(gkg?.v2Tone) ?? row.avgTone ?? 0);
-    const { countryCode: correctedCode, geoSuspect } = correctCountryCode(row.countryCode, domain);
+    const { countryCode: correctedCode } = correctCountryCode(row.countryCode);
     const region = getRegionKey(row.lat, row.lon, correctedCode);
     let score = scoreEvent(row, mention, tone, domain, flags, region);
     if (themes.some(theme => /MILITARY|ARMED|TERROR|CYBER|NUCLEAR|MISSILE|SPACE|AVIATION|MARITIME/i.test(theme))) score += 12;
@@ -894,7 +846,6 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       countryCode: correctedCode,
       lat: row.lat,
       lon: row.lon,
-      geoSuspect: geoSuspect || undefined,
       tone,
       color: getColor(tone),
       severity: getSeverityLabel(tone),
