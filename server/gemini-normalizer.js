@@ -92,6 +92,7 @@ Return ONLY a valid JSON array. One object per input:
   "en": "English title, <= 16 words",
   "notes": "brief operational summary in French, <= 22 words",
   "category": "terrorism|military|conflict|protest|cyber|strategic|crisis|incident|discard",
+  "countryCode": "ISO 3166-1 alpha-2 of the country the article is ABOUT (ignore the source domain/TLD), null if unclear or multiple",
   "relevance": 0
 }
 
@@ -154,6 +155,10 @@ function mergeResult(event, result) {
   const category = VALID_CATEGORIES.has(result.category) ? result.category : event.category;
   const relevance = Math.max(0, Math.min(100, Number(result.relevance || event.relevance || 0)));
 
+  const countryCode = typeof result.countryCode === 'string' && result.countryCode.length === 2
+    ? result.countryCode.toUpperCase()
+    : event.countryCode;
+
   return {
     ...event,
     originalTitle: event.originalTitle || event.title,
@@ -162,6 +167,7 @@ function mergeResult(event, result) {
     notes: result.notes || event.notes || null,
     category,
     relevance,
+    countryCode,
     language: result.language || event.language || null,
     isRomanized: Boolean(result.is_romanized),
     nativeTitle: result.native_text || event.nativeTitle || null,
