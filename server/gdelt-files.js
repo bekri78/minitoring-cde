@@ -855,6 +855,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       category,
       region,
       domain_bucket,
+      osintDomain: domain_bucket !== 'general' ? domain_bucket : null,
       is_strategic,
       dedup_key,
       editorial_dedup_key: [
