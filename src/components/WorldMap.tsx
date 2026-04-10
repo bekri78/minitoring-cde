@@ -135,6 +135,8 @@ export function WorldMap({
   const tipLayerRef       = useRef<L.LayerGroup | null>(null);
   const quakesLayerRef    = useRef<L.LayerGroup | null>(null);
   const maritimeLayerRef  = useRef<L.LayerGroup | null>(null);
+  const airOsintLayerRef  = useRef<L.LayerGroup | null>(null);
+  const seaOsintLayerRef  = useRef<L.LayerGroup | null>(null);
 
   // Track currently open popup so we can re-open after layer refresh
   const openAircraftIdRef = useRef<string | null>(null);
@@ -194,6 +196,8 @@ export function WorldMap({
     const tipLayer       = L.layerGroup();
     const quakesLayer    = L.layerGroup();
     const maritimeLayer  = L.layerGroup();
+    const airOsintLayer  = L.layerGroup();
+    const seaOsintLayer  = L.layerGroup();
 
     eventsCluster.addTo(map);
     maritimeLayer.addTo(map);
@@ -203,6 +207,8 @@ export function WorldMap({
     padsLayer.addTo(map);
     shipsLayer.addTo(map);
     aircraftLayer.addTo(map);
+    airOsintLayer.addTo(map);
+    seaOsintLayer.addTo(map);
 
     eventsClusterRef.current = eventsCluster;
     aircraftLayerRef.current  = aircraftLayer;
@@ -212,6 +218,8 @@ export function WorldMap({
     tipLayerRef.current       = tipLayer;
     quakesLayerRef.current    = quakesLayer;
     maritimeLayerRef.current  = maritimeLayer;
+    airOsintLayerRef.current  = airOsintLayer;
+    seaOsintLayerRef.current  = seaOsintLayer;
 
     mapRef.current = map;
 
@@ -226,6 +234,8 @@ export function WorldMap({
       tipLayerRef.current = null;
       quakesLayerRef.current = null;
       maritimeLayerRef.current = null;
+      airOsintLayerRef.current = null;
+      seaOsintLayerRef.current = null;
     };
   }, []);
 
@@ -234,6 +244,8 @@ export function WorldMap({
     const cluster = eventsClusterRef.current;
     if (!cluster) return;
     cluster.clearLayers();
+    airOsintLayerRef.current?.clearLayers();
+    seaOsintLayerRef.current?.clearLayers();
 
     const geoJSON = buildGeoJSON(events) as GeoJSON.FeatureCollection;
     (geoJSON.features || []).forEach(f => {
@@ -321,7 +333,15 @@ export function WorldMap({
         </div>
       `), { maxWidth: 340 });
 
-      cluster.addLayer(marker);
+      // Route aviation/maritime OSINT events to dedicated layers
+      const evDomain = (p.domain || '').toLowerCase();
+      if (evDomain === 'aviation' && airOsintLayerRef.current) {
+        airOsintLayerRef.current.addLayer(marker);
+      } else if (evDomain === 'maritime' && seaOsintLayerRef.current) {
+        seaOsintLayerRef.current.addLayer(marker);
+      } else {
+        cluster.addLayer(marker);
+      }
     });
   }, [events]);
 
@@ -730,9 +750,11 @@ export function WorldMap({
     const evCluster  = eventsClusterRef.current;
     // Air
     const airLayer   = aircraftLayerRef.current;
+    const airOsint   = airOsintLayerRef.current;
     // Sea
     const seaLayer   = shipsLayerRef.current;
     const navLayer   = maritimeLayerRef.current;
+    const seaOsint   = seaOsintLayerRef.current;
     // Space / other (always visible in all, osint)
     const padLayer   = padsLayerRef.current;
     const decLayer   = decayLayerRef.current;
@@ -741,17 +763,17 @@ export function WorldMap({
 
     switch (domainView) {
       case 'air':
-        show(airLayer);
-        hide(evCluster); hide(seaLayer); hide(navLayer);
+        show(airLayer); show(airOsint);
+        hide(evCluster); hide(seaLayer); hide(navLayer); hide(seaOsint);
         hide(padLayer); hide(decLayer); hide(tipLayer); hide(qLayer);
         break;
       case 'sea':
-        show(seaLayer); show(navLayer);
-        hide(evCluster); hide(airLayer);
+        show(seaLayer); show(navLayer); show(seaOsint);
+        hide(evCluster); hide(airLayer); hide(airOsint);
         hide(padLayer); hide(decLayer); hide(tipLayer); hide(qLayer);
         break;
       case 'osint':
-        show(evCluster); show(qLayer);
+        show(evCluster); show(qLayer); show(airOsint); show(seaOsint);
         show(padLayer); show(decLayer); show(tipLayer);
         hide(airLayer); hide(seaLayer); hide(navLayer);
         break;
@@ -759,6 +781,7 @@ export function WorldMap({
       default:
         show(evCluster); show(airLayer); show(seaLayer); show(navLayer);
         show(padLayer); show(decLayer); show(tipLayer); show(qLayer);
+        show(airOsint); show(seaOsint);
         break;
     }
   }, [domainView]);
