@@ -8,8 +8,8 @@ const MASTERFILELIST_URL = process.env.GDELT_MASTERFILELIST_URL || 'http://data.
 const CACHE_DIR = process.env.CACHE_DIR || '/data';
 const STATE_PATH = path.join(CACHE_DIR, 'gdelt-file-state.json');
 
-const BOOTSTRAP_WINDOWS = Number(process.env.GDELT_BOOTSTRAP_WINDOWS || 4);
-const MAX_WINDOWS_PER_RUN = Number(process.env.GDELT_WINDOWS_PER_RUN || 4);
+const BOOTSTRAP_WINDOWS = Number(process.env.GDELT_BOOTSTRAP_WINDOWS || 8);
+const MAX_WINDOWS_PER_RUN = Number(process.env.GDELT_WINDOWS_PER_RUN || 8);
 const SNAPSHOT_LOOKBACK_HOURS = Number(process.env.GDELT_LOOKBACK_HOURS || 36);
 const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 1500);
 const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 300);
@@ -105,7 +105,8 @@ const NOISE_KEYWORDS = [
   'birth', 'delivery', 'triplets', 'twins', 'pregnant', 'pregnancy', 'mother',
   'maternity', 'hospital', 'obstetric', 'car accident', 'road accident',
   'plane crash', 'train derail', 'building collapse', 'flood kills',
-  'storm kills', 'weather kills',
+  'storm kills', 'weather kills', 'quiz politics', 'columnist', 'op-ed',
+  'opinion column', 'celeb', 'radaronline',
 ];
 
 const CIVILIAN_OVERRIDE = [
@@ -134,7 +135,7 @@ const NOISE_DOMAINS = new Set([
 const LOW_QUALITY_NEWS_DOMAINS = new Set([
   'dailytrib.com', 'amren.com', 'bearingarms.com', 'nydailynews.com',
   'inquirer.com', 'ksl.com', 'norfolkdailynews.com', 'patch.com',
-  'winnipegfreepress.com',
+  'winnipegfreepress.com', 'radaronline.com',
 ]);
 
 const DOMESTIC_SECURITY_KEYWORDS = [
@@ -477,7 +478,7 @@ function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
 function structuralSeverityScore(rootCode, eventCode) {
   if (STRUCTURAL_EVENT_CODES.has(String(eventCode || ''))) return 44;
   if (['18', '19', '20'].includes(String(rootCode || ''))) return 38;
-  if (String(rootCode || '') === '15') return 28;
+  if (String(rootCode || '') === '15') return 34;
   if (String(rootCode || '') === '14') return 20;
   if (['13', '16', '17'].includes(String(rootCode || ''))) return 24;
   return 10;
