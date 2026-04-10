@@ -1082,14 +1082,15 @@ async function aiGeoCorrectEvents(events) {
     return events;
   }
 
-  // Filtrer seulement les events geo_type=1 (centroïde pays, basse confiance)
-  const candidates = events.filter(e => e.geoType === '1');
+  // Filtrer les events geo_type=1 (centroïde pays) ET geo_type=2 (centroïde état/province)
+  // Les deux ont une précision insuffisante et nécessitent une correction AI.
+  const candidates = events.filter(e => e.geoType === '1' || e.geoType === '2');
   if (!candidates.length) {
-    console.log('[geo-ai] skipped: no geo_type=1 events');
+    console.log('[geo-ai] skipped: no geo_type=1/2 events');
     return events;
   }
 
-  console.log(`[geo-ai] correcting ${candidates.length} geo_type=1 events via ${provider}...`);
+  console.log(`[geo-ai] correcting ${candidates.length} geo_type=1/2 events via ${provider}...`);
   const corrections = new Map();
   let corrected = 0;
 

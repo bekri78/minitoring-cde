@@ -2,9 +2,15 @@
 
 const crypto = require('crypto');
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
-const OPENAI_MODEL   = process.env.OPENAI_FILTER_MODEL || 'gpt-4o-mini';
-const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
+const _USE_MISTRAL   = true;
+const ENRICH_API_KEY = process.env.MISTRAL_API_KEY;
+const ENRICH_MODEL   = process.env.ENRICH_MODEL || 'mistral-medium-latest';
+const ENRICH_URL     = 'https://api.mistral.ai/v1/chat/completions';
+
+// Compat interne
+const OPENAI_API_KEY = ENRICH_API_KEY;
+const OPENAI_MODEL   = ENRICH_MODEL;
+const OPENAI_URL     = ENRICH_URL;
 const AI_FILTER_ENABLED = process.env.AI_FILTER_ENABLED !== 'false';
 
 const TARGET_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 600);
@@ -30,6 +36,8 @@ const VALID_CATEGORIES = new Set([
   'terrorism', 'military', 'conflict', 'protest',
   'cyber', 'strategic', 'crisis', 'incident',
 ]);
+
+const VALID_OSINT_DOMAINS = new Set(['spatial', 'aviation', 'maritime']);
 
 const BUSINESS_NOISE_TERMS = [
   'stock', 'market', 'earnings', 'revenue', 'profit', 'loss', 'shares',
@@ -201,6 +209,12 @@ Keep:
 - cyberattacks, sanctions with security impact, diplomatic ruptures, strategic crises
 - major infrastructure attacks or emergencies with political/security impact
 
+For each kept event, set osintDomain:
+- "spatial": event is DIRECTLY about space (orbital launches, satellites, ICBMs/hypersonic missiles, space stations, space agency operations, GPS/GNSS jamming). NOT generic airstrikes, ceasefire talks, or ground conflict even if the article mentions a country like Ukraine.
+- "aviation": event is DIRECTLY about military air operations (airstrikes, combat drones attack, fighter jet intercept, air defense engagement, military aircraft incursion). NOT civilian aviation.
+- "maritime": event is DIRECTLY about naval operations (warship movement, naval battle, submarine activity, maritime blockade, coast guard military action).
+- null: none of the above (default).
+
 Reject:
 - sports, entertainment, lifestyle, routine business, ordinary crime, local accidents, courts-only procedural stories, weather-only events
 - duplicate-looking weak items, vague non-events, opinion/explainer pieces unless they contain a concrete new event
@@ -210,27 +224,27 @@ Reject:
 - firefighting aircraft, waterbombers, air tankers used for civilian purposes (e.g. CL-415, air tractor)
 
 Return ONLY a JSON object:
-{"events":[{"id":"same id","keep":true,"priority":0,"category":"military|conflict|terrorism|protest|cyber|strategic|crisis|incident|discard","title_fr":"French title <= 14 words","headline":"English headline <= 14 words","notes":"French operational summary <= 18 words"}]}
+{"events":[{"id":"same id","keep":true,"priority":0,"category":"military|conflict|terrorism|protest|cyber|strategic|crisis|incident|discard","title_fr":"French title <= 14 words","headline":"English headline <= 14 words","notes":"French operational summary <= 18 words","osintDomain":"spatial|aviation|maritime|null"}]}
 
 Events:
 ${events.map(event => JSON.stringify(compactEvent(event))).join('\n')}`;
 }
 
 async function classifyBatch(events, attempt = 0) {
-  const resp = await fetch(OPENAI_URL, {
+  const resp = await fetch(ENRICH_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      'Authorization': `Bearer ${ENRICH_API_KEY}`,
     },
     body: JSON.stringify({
-      model: OPENAI_MODEL,
+      model: ENRICH_MODEL,
       messages: [
         { role: 'user', content: buildPrompt(events) },
       ],
       temperature: 0,
-      max_tokens: Math.max(2000, events.length * 120),
-      response_format: { type: 'json_object' },
+      max_tokens: Math.max(2000, events.length * 150),
+      ...(!_USE_MISTRAL ? { response_format: { type: 'json_object' } } : {}),
     }),
     signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
   });
@@ -266,6 +280,13 @@ function mergeAiResult(event, result) {
   const aiPriority = Math.max(0, Math.min(100, Number(result?.priority || 0)));
   const score = Number(event.score || 0) + aiPriority;
 
+  // Domaine OSINT : l'AI prime sur la détection par mots-clés ; si l'AI ne retourne
+  // pas de valeur (undefined = batch en erreur), on garde le seed keyword.
+  const aiDomain = result?.osintDomain;
+  const osintDomain = aiDomain !== undefined
+    ? (VALID_OSINT_DOMAINS.has(aiDomain) ? aiDomain : null)
+    : (event.osintDomain || null);
+
   return {
     ...event,
     originalTitle: event.originalTitle || event.title,
@@ -280,6 +301,7 @@ function mergeAiResult(event, result) {
     aiProvider: 'openai',
     aiModel: OPENAI_MODEL,
     region: regionForEvent(event),
+    osintDomain,
   };
 }
 
