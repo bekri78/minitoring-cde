@@ -648,6 +648,41 @@ function selectDiverseEvents(events) {
   return selected.slice(0, Math.min(FINAL_EVENTS, MAX_DASHBOARD_EVENTS));
 }
 
+function topEntries(map, limit = 8) {
+  return [...map.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(' ');
+}
+
+function logCalibration(snapshot, selected) {
+  const regionCounts = new Map();
+  const categoryCounts = new Map();
+  const countryCounts = new Map();
+  const domainCounts = new Map();
+
+  for (const event of selected) {
+    const region = event.region || 'other';
+    regionCounts.set(region, (regionCounts.get(region) || 0) + 1);
+    categoryCounts.set(event.category || 'incident', (categoryCounts.get(event.category || 'incident') || 0) + 1);
+    if (event.countryCode) countryCounts.set(event.countryCode, (countryCounts.get(event.countryCode) || 0) + 1);
+    if (event.domain) domainCounts.set(event.domain, (domainCounts.get(event.domain) || 0) + 1);
+  }
+
+  const topPreview = selected
+    .slice(0, 12)
+    .map(event => `[${event.region || 'other'}|${event.category}|${Math.round(event.score || 0)}] ${(event.title || '').slice(0, 90)}`)
+    .join('\n');
+
+  console.log(`[gdelt-cal] snapshot=${snapshot.length} selected=${selected.length}`);
+  console.log(`[gdelt-cal] regions  ${topEntries(regionCounts, 12)}`);
+  console.log(`[gdelt-cal] cats     ${topEntries(categoryCounts, 12)}`);
+  console.log(`[gdelt-cal] countries ${topEntries(countryCounts, 12)}`);
+  console.log(`[gdelt-cal] domains  ${topEntries(domainCounts, 10)}`);
+  console.log(`[gdelt-cal] top\n${topPreview}`);
+}
+
 async function processBatch(batch) {
   console.log(`[gdelt-files] batch ${batch.ts} — download events/mentions/gkg`);
   const [eventsText, mentionsText, gkgText] = await Promise.all([
@@ -692,7 +727,10 @@ async function fetchTodayEvents(options = {}) {
   state.lastUpdate = new Date().toISOString();
   saveState(state);
   console.log(`[gdelt-files] snapshot ready — ${snapshot.length} events`);
-  return selectDiverseEvents(snapshot);
+  const selected = selectDiverseEvents(snapshot);
+  logCalibration(snapshot, selected);
+  return selected;
 }
 
 module.exports = { fetchTodayEvents };
+
