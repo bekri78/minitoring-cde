@@ -11,10 +11,14 @@ const STATE_PATH = path.join(CACHE_DIR, 'gdelt-file-state.json');
 const BOOTSTRAP_WINDOWS = Number(process.env.GDELT_BOOTSTRAP_WINDOWS || 4);
 const MAX_WINDOWS_PER_RUN = Number(process.env.GDELT_WINDOWS_PER_RUN || 4);
 const SNAPSHOT_LOOKBACK_HOURS = Number(process.env.GDELT_LOOKBACK_HOURS || 24);
-const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 1200);
-const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 250);
+const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 1500);
+const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 300);
 const MIN_RELEVANCE_SCORE = Number(process.env.GDELT_MIN_SCORE || 60);
-const FINAL_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 600);
+const FINAL_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 1500);
+const BASELINE_FINAL_EVENTS = 1500;
+const DOMAIN_MIN_SPATIAL = Number(process.env.GDELT_DOMAIN_MIN_SPATIAL || Math.max(20, Math.round(FINAL_EVENTS * (70 / BASELINE_FINAL_EVENTS))));
+const DOMAIN_MIN_AVIATION = Number(process.env.GDELT_DOMAIN_MIN_AVIATION || Math.max(40, Math.round(FINAL_EVENTS * (150 / BASELINE_FINAL_EVENTS))));
+const DOMAIN_MIN_MARITIME = Number(process.env.GDELT_DOMAIN_MIN_MARITIME || Math.max(45, Math.round(FINAL_EVENTS * (180 / BASELINE_FINAL_EVENTS))));
 
 const STRATEGIC_COUNTRY_CODES = new Set([
   'RS', 'CH', 'KN', 'KS', 'TW', 'VM',
@@ -22,21 +26,48 @@ const STRATEGIC_COUNTRY_CODES = new Set([
   'LY', 'YM', 'SU',
 ]);
 
-const REGION_QUOTAS = {
-  france: 35,
-  europe: 65,
-  russia_cis: 80,
-  east_asia: 75,
-  south_asia: 55,
-  middleeast: 95,
-  africa: 95,
-  south_america: 45,
-  north_america: 25,
-  oceania: 15,
-  other: 15,
-};
-
 const STRATEGIC_REGION_BOOST = new Set(['russia_cis', 'east_asia', 'middleeast', 'africa']);
+
+const STRUCTURAL_ROOT_CODES = new Set(['13', '14', '15', '16', '17', '18', '19', '20']);
+const STRUCTURAL_EVENT_CODES = new Set(['155', '181', '1831', '1832', '1833']);
+
+const SPATIAL_KEYWORDS = [
+  'satellite', 'spacecraft', 'orbital', 'orbit', 'launch', 'liftoff', 'booster',
+  'upper stage', 'payload', 'reentry', 're-entry', 'deorbit', 'de-orbit',
+  'asat', 'anti-satellite', 'launch vehicle', 'spaceport', 'cosmodrome',
+  'capsule', 'rocket test',
+];
+
+const AVIATION_KEYWORDS = [
+  'fighter jet', 'warplane', 'bomber', 'sortie', 'interception', 'intercepted',
+  'airstrike', 'air strike', 'air defense', 'air-defence', 'air patrol',
+  'no-fly zone', 'aircraft', 'military aircraft', 'helicopter', 'drone', 'uav',
+  'runway strike', 'airport strike',
+];
+
+const MARITIME_KEYWORDS = [
+  'warship', 'naval', 'navy', 'submarine', 'frigate', 'destroyer', 'corvette',
+  'aircraft carrier', 'maritime patrol', 'coast guard', 'fleet', 'flotilla',
+  'port strike', 'blockade', 'naval exercise', 'sea drone',
+];
+
+const MILITARY_KEYWORDS = [
+  'missile', 'ballistic', 'cruise missile', 'shelling', 'artillery',
+  'troop movement', 'troop buildup', 'troop build-up', 'redeploy', 'redeployment',
+  'mobilization', 'mobilisation', 'incursion', 'cross-border', 'staging area',
+  'military drill', 'live-fire', 'war game', 'brigade', 'battalion', 'militia',
+  'army', 'armed forces', 'military', 'navy', 'air force',
+];
+
+const CIVILIAN_NOISE_KEYWORDS = [
+  'taxi', 'uber', 'bus', 'rail', 'train', 'student', 'teacher', 'hospital',
+  'doctor', 'farmers', 'football', 'basketball', 'concert', 'festival',
+  'celebrity', 'tourism', 'real estate',
+];
+
+const DEESCALATION_KEYWORDS = [
+  'ceasefire', 'truce', 'peace talks', 'negotiation', 'negotiations', 'mediation', 'agreement',
+];
 
 const CATEGORY_RULES = [
   { key: 'terrorism', cameo: ['181', '1831', '1832', '1833'], keywords: ['terrorist', 'terrorism', 'isis', 'al qaeda', 'boko haram', 'suicide bombing', 'ied', 'car bomb', 'hostage'] },
@@ -301,7 +332,14 @@ function splitPipeField(value) {
 }
 
 function isCivilianNoise(text) {
-  return containsAnyKeyword(text, CIVILIAN_OVERRIDE) && !containsAnyKeyword(text, SECURITY_OVERRIDE_KEYWORDS);
+  return (
+    (containsAnyKeyword(text, CIVILIAN_OVERRIDE) || containsAnyKeyword(text, CIVILIAN_NOISE_KEYWORDS)) &&
+    !containsAnyKeyword(text, SECURITY_OVERRIDE_KEYWORDS) &&
+    !containsAnyKeyword(text, MILITARY_KEYWORDS) &&
+    !containsAnyKeyword(text, SPATIAL_KEYWORDS) &&
+    !containsAnyKeyword(text, AVIATION_KEYWORDS) &&
+    !containsAnyKeyword(text, MARITIME_KEYWORDS)
+  );
 }
 
 function isNoiseEvent(title, url, domain) {
@@ -309,9 +347,32 @@ function isNoiseEvent(title, url, domain) {
   return containsAnyKeyword(`${title} ${url}`, NOISE_KEYWORDS);
 }
 
-function classifyEvent(text, eventCode = '') {
+function buildTextBlob(title, actor1, actor2, url) {
+  return [title, actor1, actor2, url].filter(Boolean).join(' ').toLowerCase();
+}
+
+function buildFlags(textBlob) {
+  return {
+    spatial_flag: containsAnyKeyword(textBlob, SPATIAL_KEYWORDS) ? 1 : 0,
+    aviation_flag: containsAnyKeyword(textBlob, AVIATION_KEYWORDS) ? 1 : 0,
+    maritime_flag: containsAnyKeyword(textBlob, MARITIME_KEYWORDS) ? 1 : 0,
+    military_keyword_flag: containsAnyKeyword(textBlob, MILITARY_KEYWORDS) ? 1 : 0,
+    civilian_noise_flag: isCivilianNoise(textBlob) ? 1 : 0,
+    deescalation_flag: containsAnyKeyword(textBlob, DEESCALATION_KEYWORDS) ? 1 : 0,
+  };
+}
+
+function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
   const normalized = normalizeText(text);
-  if (isCivilianNoise(text)) return 'discard';
+  if (flags.spatial_flag) return 'strategic';
+  if (flags.aviation_flag || flags.maritime_flag) return 'military';
+  if (flags.civilian_noise_flag) return 'discard';
+  if (String(eventCode || '').startsWith('155')) return 'cyber';
+  if (['181', '1831', '1832', '1833'].some(prefix => String(eventCode || '').startsWith(prefix))) return 'terrorism';
+  if (['18', '19', '20'].includes(String(rootCode || ''))) return 'conflict';
+  if (String(rootCode || '') === '15') return 'military';
+  if (String(rootCode || '') === '14') return 'protest';
+  if (['13', '16', '17'].includes(String(rootCode || ''))) return 'strategic';
   for (const rule of CATEGORY_RULES) {
     if (rule.keywords.some(keyword => normalized.includes(normalizeText(keyword)))) return rule.key;
   }
@@ -321,31 +382,124 @@ function classifyEvent(text, eventCode = '') {
   return 'incident';
 }
 
-function scoreEvent(text, tone, domain) {
-  let score = Math.abs(Number(tone) || 0) * 10;
-  const normalized = normalizeText(text);
-  for (const keyword of MILITARY_CRISIS_KEYWORDS) {
-    if (normalized.includes(normalizeText(keyword))) score += 20;
-  }
-  const bonuses = {
-    missile: 25, war: 25, attack: 22, airstrike: 24, bombing: 24,
-    terrorist: 24, military: 20, drone: 20, strike: 20, hostage: 20,
-    protest: 18, riot: 18, explosion: 18, troops: 16, crisis: 15, incident: 12,
-    cyberattack: 24, ransomware: 20, sanctions: 16, nuclear: 25, clashes: 18,
-  };
-  for (const [word, bonus] of Object.entries(bonuses)) {
-    if (normalized.includes(word)) score += bonus;
-  }
-  if (domain && PRIORITY_DOMAIN_BOOST[domain]) score += PRIORITY_DOMAIN_BOOST[domain];
+function structuralSeverityScore(rootCode, eventCode) {
+  if (STRUCTURAL_EVENT_CODES.has(String(eventCode || ''))) return 44;
+  if (['18', '19', '20'].includes(String(rootCode || ''))) return 38;
+  if (String(rootCode || '') === '15') return 28;
+  if (String(rootCode || '') === '14') return 20;
+  if (['13', '16', '17'].includes(String(rootCode || ''))) return 24;
+  return 10;
+}
+
+function freshnessScore(dateAdded) {
+  const iso = isoFromGdeltTimestamp(dateAdded);
+  if (!iso) return 0;
+  const ageHours = Math.max(0, (Date.now() - new Date(iso).getTime()) / 3600000);
+  return Math.max(0, 18 - Math.min(18, ageHours * 0.75));
+}
+
+function geoPrecisionScore(actionGeoType) {
+  const value = String(actionGeoType || '');
+  if (value === '4') return 10;
+  if (value === '3') return 8;
+  if (value === '2') return 5;
+  if (value === '1') return 2;
+  return 0;
+}
+
+function mediaVisibilityScore(row, mention) {
+  const sourceScore = Math.min(12, Math.log1p(Number(row.numSources || 0)) * 4);
+  const articleScore = Math.min(12, Math.log1p(Number(row.numArticles || 0)) * 4);
+  const mentionScore = Math.min(14, Math.log1p(Number(mention?.mentionCount || row.numMentions || 0)) * 5);
+  return sourceScore + articleScore + mentionScore;
+}
+
+function domainBonus(flags) {
+  let score = 0;
+  if (flags.spatial_flag) score += 20;
+  if (flags.aviation_flag) score += 18;
+  if (flags.maritime_flag) score += 18;
+  if (flags.military_keyword_flag) score += 12;
   return score;
+}
+
+function scoreEvent(row, mention, tone, domain, flags, region) {
+  let score = 0;
+  score += structuralSeverityScore(row.rootCode, row.eventCode);
+  score += Math.min(24, Math.abs(Number(tone) || 0) * 4);
+  score += mediaVisibilityScore(row, mention);
+  score += freshnessScore(row.dateAdded);
+  score += geoPrecisionScore(row.actionGeoType);
+  score += domainBonus(flags);
+  if (domain && PRIORITY_DOMAIN_BOOST[domain]) score += Math.min(20, PRIORITY_DOMAIN_BOOST[domain] / 3);
+  if (STRATEGIC_COUNTRY_CODES.has(row.countryCode || '')) score += 18;
+  if (STRATEGIC_REGION_BOOST.has(region)) score += 8;
+  if (flags.civilian_noise_flag) score -= 35;
+  if (flags.deescalation_flag) score -= 15;
+  return Math.round(score);
+}
+
+function shouldKeepEvent(row, flags) {
+  const rootCode = String(row.rootCode || '');
+  const eventCode = String(row.eventCode || '');
+  const structuralKeep =
+    ['18', '19', '20'].includes(rootCode) ||
+    STRUCTURAL_EVENT_CODES.has(eventCode) ||
+    (['13', '14', '15', '16', '17'].includes(rootCode) && flags.military_keyword_flag) ||
+    flags.spatial_flag ||
+    flags.aviation_flag ||
+    flags.maritime_flag;
+
+  const structuralReject =
+    flags.civilian_noise_flag &&
+    !flags.military_keyword_flag &&
+    !flags.spatial_flag &&
+    !flags.aviation_flag &&
+    !flags.maritime_flag;
+
+  return structuralKeep && !structuralReject;
+}
+
+function domainBucketFromFlags(flags) {
+  if (flags.spatial_flag) return 'spatial';
+  if (flags.aviation_flag) return 'aviation';
+  if (flags.maritime_flag) return 'maritime';
+  return 'general';
+}
+
+function isStrategicEvent(row, score) {
+  return (
+    ['18', '19', '20'].includes(String(row.rootCode || '')) ||
+    STRUCTURAL_EVENT_CODES.has(String(row.eventCode || '')) ||
+    Number(row.goldstein || 0) <= -5 ||
+    Number(score || 0) >= 85
+  );
+}
+
+function buildDedupKey(row) {
+  const hour = String(row.dateAdded || '').slice(0, 10);
+  const lat = Number.isFinite(row.lat) ? Number(row.lat).toFixed(2) : 'na';
+  const lon = Number.isFinite(row.lon) ? Number(row.lon).toFixed(2) : 'na';
+  const actor1 = normalizeText(row.actor1 || '').slice(0, 80);
+  const actor2 = normalizeText(row.actor2 || '').slice(0, 80);
+  return [
+    row.countryCode || 'UNK',
+    row.rootCode || '00',
+    hour,
+    lat,
+    lon,
+    actor1 || '-',
+    actor2 || '-',
+  ].join('|');
 }
 
 function isRelevantEvent(event) {
   if (!event || event.category === 'discard') return false;
+  if (!event.keep) return false;
   const score = Number(event.score || 0);
   if (score >= MIN_RELEVANCE_SCORE) return true;
-  if (['cyber', 'strategic', 'protest'].includes(event.category) && score >= MIN_RELEVANCE_SCORE - 20) return true;
-  if (STRATEGIC_COUNTRY_CODES.has(event.countryCode) && PRIORITY_DOMAIN_BOOST[event.domain] && score >= MIN_RELEVANCE_SCORE - 25) return true;
+  if (event.domain_bucket !== 'general' && score >= MIN_RELEVANCE_SCORE - 10) return true;
+  if (event.is_strategic && score >= MIN_RELEVANCE_SCORE - 15) return true;
   return false;
 }
 
@@ -476,6 +630,10 @@ function parseGkg(text) {
 function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
   const events = [];
   for (const row of eventRows) {
+    const rootCode = String(row.rootCode || '');
+    const eventCode = String(row.eventCode || '');
+    if (!STRUCTURAL_ROOT_CODES.has(rootCode) && !STRUCTURAL_EVENT_CODES.has(eventCode)) continue;
+
     const mention = mentionMap.get(row.globalEventId) || null;
     const candidateUrl = mention?.bestIdentifier || row.sourceUrl;
     const gkg = gkgMap.get(candidateUrl) || gkgMap.get(row.sourceUrl) || null;
@@ -502,19 +660,20 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       persons.join(' '),
     ].filter(Boolean).join(' ');
 
-    const category = classifyEvent(text, row.eventCode);
+    const textBlob = buildTextBlob(title, row.actor1, row.actor2, candidateUrl || row.sourceUrl);
+    const flags = buildFlags(textBlob);
+    if (!shouldKeepEvent(row, flags)) continue;
+
+    const category = classifyEvent(text, row.eventCode, row.rootCode, flags);
     if (category === 'discard') continue;
 
     const tone = Number.isFinite(row.goldstein) ? row.goldstein : (toneFromV2Tone(gkg?.v2Tone) ?? row.avgTone ?? 0);
-    let score = scoreEvent(text, tone, domain);
-    score += Math.min(40, Math.log1p(row.numMentions + row.numSources + row.numArticles) * 8);
-    score += Math.min(30, Math.log1p(mention?.mentionCount || 0) * 10);
-    if (themes.some(theme => /MILITARY|ARMED|TERROR|CYBER|NUCLEAR|MISSILE/i.test(theme))) score += 25;
     const region = getRegionKey(row.lat, row.lon, row.countryCode || '');
-    if (STRATEGIC_COUNTRY_CODES.has(row.countryCode || '')) score += 35;
-    if (STRATEGIC_REGION_BOOST.has(region)) score += 15;
-    if (region === 'france') score += 10;
-    if (region === 'south_america') score += 10;
+    let score = scoreEvent(row, mention, tone, domain, flags, region);
+    if (themes.some(theme => /MILITARY|ARMED|TERROR|CYBER|NUCLEAR|MISSILE|SPACE|AVIATION|MARITIME/i.test(theme))) score += 12;
+    const domain_bucket = domainBucketFromFlags(flags);
+    const is_strategic = isStrategicEvent(row, score) ? 1 : 0;
+    const dedup_key = buildDedupKey(row);
 
     const event = {
       id: row.globalEventId,
@@ -533,8 +692,13 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       color: getColor(tone),
       severity: getSeverityLabel(tone),
       score,
+      bq_signal_score: score,
       category,
       region,
+      domain_bucket,
+      is_strategic,
+      dedup_key,
+      keep: true,
       dataSource: 'gdelt-files',
       actor1: row.actor1 || null,
       actor2: row.actor2 || null,
@@ -549,6 +713,13 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       themes,
       persons,
       organizations,
+      text_blob: textBlob,
+      spatial_flag: flags.spatial_flag,
+      aviation_flag: flags.aviation_flag,
+      maritime_flag: flags.maritime_flag,
+      military_keyword_flag: flags.military_keyword_flag,
+      civilian_noise_flag: flags.civilian_noise_flag,
+      deescalation_flag: flags.deescalation_flag,
       batchTs: batch.ts,
     };
 
@@ -573,13 +744,24 @@ function cutoffTimestamp(hours) {
 function mergeSnapshot(existingSnapshot, freshEvents) {
   const byKey = new Map();
   for (const event of existingSnapshot || []) {
-    const key = event.url || `id:${event.id}`;
+    const key = event.dedup_key || event.url || `id:${event.id}`;
     byKey.set(key, event);
   }
   for (const event of freshEvents) {
-    const key = event.url || `id:${event.id}`;
+    const key = event.dedup_key || event.url || `id:${event.id}`;
     const existing = byKey.get(key);
-    if (!existing || Number(event.score || 0) >= Number(existing.score || 0)) {
+    const shouldReplace =
+      !existing ||
+      Number(event.score || 0) > Number(existing.score || 0) ||
+      (
+        Number(event.score || 0) === Number(existing.score || 0) &&
+        (
+          Number(event.numSources || 0) > Number(existing.numSources || 0) ||
+          (Number(event.numSources || 0) === Number(existing.numSources || 0) && Number(event.numArticles || 0) > Number(existing.numArticles || 0)) ||
+          (Number(event.numSources || 0) === Number(existing.numSources || 0) && Number(event.numArticles || 0) === Number(existing.numArticles || 0) && Number(event.mentionCount || 0) > Number(existing.mentionCount || 0))
+        )
+      );
+    if (shouldReplace) {
       byKey.set(key, event);
     }
   }
@@ -592,53 +774,36 @@ function mergeSnapshot(existingSnapshot, freshEvents) {
 
 function selectDiverseEvents(events) {
   const sorted = [...events].sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
-  const byRegion = new Map();
+  const byBucket = new Map();
   for (const event of sorted) {
-    const region = event.region || getRegionKey(event.lat, event.lon, event.countryCode || '');
-    if (!byRegion.has(region)) byRegion.set(region, []);
-    byRegion.get(region).push(event);
+    const bucket = event.domain_bucket || 'general';
+    if (!byBucket.has(bucket)) byBucket.set(bucket, []);
+    byBucket.get(bucket).push(event);
   }
 
   const selected = [];
   const seen = new Set();
-  const takeFromList = (list, limit) => {
+  const pushFromList = (list, limit, predicate = null) => {
     if (!Array.isArray(list) || limit <= 0) return;
-    for (const event of list) {
-      const key = event.url || `id:${event.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      selected.push(event);
-      if (selected.length >= FINAL_EVENTS) return;
-      if (limit && selected.filter(e => (e.region || 'other') === (event.region || 'other')).length >= limit) return;
-    }
-  };
-
-  for (const [region, quota] of Object.entries(REGION_QUOTAS)) {
-    const list = byRegion.get(region) || [];
     let added = 0;
     for (const event of list) {
-      const key = event.url || `id:${event.id}`;
+      const key = event.dedup_key || event.url || `id:${event.id}`;
       if (seen.has(key)) continue;
+      if (predicate && !predicate(event)) continue;
       seen.add(key);
       selected.push(event);
       added += 1;
-      if (selected.length >= FINAL_EVENTS || added >= quota) break;
+      if (selected.length >= FINAL_EVENTS || added >= limit) return;
     }
-    if (selected.length >= FINAL_EVENTS) break;
-  }
+  };
 
-  if (selected.length < Math.min(STRATEGIC_MIN_EVENTS, FINAL_EVENTS)) {
-    for (const event of sorted.filter(item => STRATEGIC_COUNTRY_CODES.has(item.countryCode))) {
-      const key = event.url || `id:${event.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      selected.push(event);
-      if (selected.length >= FINAL_EVENTS || selected.filter(item => STRATEGIC_COUNTRY_CODES.has(item.countryCode)).length >= STRATEGIC_MIN_EVENTS) break;
-    }
-  }
+  pushFromList(byBucket.get('spatial') || [], DOMAIN_MIN_SPATIAL);
+  pushFromList(byBucket.get('aviation') || [], DOMAIN_MIN_AVIATION);
+  pushFromList(byBucket.get('maritime') || [], DOMAIN_MIN_MARITIME);
+  pushFromList(byBucket.get('general') || [], Math.min(STRATEGIC_MIN_EVENTS, FINAL_EVENTS), event => Boolean(event.is_strategic));
 
   for (const event of sorted) {
-    const key = event.url || `id:${event.id}`;
+    const key = event.dedup_key || event.url || `id:${event.id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     selected.push(event);
@@ -661,6 +826,8 @@ function logCalibration(snapshot, selected) {
   const categoryCounts = new Map();
   const countryCounts = new Map();
   const domainCounts = new Map();
+  const bucketCounts = new Map();
+  let strategicCount = 0;
 
   for (const event of selected) {
     const region = event.region || 'other';
@@ -668,6 +835,8 @@ function logCalibration(snapshot, selected) {
     categoryCounts.set(event.category || 'incident', (categoryCounts.get(event.category || 'incident') || 0) + 1);
     if (event.countryCode) countryCounts.set(event.countryCode, (countryCounts.get(event.countryCode) || 0) + 1);
     if (event.domain) domainCounts.set(event.domain, (domainCounts.get(event.domain) || 0) + 1);
+    bucketCounts.set(event.domain_bucket || 'general', (bucketCounts.get(event.domain_bucket || 'general') || 0) + 1);
+    if (event.is_strategic) strategicCount += 1;
   }
 
   const topPreview = selected
@@ -678,6 +847,7 @@ function logCalibration(snapshot, selected) {
   console.log(`[gdelt-cal] snapshot=${snapshot.length} selected=${selected.length}`);
   console.log(`[gdelt-cal] regions  ${topEntries(regionCounts, 12)}`);
   console.log(`[gdelt-cal] cats     ${topEntries(categoryCounts, 12)}`);
+  console.log(`[gdelt-cal] buckets  ${topEntries(bucketCounts, 8)} strategic=${strategicCount}`);
   console.log(`[gdelt-cal] countries ${topEntries(countryCounts, 12)}`);
   console.log(`[gdelt-cal] domains  ${topEntries(domainCounts, 10)}`);
   console.log(`[gdelt-cal] top\n${topPreview}`);
@@ -712,7 +882,9 @@ async function fetchTodayEvents(options = {}) {
   const toProcess = pending.slice(0, MAX_WINDOWS_PER_RUN);
   if (!toProcess.length) {
     console.log(`[gdelt-files] no new batches — returning snapshot ${state.snapshot?.length || 0}`);
-    return selectDiverseEvents(state.snapshot || []);
+    const selected = selectDiverseEvents(state.snapshot || []);
+    logCalibration(state.snapshot || [], selected);
+    return selected;
   }
 
   console.log(`[gdelt-files] processing ${toProcess.length} batch(es) from ${toProcess[0].ts} to ${toProcess[toProcess.length - 1].ts}`);
@@ -733,4 +905,5 @@ async function fetchTodayEvents(options = {}) {
 }
 
 module.exports = { fetchTodayEvents };
+
 
