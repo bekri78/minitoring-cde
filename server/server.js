@@ -67,8 +67,8 @@ function loadFromDisk(date) {
   return null;
 }
 
-async function fetchTodayEvents() {
-  return fetchTodayEventsFromFiles();
+async function fetchTodayEvents(options = {}) {
+  return fetchTodayEventsFromFiles(options);
 }
 
 async function enrichEvents(events) {
@@ -119,7 +119,7 @@ async function refresh(force = false) {
   cache.status = 'refreshing';
 
   try {
-    const raw = await fetchTodayEvents();
+    const raw = await fetchTodayEvents({ forceReprocess: force });
     const events = await enrichEvents(raw);
     cache.events     = events;
     cache.lastUpdate = new Date().toISOString();

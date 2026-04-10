@@ -580,11 +580,14 @@ async function processBatch(batch) {
   return events;
 }
 
-async function fetchTodayEvents() {
+async function fetchTodayEvents(options = {}) {
+  const forceReprocess = Boolean(options.forceReprocess);
   const state = loadState();
   const masterText = await fetchMasterFileList();
   const grouped = groupEntries(masterText);
-  const pending = state.lastBatchTs
+  const pending = forceReprocess
+    ? grouped.slice(-Math.max(BOOTSTRAP_WINDOWS, MAX_WINDOWS_PER_RUN))
+    : state.lastBatchTs
     ? grouped.filter(batch => batch.ts > state.lastBatchTs)
     : grouped.slice(-BOOTSTRAP_WINDOWS);
 
@@ -595,7 +598,7 @@ async function fetchTodayEvents() {
   }
 
   console.log(`[gdelt-files] processing ${toProcess.length} batch(es) from ${toProcess[0].ts} to ${toProcess[toProcess.length - 1].ts}`);
-  let snapshot = state.snapshot || [];
+  let snapshot = forceReprocess ? [] : (state.snapshot || []);
   for (const batch of toProcess) {
     const fresh = await processBatch(batch);
     snapshot = mergeSnapshot(snapshot, fresh);
