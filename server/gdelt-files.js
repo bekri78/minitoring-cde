@@ -418,6 +418,8 @@ function titleFromUrl(url) {
         .replace(/\s+/g, ' ')
         .trim();
       if (!raw || /^\d+$/.test(raw) || URL_NAV_SEGMENTS.has(raw.toLowerCase())) continue;
+      // Reject hex hashes (MD5/SHA-like: 16-64 hex chars, no spaces)
+      if (/^[0-9a-f]{16,64}$/i.test(raw.replace(/ /g, ''))) continue;
       if (hasNativeScript(raw) && raw.length >= 4) return raw;
       if (raw.length >= 20 || (/[a-zA-Z]{3,}/.test(raw) && raw.includes(' '))) return raw;
     }
