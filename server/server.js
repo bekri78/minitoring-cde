@@ -23,6 +23,7 @@ const { getMaritimeEvents, getMaritimeAnomalies, getNavalActivity }  = require('
 const { fetchMaritimeAnomalies }                                     = require('./maritime-anomalies');
 const { getAviationEvents, refreshOpenSkyCache }                     = require('./aviation-osint');
 const { getSpatialEvents }                                           = require('./spatial-osint');
+const { fetchTodayEvents: fetchTodayEventsFromFiles }                = require('./gdelt-files');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -67,14 +68,7 @@ function loadFromDisk(date) {
 }
 
 async function fetchTodayEvents() {
-  await fetchWorldEvents();
-  const worldFeed = getWorldEventsCache();
-  const events = Array.isArray(worldFeed.events) ? worldFeed.events : [];
-  if (!events.length) {
-    throw new Error('world_events_empty');
-  }
-  console.log(`[events-source] using world feed — ${events.length} events`);
-  return events;
+  return fetchTodayEventsFromFiles();
 }
 
 async function enrichEvents(events) {
