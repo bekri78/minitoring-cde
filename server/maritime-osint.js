@@ -3,6 +3,26 @@
 const { NAVAL_BASES, STRATEGIC_CHOKEPOINTS, MAJOR_PORTS, STRATEGIC_ZONES, MAJOR_SEA_LANES } = require('./data/maritime-context');
 const { getMaritimeAnomaliesCache } = require('./maritime-anomalies');
 
+// ── Contradiction penalties — dilute signal for non-operational content ────────
+const MARITIME_CONTRADICTION_PATTERNS = [
+  { pattern: /\bopinion\b|\bop-ed\b|\bcommentary\b|\banalysis\b/i,                           penalty: 12, label: 'opinion_content' },
+  { pattern: /\bforecast\b|\bprediction\b|\bscenario\b/i,                                    penalty: 10, label: 'speculative_content' },
+  { pattern: /\bhistorical\b|\bdecades ago\b|\byears ago\b/i,                                penalty: 14, label: 'historical_content' },
+  { pattern: /\bshipbuilding contract\b|\bnaval contract\b|\bprocurement\b/i,                penalty: 10, label: 'procurement_content' },
+  { pattern: /\bthink tank\b|\bpolicy paper\b|\bwhite paper\b|\bstrategic review\b/i,        penalty: 12, label: 'doctrinal_content' },
+  { pattern: /\bwar game\b.{0,20}\bscenario\b|\btabletop\b/i,                               penalty: 8,  label: 'simulated_content' },
+];
+
+// ── Action verbs — evidence of operational reality ────────────────────────────
+const MARITIME_ACTION_VERB_PATTERNS = [
+  { pattern: /\bintercepted\b|\bblocked\b|\bboarded\b|\bseized\b/i,           score: 16 },
+  { pattern: /\bdeployed\b.{0,30}\b(fleet|task force|warship)\b/i,            score: 12 },
+  { pattern: /\bcollision\b|\bincident at sea\b|\bfired\b.{0,20}\bwarning\b/i, score: 14 },
+  { pattern: /\bviolated\b.{0,20}\beez\b|\bentered\b.{0,20}\bterritorial waters\b/i, score: 14 },
+  { pattern: /\bsank\b|\bdamaged\b.{0,20}\bship\b|\battacked\b.{0,20}\bvessel\b/i, score: 16 },
+  { pattern: /\bblockade\b|\bescorted\b.{0,20}\bthrough\b|\bdenied passage\b/i, score: 12 },
+];
+
 const MARITIME_KEYWORDS = [
   'naval', 'warship', 'destroyer', 'frigate', 'corvette', 'submarine', 'carrier',
   'fleet', 'task force', 'task group', 'amphibious', 'minehunter', 'mine countermeasure',
@@ -220,63 +240,113 @@ function summarizeSignal(eventType, event, context) {
   return `${eventType.replace(/_/g, ' ')} — ${parts.filter(Boolean).join(' | ')}`.slice(0, 280);
 }
 
+function applyMaritimeContradictionPenalties(text) {
+  let penalty = 0;
+  const labels = [];
+  for (const { pattern, penalty: p, label } of MARITIME_CONTRADICTION_PATTERNS) {
+    if (pattern.test(text)) { penalty += p; labels.push(label); }
+  }
+  return { contradictionPenalty: Math.min(penalty, 40), contradictionLabels: labels };
+}
+
+function detectMaritimeActionVerbs(text) {
+  let score = 0;
+  const found = [];
+  for (const { pattern, score: s } of MARITIME_ACTION_VERB_PATTERNS) {
+    if (pattern.test(text)) {
+      score += s;
+      found.push(pattern.source.split('\\b')[1] || 'action');
+    }
+  }
+  return { actionVerbScore: Math.min(score, 32), verbsFound: found };
+}
+
+function determineMaritimeEventRealityLevel(keywordScore, actionVerbScore, contradictionPenalty, hasAnomaly) {
+  const isOperational = actionVerbScore >= 10 || keywordScore >= 22;
+  if (contradictionPenalty >= 20 && !isOperational) return 'topic';
+  if (hasAnomaly)         return 'corroborated_activity';
+  if (isOperational)      return 'operational_signal';
+  return 'topic';
+}
+
 function toMaritimeSignal(event) {
   const text = normalizeText(event);
   const detected = detectEventType(text);
   const maritime = scoreMaritimeRelevance(event, text);
-  const context = buildContext(event);
+  const context  = buildContext(event);
 
-  let confidence = detected.weight + maritime.keywordScore + maritime.categoryBoost;
-  if (context.nearestBase) confidence += 18;
-  if (context.nearestChokepoint) confidence += 16;
-  if (context.nearestPort) confidence += 8;
-  if (context.strategicZone) confidence += 12;
-  if (context.nearestSeaLane) confidence += 6;
-  confidence += maritime.actorBoost + maritime.subTypeBoost;
+  const { contradictionPenalty, contradictionLabels } = applyMaritimeContradictionPenalties(text);
+  const { actionVerbScore, verbsFound } = detectMaritimeActionVerbs(text);
 
-  confidence = Math.max(0, Math.min(100, confidence));
+  const keywordScore    = maritime.keywordScore;
+  const eventTypeScore  = detected.weight;
+  const catBoost        = maritime.categoryBoost;
+  const geoContextScore = (context.nearestBase ? 18 : 0)
+                        + (context.nearestChokepoint ? 16 : 0)
+                        + (context.nearestPort ? 8 : 0)
+                        + (context.strategicZone ? 12 : 0)
+                        + (context.nearestSeaLane ? 6 : 0);
+  const actorSubBoost   = maritime.actorBoost + maritime.subTypeBoost;
+
+  const raw             = keywordScore + eventTypeScore + actionVerbScore + catBoost + geoContextScore + actorSubBoost;
+  const confidence      = Math.max(0, Math.min(100, raw - contradictionPenalty));
+
+  const eventRealityLevel = determineMaritimeEventRealityLevel(keywordScore, actionVerbScore, contradictionPenalty, false);
 
   return {
-    id: `maritime-${event.id}`,
+    id:            `maritime-${event.id}`,
     sourceEventId: event.id,
-    latitude: event.lat,
-    longitude: event.lon,
-    type: detected.primaryType,
-    tags: detected.secondaryTags,
+    latitude:      event.lat,
+    longitude:     event.lon,
+    type:          detected.primaryType,
+    tags:          detected.secondaryTags,
     maritimeScore: maritime.score,
     confidenceScore: confidence,
-    timestamp: event.date || event.lastUpdate || new Date().toISOString(),
-    title: event.title,
-    titleFr: event.titleFr || null,
-    category: event.category,
-    country: event.country,
+    eventRealityLevel,
+    timestamp:     event.date || event.lastUpdate || new Date().toISOString(),
+    title:         event.title,
+    titleFr:       event.titleFr || null,
+    category:      event.category,
+    country:       event.country,
     context,
-    description: summarizeSignal(detected.primaryType, event, context),
+    description:   summarizeSignal(detected.primaryType, event, context),
+    scoreBreakdown: {
+      keywordScore,
+      eventTypeScore,
+      actionVerbScore,
+      recencyScore:        0,
+      geoContextScore,
+      corroborationScore:  0,
+      contradictionPenalty,
+      finalConfidence:     confidence,
+    },
     provenance: {
       gdelt: {
-        eventId: event.id,
-        category: event.category,
-        domain: event.domain || null,
-        url: event.url || null,
-        maritimeScore: maritime.score,
-        keywordScore: maritime.keywordScore,
-        matchedKeywords: maritime.matches.map(item => item.term),
-        typeWeight: detected.weight,
-        secondaryTags: detected.secondaryTags,
+        eventId:          event.id,
+        category:         event.category,
+        domain:           event.domain || null,
+        url:              event.url || null,
+        maritimeScore:    maritime.score,
+        keywordScore,
+        matchedKeywords:  maritime.matches.map(item => item.term),
+        verbsFound,
+        contradictionLabels,
+        typeWeight:       detected.weight,
+        secondaryTags:    detected.secondaryTags,
       },
       maritimeContext: {
-        enabled: Boolean(context.nearestBase || context.nearestChokepoint || context.nearestPort || context.strategicZone || context.nearestSeaLane),
+        enabled:     Boolean(context.nearestBase || context.nearestChokepoint || context.nearestPort || context.strategicZone || context.nearestSeaLane),
         contextTags: context.contextTags,
       },
       anomalySources: [],
-      anomalyCount: 0,
+      anomalyCount:   0,
     },
     rawEvent: {
-      url: event.url,
-      domain: event.domain || null,
-      actor1: event.actor1 || null,
-      actor2: event.actor2 || null,
-      notes: event.notes || null,
+      url:      event.url,
+      domain:   event.domain || null,
+      actor1:   event.actor1 || null,
+      actor2:   event.actor2 || null,
+      notes:    event.notes || null,
       headline: event.headline || null,
     },
   };

@@ -119,19 +119,107 @@ const STRATEGIC_COUNTRY_CODES = new Set([
   'IR', 'SY', 'UP', 'IZ', 'AF', 'PK',
   'LY', 'YM', 'SU',
 ]);
-const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 1200);
-const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 250);
+const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 1500);
+const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 300);
 const MIN_RELEVANCE_SCORE  = Number(process.env.GDELT_MIN_SCORE || 60);
 
+// ── Domain-aware minimums — garantit la représentation des domaines rares ─────
+// Ces slots sont réservés en priorité dans selectDiverseEvents.
+// Ils ne gonflent pas le total : ils s'imputent sur MAX_DASHBOARD_EVENTS.
+const DOMAIN_MIN_SPATIAL  = Number(process.env.GDELT_SPATIAL_MIN  || 70);
+const DOMAIN_MIN_AVIATION = Number(process.env.GDELT_AVIATION_MIN || 150);
+const DOMAIN_MIN_MARITIME = Number(process.env.GDELT_MARITIME_MIN || 180);
+
+// Détection de domaine sur le texte brut GDELT (avant enrichissement IA)
+// Volontairement large : on veut des faux positifs plutôt que des manques.
+const DOMAIN_KEYWORDS_SPATIAL = [
+  'satellite', 'orbital', 'asat', 'anti-satellite', 'space force', 'space command',
+  'rocket launch', 'launch vehicle', 'reentry', 'deorbit', 'gps jamming', 'gps spoofing',
+  'gnss jamming', 'gnss spoofing', 'space weapon', 'fractional orbital', 'fobs',
+  'reconnaissance satellite', 'spy satellite', 'military satellite', 'classified payload',
+  'x-37', 'spaceplane', 'space domain', 'hypersonic missile',
+  // ── Ajouts : synonymes et vocabulaire élargi ──
+  'space debris', 'space junk', 'cosmos', 'cosmodrome', 'baikonur', 'vandenberg',
+  'cape canaveral', 'jiuquan', 'xichang', 'wenchang', 'plesetsk', 'vostochny',
+  'icbm', 'slbm', 'ballistic missile', 'missile test', 'missile launch',
+  'space surveillance', 'space situational awareness', 'ssa',
+  'starlink', 'oneweb', 'kuiper', 'leo constellation',
+  'space race', 'moon mission', 'lunar', 'mars mission',
+  'anti-missile', 'missile defense', 'missile defence', 'thaad', 'aegis ashore',
+  'kinetic kill', 'directed energy weapon', 'space laser',
+  'electromagnetic pulse', 'emp', 'jamming', 'spoofing',
+  'orbit', 'geostationary', 'geosynchronous', 'low earth orbit',
+  'medium earth orbit', 'polar orbit', 'sun-synchronous',
+  'space station', 'tiangong', 'iss',
+];
+
+const DOMAIN_KEYWORDS_AVIATION = [
+  'airstrike', 'air strike', 'fighter jet', 'warplane', 'air force', 'airbase', 'air base',
+  'scrambled', 'intercept', 'intercepted', 'drone', 'uav', 'unmanned aerial',
+  'shaheed', 'shahed', 'bayraktar', 'no-fly zone', 'notam', 'airspace', 'air defense',
+  'shot down', 'downed', 'air patrol', 'surveillance flight', 'reconnaissance aircraft',
+  's-400', 'patriot missile', 'iron dome', 'bomber', 'b-52', 'f-16', 'f-35', 'su-35',
+  'tu-160', 'air wing', 'squadron', 'sortie', 'overflight',
+  // ── Ajouts : vocabulaire aviation élargi ──
+  'ucav', 'combat drone', 'kamikaze drone', 'loitering munition',
+  'awacs', 'early warning', 'tanker aircraft', 'aerial refueling', 'air-to-air',
+  'air-to-ground', 'ground attack', 'close air support', 'cas',
+  'adiz', 'air defense identification zone', 'flight restriction',
+  'air superiority', 'dogfight', 'aerial combat',
+  'stealth', 'stealth bomber', 'stealth fighter', 'b-2', 'b-21',
+  'su-57', 'j-20', 'j-35', 'eurofighter', 'typhoon', 'rafale', 'gripen',
+  'mig-29', 'mig-31', 'su-30', 'su-34', 'a-10', 'warthog',
+  'helicopter gunship', 'attack helicopter', 'apache', 'ka-52',
+  'predator', 'reaper', 'global hawk', 'triton', 'heron', 'hermes',
+  'air corridor', 'flight path', 'transponder off', 'squawk',
+  'anti-aircraft', 'manpad', 'sam site', 'surface-to-air',
+  'air campaign', 'carpet bombing', 'precision strike', 'guided bomb',
+  'cruise missile', 'tomahawk', 'kalibr', 'storm shadow', 'scalp',
+  'air drop', 'paratrooper', 'airborne', 'paratroop',
+  'military helicopter', 'chinook', 'blackhawk', 'osprey', 'mi-24', 'mi-28',
+];
+
+const DOMAIN_KEYWORDS_MARITIME = [
+  'naval', 'warship', 'destroyer', 'frigate', 'submarine', 'aircraft carrier', 'fleet',
+  'task force', 'coast guard', 'strait', 'chokepoint', 'exclusive economic zone', 'eez',
+  'south china sea', 'taiwan strait', 'hormuz', 'suez', 'red sea', 'black sea',
+  'blockade', 'maritime patrol', 'boarding', 'ship-to-ship', 'port visit', 'naval exercise',
+  // ── Ajouts : vocabulaire maritime élargi ──
+  'corvette', 'cruiser', 'amphibious', 'landing ship', 'dock landing',
+  'minesweeper', 'minelayer', 'patrol boat', 'missile boat', 'fast attack craft',
+  'littoral combat', 'aegis', 'carrier strike group', 'carrier group',
+  'battle group', 'flotilla', 'armada',
+  'anti-submarine warfare', 'asw', 'sonar', 'torpedo', 'depth charge',
+  'sea lane', 'shipping lane', 'sealift', 'maritime security',
+  'piracy', 'pirate', 'hijack ship', 'seized vessel', 'boarded vessel',
+  'freedom of navigation', 'fonop', 'innocent passage',
+  'naval blockade', 'maritime interdiction', 'embargo',
+  'persian gulf', 'gulf of aden', 'bab el-mandeb', 'malacca',
+  'baltic sea', 'barents sea', 'arctic sea', 'east china sea',
+  'sea of japan', 'philippine sea', 'arabian sea', 'mediterranean',
+  'uss ', 'hms ', 'ins ', 'rfs ', 'cns ',
+  'naval base', 'port call', 'homeport', 'dry dock',
+  'ssbn', 'ssn', 'nuclear submarine', 'diesel submarine',
+  'anti-ship missile', 'harpoon', 'exocet', 'brahmos',
+  'unmanned surface vessel', 'usv', 'unmanned underwater', 'uuv',
+  'naval aviation', 'carrier-based', 'catapult launch',
+];
+
+function detectEventDomain(event) {
+  const text = `${event.title || ''} ${event.url || ''} ${event.actor1 || ''} ${event.actor2 || ''} ${event.subEventType || ''}`.toLowerCase();
+  if (DOMAIN_KEYWORDS_SPATIAL.some(k  => text.includes(k))) return 'spatial';
+  if (DOMAIN_KEYWORDS_AVIATION.some(k => text.includes(k))) return 'aviation';
+  if (DOMAIN_KEYWORDS_MARITIME.some(k => text.includes(k))) return 'maritime';
+  return null;
+}
+
 const CATEGORY_QUOTAS = {
-  terrorism: 120,
-  conflict:  260,
-  military:  220,
-  protest:   160,
-  cyber:      80,
-  strategic: 160,
-  crisis:    160,
-  incident:   80,
+  conflict:   300,
+  military:   270,
+  terrorism:  120,
+  strategic:  200,
+  crisis:     170,
+  cyber:       90,
 };
 
 // ── Mots-clés opérationnels ────────────────────────────────────────────────
@@ -531,7 +619,15 @@ const RECENT_EVENTS_SQL = `
           WHEN ${DATEADDED_FILTER(6)}  THEN 10
           ELSE 0
         END
-    ) AS bq_signal_score
+    ) AS bq_signal_score,
+    -- Clé de déduplication approximative : pays + code + heure + coordonnées arrondies
+    CONCAT(
+      IFNULL(e.ActionGeo_CountryCode, 'XX'), '_',
+      IFNULL(e.EventRootCode, '00'), '_',
+      CAST(CAST(FLOOR(e.DATEADDED / 10000) AS INT64) AS STRING), '_',
+      CAST(ROUND(e.ActionGeo_Lat, 0) AS STRING), '_',
+      CAST(ROUND(e.ActionGeo_Long, 0) AS STRING)
+    ) AS dedup_key
   FROM \`gdelt-bq.gdeltv2.events\` e
   LEFT JOIN \`gdelt-bq.gdeltv2.gkg\` g
     ON g.DocumentIdentifier = e.SOURCEURL
@@ -545,20 +641,30 @@ const RECENT_EVENTS_SQL = `
     AND e.SOURCEURL IS NOT NULL
     AND e.SOURCEURL != ''
     AND (
-      -- Violence militaire directe : combat, frappes, opérations armées, terrorisme
+      -- Couche 1 : Violence militaire directe (combat, frappes, opérations armées)
       (e.EventRootCode IN ('18','19','20') AND e.GoldsteinScale <= -1.5)
       OR
-      -- Insurrections violentes / coups d'état (seulement les plus graves)
-      (e.EventRootCode = '15' AND e.GoldsteinScale <= -2.0)
+      -- Couche 2 : Démonstrations de force, mobilisations, exercices (seuil abaissé)
+      (e.EventRootCode = '15' AND e.GoldsteinScale <= -1.0)
       OR
+      -- Couche 3 : Protestations violentes
       (e.EventRootCode = '14' AND e.GoldsteinScale <= -2.5)
       OR
+      -- Couche 4 : Crises stratégiques (menaces, coercition, rupture diplomatique)
       (e.EventRootCode IN ('13','16','17') AND e.GoldsteinScale <= -3.0)
       OR
+      -- Couche 5 : Cyber
       (e.EventCode = '155')
+      OR
+      -- Couche 6 : Domaines OSINT spécialisés — seuil Goldstein relâché
+      -- Capture aviation, spatial, maritime même avec Goldstein modéré
+      (e.GoldsteinScale <= -0.5 AND REGEXP_CONTAINS(
+        LOWER(e.SOURCEURL),
+        r'satellite|orbital|asat|space.force|rocket.launch|gps.jam|hypersonic|icbm|slbm|reentry|missile.test|spaceplane|space.weapon|airstrike|fighter.jet|air.force|drone|uav|intercept|airspace|air.defense|bomber|sortie|no.fly|scramble|warplane|reconnaissance|surveillance.flight|naval|warship|destroyer|frigate|submarine|aircraft.carrier|fleet|strait|blockade|maritime|coast.guard|military.exercis|troop.deploy|naval.exercis'
+      ))
     )
   ORDER BY bq_signal_score DESC
-  LIMIT 5000
+  LIMIT 6000
 `;
 
 // ── Couche 2 — signal_hotspots_24h ───────────────────────────────────────
@@ -625,16 +731,66 @@ const HOTSPOTS_SQL = `
       OR
       (EventRootCode = '14' AND GoldsteinScale <= -3.0)
       OR
-      (EventRootCode = '15' AND GoldsteinScale <= -2.0)
+      (EventRootCode = '15' AND GoldsteinScale <= -1.0)
       OR
       (QuadClass = 3 AND EventRootCode IN ('13','16','17') AND GoldsteinScale <= -4.0)
       OR
       (EventCode = '155')
+      OR
+      -- Domaines OSINT spécialisés dans les hotspots
+      (GoldsteinScale <= -0.5 AND REGEXP_CONTAINS(
+        LOWER(SOURCEURL),
+        r'satellite|orbital|asat|space|rocket|gps|hypersonic|icbm|airstrike|fighter|air.force|drone|uav|intercept|airspace|bomber|naval|warship|destroyer|frigate|submarine|carrier|fleet|strait|blockade|maritime'
+      ))
     )
   GROUP BY latitude, longitude
   HAVING event_count > 1 OR severity_score >= 80
   ORDER BY final_signal_score DESC
   LIMIT 500
+`;
+
+// ── Requête A — analyse/calibrage ─────────────────────────────────────────
+// Distribution réelle des événements GDELT 24h, filtrage large.
+// Sert à comprendre la répartition par catégorie, domaine, pays et score.
+// N'alimente PAS le pipeline opérationnel.
+const ANALYSIS_SQL = `
+  SELECT
+    CASE
+      WHEN EventCode = '155'                              THEN 'cyber'
+      WHEN EventCode IN ('181','1831','1832','1833')      THEN 'terrorism'
+      WHEN EventRootCode IN ('18','19','20')              THEN 'conflict'
+      WHEN EventRootCode = '15'                           THEN 'military'
+      WHEN EventRootCode = '14'                           THEN 'protest'
+      WHEN EventRootCode IN ('13','16','17')              THEN 'strategic'
+      ELSE 'other'
+    END                                                    AS category,
+    ActionGeo_CountryCode                                  AS country_code,
+    EventRootCode                                          AS root_code,
+    COUNT(*)                                               AS event_count,
+    ROUND(AVG(GoldsteinScale), 2)                         AS avg_goldstein,
+    ROUND(AVG(AvgTone), 2)                                AS avg_tone,
+    SUM(NumMentions)                                       AS total_mentions,
+    SUM(NumSources)                                        AS total_sources,
+    SUM(NumArticles)                                       AS total_articles,
+    ROUND(AVG(
+      ABS(GoldsteinScale) * 10
+      + LN(1 + NumMentions) * 3
+      + LN(1 + NumSources) * 5
+      + LN(1 + NumArticles) * 2
+    ), 1)                                                  AS avg_score
+  FROM \`gdelt-bq.gdeltv2.events\`
+  WHERE
+    ${DATEADDED_FILTER(24)}
+    AND ActionGeo_Lat  IS NOT NULL
+    AND ActionGeo_Long IS NOT NULL
+    AND GoldsteinScale < 0
+    AND (
+      EventRootCode IN ('13','14','15','16','17','18','19','20')
+      OR EventCode = '155'
+    )
+  GROUP BY category, country_code, root_code
+  ORDER BY event_count DESC
+  LIMIT 1000
 `;
 
 // ── Index hotspot depuis les résultats BigQuery (signal_hotspots_24h) ────
@@ -676,17 +832,36 @@ function selectDiverseEvents(events) {
     }
   }
 
+  // ── Étape 1 : réserver les slots domaines rares en priorité ───────────────
+  // Ordre : spatial (le plus rare) → aviation → maritime.
+  // Sans cette étape, un pic d'actualité générale écrase ces domaines.
+  const bySpatial  = sorted.filter(e => detectEventDomain(e) === 'spatial');
+  const byAviation = sorted.filter(e => detectEventDomain(e) === 'aviation');
+  const byMaritime = sorted.filter(e => detectEventDomain(e) === 'maritime');
+
+  take(bySpatial,  DOMAIN_MIN_SPATIAL);
+  take(byAviation, DOMAIN_MIN_AVIATION);
+  take(byMaritime, DOMAIN_MIN_MARITIME);
+
+  const domainCount = selected.length;
+  console.log(`[gdelt] domain slots reserved — spatial:${bySpatial.length}→${selected.filter(e => detectEventDomain(e) === 'spatial').length} aviation:${byAviation.length}→${selected.filter(e => detectEventDomain(e) === 'aviation').length} maritime:${byMaritime.length}→${selected.filter(e => detectEventDomain(e) === 'maritime').length}`);
+
+  // ── Étape 2 : quotas par catégorie GDELT ─────────────────────────────────
   for (const [category, limit] of Object.entries(CATEGORY_QUOTAS)) {
     take(sorted.filter(e => e.category === category), limit);
   }
 
+  // ── Étape 3 : garantir les pays stratégiques ──────────────────────────────
   const strategicCount = selected.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)).length;
   take(
     sorted.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)),
     Math.max(0, STRATEGIC_MIN_EVENTS - strategicCount)
   );
 
+  // ── Étape 4 : remplir le reste par score ─────────────────────────────────
   take(sorted, MAX_DASHBOARD_EVENTS - selected.length);
+
+  console.log(`[gdelt] selectDiverseEvents — total:${selected.length} (domain:${domainCount} category+strategic+fill:${selected.length - domainCount})`);
   return selected.sort((a, b) => b.score - a.score);
 }
 
@@ -700,13 +875,26 @@ function rowToEvent(row, hotspotIndex) {
   const quadClass = String(row.quad_class ?? '');
   const geoType   = String(row.geo_type   ?? '0');
 
-  // Re-apply Goldstein thresholds (the SQL already filters, but views may not)
+  // Vérifier si l'URL/titre contient des termes de domaine OSINT spécialisé
+  // avant d'appliquer les seuils Goldstein (ces événements ont des seuils relâchés)
+  const preTitle = decodeHtmlEntities(row.page_title || '').toLowerCase();
+  const preDomainText = `${preTitle} ${url} ${row.actor1 || ''} ${row.actor2 || ''}`.toLowerCase();
+  const isDomainOSINT = DOMAIN_KEYWORDS_SPATIAL.some(k => preDomainText.includes(k))
+                     || DOMAIN_KEYWORDS_AVIATION.some(k => preDomainText.includes(k))
+                     || DOMAIN_KEYWORDS_MARITIME.some(k => preDomainText.includes(k));
+
+  // Re-apply Goldstein thresholds — relâchés pour les événements domaine OSINT
   if (isNaN(goldstein)) return null;
-  if (eventCode !== '155' && quadClass === '4' && goldstein > -0.5) return null;
-  if (quadClass === '3' && ['13','16','17'].includes(rootCode) && goldstein > -3) return null;
-  if (quadClass === '3' && !['13','16','17'].includes(rootCode) && goldstein > -4) return null;
-  // For rows from a pre-created view with no quad_class, accept any negative value
-  if (!quadClass && goldstein >= 0) return null;
+  if (isDomainOSINT) {
+    // Les événements aviation/spatial/maritime passent avec tout Goldstein négatif
+    if (goldstein >= 0) return null;
+  } else {
+    if (eventCode !== '155' && quadClass === '4' && goldstein > -0.5) return null;
+    if (quadClass === '3' && ['13','16','17'].includes(rootCode) && goldstein > -3) return null;
+    if (quadClass === '3' && !['13','16','17'].includes(rootCode) && goldstein > -4) return null;
+    // For rows from a pre-created view with no quad_class, accept any negative value
+    if (!quadClass && goldstein >= 0) return null;
+  }
 
   let lat = parseFloat(row.latitude);
   let lon = parseFloat(row.longitude);
@@ -768,6 +956,7 @@ function rowToEvent(row, hotspotIndex) {
     severity:     getSeverityLabel(goldstein),
     category,
     score:        finalScore,
+    dedup_key:    row.dedup_key || null,
     dataSource:   'gdelt-bq',
   };
 }
@@ -829,13 +1018,29 @@ async function fetchTodayEvents() {
     console.log(`[gdelt-dbg] gs=${row.goldstein} qc=${row.quad_class} noise=${noise} civ=${civilian} sec=${security} | ${title.slice(0,80)}`);
   }
 
-  console.log(`[gdelt-bq] ${dedupMap.size} unique events after dedup and noise filter`);
+  console.log(`[gdelt-bq] ${dedupMap.size} unique events after URL dedup and noise filter`);
+
+  // ── Phase 2 : déduplication approximative par événement ─────────────────
+  // GDELT génère 20-50 lignes par événement (sources différentes, même fait).
+  // Le dedup_key regroupe : pays + code CAMEO + heure + coordonnées arrondies.
+  const dedupByEvent = new Map();
+  for (const ev of dedupMap.values()) {
+    const key = ev.dedup_key || ev.url;
+    const existing = dedupByEvent.get(key);
+    if (!existing || ev.score > existing.score) {
+      dedupByEvent.set(key, ev);
+    }
+  }
+  console.log(`[gdelt-bq] ${dedupByEvent.size} events after approximate dedup (was ${dedupMap.size} by URL)`);
 
   // ── Geographic diversity — reserve slots for strategic regions ────────
   // Russia (RS), China (CH), North Korea (KN), Iran (IR),
   // Syria (SY), Ukraine (UP), Iraq (IZ) often score lower due to
   // non-English URLs (same rationale as original gdelt.js)
-  const events = selectDiverseEvents(Array.from(dedupMap.values()));
+  const events = selectDiverseEvents(Array.from(dedupByEvent.values()));
+
+  // ── Simulation des quotas ───────────────────────────────────────────────
+  logQuotaSimulation(events);
 
   const strategicCount = events.filter(e => STRATEGIC_COUNTRY_CODES.has(e.countryCode)).length;
   console.log(`[gdelt-bq] done — ${events.length} events (${strategicCount} strategic)`);
@@ -843,4 +1048,39 @@ async function fetchTodayEvents() {
   return events;
 }
 
-module.exports = { fetchTodayEvents };
+// ── Requête A — analyse/calibrage (distribution GDELT brute) ──────────────
+async function fetchAnalysisDistribution() {
+  const bq = getBigQueryClient();
+  const [rows] = await bq.query({ query: ANALYSIS_SQL, location: 'US', useLegacySql: false });
+  console.log(`[gdelt-bq] analysis — ${rows.length} distribution rows`);
+  return rows;
+}
+
+// ── Simulation des quotas — affiche reserved / filled / gap ───────────────
+function logQuotaSimulation(events) {
+  const lines = ['[gdelt] ── Quota Simulation ──────────────────────────────'];
+
+  // Domaines OSINT
+  const domainQuotas = {
+    spatial:  DOMAIN_MIN_SPATIAL,
+    aviation: DOMAIN_MIN_AVIATION,
+    maritime: DOMAIN_MIN_MARITIME,
+  };
+  for (const [domain, reserved] of Object.entries(domainQuotas)) {
+    const filled = events.filter(e => detectEventDomain(e) === domain).length;
+    const gap = Math.max(0, reserved - filled);
+    lines.push(`  ${domain.padEnd(12)} reserved:${String(reserved).padStart(4)}  filled:${String(filled).padStart(4)}  gap:${String(gap).padStart(4)}${gap > 0 ? '  ⚠ STARVATION' : ''}`);
+  }
+
+  // Catégories
+  for (const [category, reserved] of Object.entries(CATEGORY_QUOTAS)) {
+    const filled = events.filter(e => e.category === category).length;
+    const gap = Math.max(0, reserved - filled);
+    lines.push(`  ${category.padEnd(12)} reserved:${String(reserved).padStart(4)}  filled:${String(filled).padStart(4)}  gap:${String(gap).padStart(4)}${gap > 0 ? '  ⚠ STARVATION' : ''}`);
+  }
+
+  lines.push('[gdelt] ────────────────────────────────────────────────────');
+  console.log(lines.join('\n'));
+}
+
+module.exports = { fetchTodayEvents, fetchAnalysisDistribution };

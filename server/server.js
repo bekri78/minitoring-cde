@@ -5,7 +5,7 @@ const cors    = require('cors');
 const cron    = require('node-cron');
 const fs      = require('fs');
 const path    = require('path');
-const { fetchTodayEvents }      = require('./gdelt');
+const { fetchTodayEvents, fetchAnalysisDistribution } = require('./gdelt');
 const { enrichEvents }          = require('./enrich');
 const { fetchAll: fetchLaunches, getCache: getLaunchCache } = require('./launches');
 const { fetchDecay, getCache: getDecayCache, fetchTip, getTipCache } = require('./spacetrack');
@@ -23,6 +23,8 @@ const { fetchSignalMarkers, getCache: getSignalMarkersCache }        = require('
 const { fetchWorldEvents, getCache: getWorldEventsCache }            = require('./worldEvents');
 const { getMaritimeEvents, getMaritimeAnomalies, getNavalActivity }  = require('./maritime-osint');
 const { fetchMaritimeAnomalies }                                     = require('./maritime-anomalies');
+const { getAviationEvents, refreshOpenSkyCache }                     = require('./aviation-osint');
+const { getSpatialEvents }                                           = require('./spatial-osint');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -196,6 +198,16 @@ app.get('/launches', (req, res) => {
 });
 
 // ── Historique — résumé par jour ──────────────────────────────────────────
+app.get('/analysis', async (req, res) => {
+  try {
+    const rows = await fetchAnalysisDistribution();
+    res.json({ rows, count: rows.length });
+  } catch (err) {
+    console.error('[analysis]', err.message);
+    res.status(500).json({ error: 'analysis_failed' });
+  }
+});
+
 app.get('/history', (req, res) => {
   try {
     const files = fs.readdirSync(CACHE_DIR)
@@ -515,6 +527,98 @@ publicRouter.get('/all', (req, res) => {
   res.json(publicEnvelope('all', payload));
 });
 
+// ── OSINT domaines spécialisés ────────────────────────────────────────────
+publicRouter.get('/maritime/events', (req, res) => {
+  const events = getMaritimeEvents(cache.events);
+  res.json(publicEnvelope('maritime-events', events, {
+    lastUpdate: cache.lastUpdate,
+    status:     cache.status,
+  }));
+});
+
+publicRouter.get('/maritime/anomalies', (_req, res) => {
+  const result = getMaritimeAnomalies();
+  res.json(publicEnvelope('maritime-anomalies', result.anomalies || result, {
+    lastUpdate: result.lastUpdate || null,
+    status:     'ok',
+  }));
+});
+
+publicRouter.get('/maritime/naval-activity', (req, res) => {
+  const result = getNavalActivity(cache.events);
+  res.json(publicEnvelope('naval-activity', result.activity || result, {
+    lastUpdate: cache.lastUpdate,
+    status:     cache.status,
+  }));
+});
+
+publicRouter.get('/aviation/events', (_req, res) => {
+  const events = getAviationEvents(cache.events);
+  res.json(publicEnvelope('aviation-events', events, {
+    lastUpdate: cache.lastUpdate,
+    status:     cache.status,
+  }));
+});
+
+publicRouter.get('/spatial/events', (_req, res) => {
+  const events = getSpatialEvents(cache.events);
+  res.json(publicEnvelope('spatial-events', events, {
+    lastUpdate: cache.lastUpdate,
+    status:     cache.status,
+  }));
+});
+
+// ── Synthèse géopolitique (Groq) ──────────────────────────────────────────
+publicRouter.get('/signals', (_req, res) => {
+  const c = getSignalsCache();
+  res.json(publicEnvelope('signals', c.signals, {
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  }));
+});
+
+// ── Analyse / calibrage (distribution BigQuery brute) ─────────────────────
+publicRouter.get('/analysis', async (_req, res) => {
+  try {
+    const rows = await fetchAnalysisDistribution();
+    res.json(publicEnvelope('analysis', rows));
+  } catch (err) {
+    console.error('[analysis]', err.message);
+    res.status(500).json({ error: 'analysis_failed' });
+  }
+});
+
+// ── Historique journalier ─────────────────────────────────────────────────
+publicRouter.get('/history', (_req, res) => {
+  try {
+    const files = fs.readdirSync(CACHE_DIR)
+      .filter(f => /^events-\d{8}\.json$/.test(f))
+      .sort();
+    const history = files.map(file => {
+      try {
+        const raw    = JSON.parse(fs.readFileSync(path.join(CACHE_DIR, file), 'utf8'));
+        const events = raw.events || [];
+        const categories = {};
+        const severities = {};
+        for (const e of events) {
+          categories[e.category || 'incident'] = (categories[e.category || 'incident'] || 0) + 1;
+          severities[e.severity || 'LOW']      = (severities[e.severity || 'LOW'] || 0) + 1;
+        }
+        return {
+          date:       file.replace('events-', '').replace('.json', ''),
+          count:      events.length,
+          lastUpdate: raw.lastUpdate || null,
+          categories,
+          severities,
+        };
+      } catch { return null; }
+    }).filter(Boolean);
+    res.json(publicEnvelope('history', history));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use('/api/public', publicRouter);
 
 // ── Proxy image (base64) ──────────────────────────────────────────────────────
@@ -616,6 +720,28 @@ app.get('/api/maritime/anomalies', (_req, res) => {
 app.get('/api/maritime/naval-activity', (req, res) => {
   const result = getNavalActivity(cache.events);
   res.json(result);
+});
+
+app.get('/api/aviation/events', (_req, res) => {
+  const events = getAviationEvents(cache.events);
+  res.json({
+    events,
+    count:      events.length,
+    lastUpdate: cache.lastUpdate,
+    status:     cache.status,
+    generatedAt: new Date().toISOString(),
+  });
+});
+
+app.get('/api/spatial/events', (_req, res) => {
+  const events = getSpatialEvents(cache.events);
+  res.json({
+    events,
+    count:      events.length,
+    lastUpdate: cache.lastUpdate,
+    status:     cache.status,
+    generatedAt: new Date().toISOString(),
+  });
 });
 
 app.get('/diag/ais', async (req, res) => {
@@ -733,6 +859,11 @@ cron.schedule('*/30 * * * *', () => {
   fetchMaritimeAnomalies().catch(err => console.error('[maritime-anomalies-cron]', err.message));
 });
 
+// ── Cron 15min — OpenSky aircraft (aviation OSINT corroboration) ───────────────
+cron.schedule('*/15 * * * *', () => {
+  refreshOpenSkyCache().catch(err => console.error('[opensky-cron]', err.message));
+});
+
 // ── Démarrage ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
@@ -749,4 +880,5 @@ app.listen(PORT, () => {
   fetchSignalMarkers().catch(err => console.error('[startup-signal-markers]', err.message));
   fetchWorldEvents().catch(err => console.error('[startup-world-events]', err.message));
   fetchMaritimeAnomalies().catch(err => console.error('[startup-maritime-anomalies]', err.message));
+  refreshOpenSkyCache().catch(err => console.error('[startup-opensky]', err.message));
 });
