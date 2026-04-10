@@ -280,10 +280,12 @@ function mergeAiResult(event, result) {
   const aiPriority = Math.max(0, Math.min(100, Number(result?.priority || 0)));
   const score = Number(event.score || 0) + aiPriority;
 
-  // Domaine OSINT : l'AI prime sur la détection par mots-clés ; si l'AI ne retourne
-  // pas de valeur (undefined = batch en erreur), on garde le seed keyword.
+  // Domaine OSINT : l'AI prime toujours sur le seed keyword dès qu'elle a répondu.
+  // - result défini + osintDomain = 'spatial'|'aviation'|'maritime' → on garde
+  // - result défini + osintDomain absent/null/autre → on force null (pas de fallback keyword)
+  // - result undefined (batch en erreur, event non trouvé) → on garde le seed keyword
   const aiDomain = result?.osintDomain;
-  const osintDomain = aiDomain !== undefined
+  const osintDomain = (result !== undefined)
     ? (VALID_OSINT_DOMAINS.has(aiDomain) ? aiDomain : null)
     : (event.osintDomain || null);
 
