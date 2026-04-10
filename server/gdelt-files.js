@@ -5,6 +5,8 @@ const path = require('path');
 const unzipper = require('unzipper');
 
 const MASTERFILELIST_URL = process.env.GDELT_MASTERFILELIST_URL || 'http://data.gdeltproject.org/gdeltv2/masterfilelist.txt';
+const MASTERFILELIST_TRANSLATION_URL = process.env.GDELT_MASTERFILELIST_TRANSLATION_URL || 'http://data.gdeltproject.org/gdeltv2/masterfilelist-translation.txt';
+const INCLUDE_TRANSLATION = process.env.GDELT_INCLUDE_TRANSLATION !== 'false'; // enabled by default
 const CACHE_DIR = process.env.CACHE_DIR || '/data';
 const STATE_PATH = path.join(CACHE_DIR, 'gdelt-file-state.json');
 
@@ -162,6 +164,16 @@ const PRIORITY_DOMAIN_BOOST = {
   'farsnews.ir': 55, 'mehrnews.com': 55,
   'almayadeen.net': 55, 'aljazeera.net': 50, 'alarabiya.net': 50,
   'yonhapnews.co.kr': 55,
+  // Additional non-English priority sources (translation feed)
+  'mil.ru': 70, 'iz.ru': 60, 'kommersant.ru': 60, 'vedomosti.ru': 55, 'rbc.ru': 55,
+  'fontanka.ru': 55, 'meduza.io': 55, 'novayagazeta.ru': 55,
+  'people.com.cn': 65, 'pla.cn': 70, 'mod.gov.cn': 70, 'guancha.cn': 60,
+  'mil.news.sina.com.cn': 65, 'thepaper.cn': 55, 'huanqiu.com': 60,
+  'chosun.com': 55, 'joongang.co.kr': 55, 'koreatimes.co.kr': 55,
+  'asahi.com': 55, 'yomiuri.co.jp': 55, 'nikkei.com': 55, 'nhk.or.jp': 60,
+  'iranintl.com': 60, 'aa.com.tr': 55, 'ahvalnews.com': 55,
+  'rferl.org': 60, 'kavkazr.com': 55, 'currenttime.tv': 55,
+  'kyivindependent.com': 60, 'ukrinform.ua': 60, 'pravda.com.ua': 55,
 };
 
 const URL_NAV_SEGMENTS = new Set([
@@ -973,32 +985,79 @@ async function processBatch(batch) {
   return events;
 }
 
+async function fetchTranslationMasterFileList() {
+  const resp = await fetch(MASTERFILELIST_TRANSLATION_URL, {
+    signal: AbortSignal.timeout(20000),
+    headers: { Accept: 'text/plain' },
+  });
+  if (!resp.ok) throw new Error(`masterfilelist-translation HTTP ${resp.status}`);
+  return resp.text();
+}
+
 async function fetchTodayEvents(options = {}) {
   const forceReprocess = Boolean(options.forceReprocess);
   const state = loadState();
-  const masterText = await fetchMasterFileList();
+
+  // Fetch English and translation masterlists in parallel
+  const [masterText, translationText] = await Promise.all([
+    fetchMasterFileList(),
+    INCLUDE_TRANSLATION ? fetchTranslationMasterFileList().catch(err => {
+      console.warn('[gdelt-files] translation masterlist failed:', err.message);
+      return '';
+    }) : Promise.resolve(''),
+  ]);
+
   const grouped = groupEntries(masterText);
+  const groupedTranslation = INCLUDE_TRANSLATION ? groupEntries(translationText) : [];
+
   const pending = forceReprocess
     ? grouped.slice(-Math.max(BOOTSTRAP_WINDOWS, MAX_WINDOWS_PER_RUN))
     : state.lastBatchTs
     ? grouped.filter(batch => batch.ts > state.lastBatchTs)
     : grouped.slice(-BOOTSTRAP_WINDOWS);
 
+  const pendingTranslation = forceReprocess
+    ? groupedTranslation.slice(-Math.max(BOOTSTRAP_WINDOWS, MAX_WINDOWS_PER_RUN))
+    : state.lastBatchTsTranslation
+    ? groupedTranslation.filter(batch => batch.ts > state.lastBatchTsTranslation)
+    : groupedTranslation.slice(-BOOTSTRAP_WINDOWS);
+
   const toProcess = pending.slice(0, MAX_WINDOWS_PER_RUN);
-  if (!toProcess.length) {
+  const toProcessTranslation = pendingTranslation.slice(0, MAX_WINDOWS_PER_RUN);
+
+  if (!toProcess.length && !toProcessTranslation.length) {
     console.log(`[gdelt-files] no new batches — returning snapshot ${state.snapshot?.length || 0}`);
     const selected = selectDiverseEvents(state.snapshot || []);
     logCalibration(state.snapshot || [], selected);
     return selected;
   }
 
-  console.log(`[gdelt-files] processing ${toProcess.length} batch(es) from ${toProcess[0].ts} to ${toProcess[toProcess.length - 1].ts}`);
+  const firstTs = toProcess[0]?.ts || toProcessTranslation[0]?.ts;
+  const lastTs = toProcess[toProcess.length - 1]?.ts || toProcessTranslation[toProcessTranslation.length - 1]?.ts;
+  console.log(`[gdelt-files] processing EN=${toProcess.length} TR=${toProcessTranslation.length} batch(es) from ${firstTs} to ${lastTs}`);
+
   let snapshot = forceReprocess ? [] : (state.snapshot || []);
+
+  // Process English batches
   for (const batch of toProcess) {
     const fresh = await processBatch(batch);
     snapshot = mergeSnapshot(snapshot, fresh);
     state.lastBatchTs = batch.ts;
   }
+
+  // Process translation batches (non-English sources: RU, ZH, AR, KO, JA, FA, etc.)
+  for (const batch of toProcessTranslation) {
+    try {
+      const fresh = await processBatch(batch);
+      console.log(`[gdelt-files] translation batch ${batch.ts} — ${fresh.length} events`);
+      snapshot = mergeSnapshot(snapshot, fresh);
+      state.lastBatchTsTranslation = batch.ts;
+    } catch (err) {
+      console.warn(`[gdelt-files] translation batch ${batch.ts} failed:`, err.message);
+    }
+  }
+
+  // keep fake compatibility — advance state even if only translation ran (no-op, state already set above)
 
   state.snapshot = snapshot;
   state.lastUpdate = new Date().toISOString();
