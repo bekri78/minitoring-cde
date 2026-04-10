@@ -10,15 +10,15 @@ const STATE_PATH = path.join(CACHE_DIR, 'gdelt-file-state.json');
 
 const BOOTSTRAP_WINDOWS = Number(process.env.GDELT_BOOTSTRAP_WINDOWS || 4);
 const MAX_WINDOWS_PER_RUN = Number(process.env.GDELT_WINDOWS_PER_RUN || 4);
-const SNAPSHOT_LOOKBACK_HOURS = Number(process.env.GDELT_LOOKBACK_HOURS || 24);
+const SNAPSHOT_LOOKBACK_HOURS = Number(process.env.GDELT_LOOKBACK_HOURS || 36);
 const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 1500);
 const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 300);
 const MIN_RELEVANCE_SCORE = Number(process.env.GDELT_MIN_SCORE || 60);
 const FINAL_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 1500);
 const BASELINE_FINAL_EVENTS = 1500;
 const DOMAIN_MIN_SPATIAL = Number(process.env.GDELT_DOMAIN_MIN_SPATIAL || Math.max(20, Math.round(FINAL_EVENTS * (70 / BASELINE_FINAL_EVENTS))));
-const DOMAIN_MIN_AVIATION = Number(process.env.GDELT_DOMAIN_MIN_AVIATION || Math.max(40, Math.round(FINAL_EVENTS * (150 / BASELINE_FINAL_EVENTS))));
-const DOMAIN_MIN_MARITIME = Number(process.env.GDELT_DOMAIN_MIN_MARITIME || Math.max(45, Math.round(FINAL_EVENTS * (180 / BASELINE_FINAL_EVENTS))));
+const DOMAIN_MIN_AVIATION = Number(process.env.GDELT_DOMAIN_MIN_AVIATION || Math.max(50, Math.round(FINAL_EVENTS * (170 / BASELINE_FINAL_EVENTS))));
+const DOMAIN_MIN_MARITIME = Number(process.env.GDELT_DOMAIN_MIN_MARITIME || Math.max(55, Math.round(FINAL_EVENTS * (210 / BASELINE_FINAL_EVENTS))));
 
 const STRATEGIC_COUNTRY_CODES = new Set([
   'RS', 'CH', 'KN', 'KS', 'TW', 'VM',
@@ -42,13 +42,15 @@ const AVIATION_KEYWORDS = [
   'fighter jet', 'warplane', 'bomber', 'sortie', 'interception', 'intercepted',
   'airstrike', 'air strike', 'air defense', 'air-defence', 'air patrol',
   'no-fly zone', 'aircraft', 'military aircraft', 'helicopter', 'drone', 'uav',
-  'runway strike', 'airport strike',
+  'runway strike', 'airport strike', 'awacs', 'surveillance aircraft', 'reconnaissance aircraft',
+  'transport aircraft', 'airbase', 'air base', 'sorties', 'combat air patrol', 'sam battery',
 ];
 
 const MARITIME_KEYWORDS = [
   'warship', 'naval', 'navy', 'submarine', 'frigate', 'destroyer', 'corvette',
   'aircraft carrier', 'maritime patrol', 'coast guard', 'fleet', 'flotilla',
-  'port strike', 'blockade', 'naval exercise', 'sea drone',
+  'port strike', 'blockade', 'naval exercise', 'sea drone', 'task force',
+  'carrier strike group', 'amphibious assault ship', 'patrol vessel', 'missile boat',
 ];
 
 const MILITARY_KEYWORDS = [
@@ -56,7 +58,11 @@ const MILITARY_KEYWORDS = [
   'troop movement', 'troop buildup', 'troop build-up', 'redeploy', 'redeployment',
   'mobilization', 'mobilisation', 'incursion', 'cross-border', 'staging area',
   'military drill', 'live-fire', 'war game', 'brigade', 'battalion', 'militia',
-  'army', 'armed forces', 'military', 'navy', 'air force',
+  'army', 'armed forces', 'military', 'navy', 'air force', 'air defense',
+  'surface-to-air', 'sam', 'radar', 'airbase', 'base commander', 'sortie',
+  'munitions', 'arms shipment', 'weapons transfer', 'defense ministry',
+  'ministry of defence', 'general staff', 'special forces', 'paratrooper',
+  'border guard', 'rocket force', 'naval task force', 'fleet command',
 ];
 
 const CIVILIAN_NOISE_KEYWORDS = [
@@ -419,8 +425,11 @@ function shouldRejectLowQualityDomain(domain, flags, row) {
   return true;
 }
 
-function buildTextBlob(title, actor1, actor2, url) {
-  return [title, actor1, actor2, url].filter(Boolean).join(' ').toLowerCase();
+function buildTextBlob(title, actor1, actor2, url, themes = [], organizations = [], persons = []) {
+  return [title, actor1, actor2, url, themes.join(' '), organizations.join(' '), persons.join(' ')]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
 }
 
 function buildFlags(textBlob) {
@@ -432,6 +441,17 @@ function buildFlags(textBlob) {
     civilian_noise_flag: isCivilianNoise(textBlob) ? 1 : 0,
     deescalation_flag: containsAnyKeyword(textBlob, DEESCALATION_KEYWORDS) ? 1 : 0,
   };
+}
+
+function militaryContextBoost(themes, organizations, persons, textBlob) {
+  let score = 0;
+  const joinedThemes = (themes || []).join(' ');
+  const joinedOrgs = (organizations || []).join(' ');
+  if (/MILITARY|ARMED|MISSILE|NUCLEAR|TERROR|WAR|DEFENCE|DEFENSE|NAVAL|AVIATION|AIR_FORCE|AIRFORCE/i.test(joinedThemes)) score += 16;
+  if (/ministry of defence|ministry of defense|defense ministry|defence ministry|armed forces|air force|navy|army|revolutionary guard|idf|pentagon|nato/i.test(normalizeText(joinedOrgs))) score += 14;
+  if (/general|admiral|colonel|brigadier|commander/i.test(normalizeText((persons || []).join(' ')))) score += 6;
+  if (containsAnyKeyword(textBlob, ['exercise', 'drill', 'deployment', 'munition', 'ordnance', 'airbase', 'warship', 'fighter'])) score += 8;
+  return score;
 }
 
 function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
@@ -570,6 +590,7 @@ function isRelevantEvent(event) {
   if (!event.keep) return false;
   const score = Number(event.score || 0);
   if (score >= MIN_RELEVANCE_SCORE) return true;
+  if (event.category === 'military' && (event.military_keyword_flag || event.aviation_flag || event.maritime_flag) && score >= MIN_RELEVANCE_SCORE - 12) return true;
   if (event.domain_bucket !== 'general' && score >= MIN_RELEVANCE_SCORE - 10) return true;
   if (event.is_strategic && score >= MIN_RELEVANCE_SCORE - 15) return true;
   return false;
@@ -732,7 +753,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       persons.join(' '),
     ].filter(Boolean).join(' ');
 
-    const textBlob = buildTextBlob(title, row.actor1, row.actor2, candidateUrl || row.sourceUrl);
+    const textBlob = buildTextBlob(title, row.actor1, row.actor2, candidateUrl || row.sourceUrl, themes, organizations, persons);
     const flags = buildFlags(textBlob);
     if (!shouldKeepEvent(row, flags)) continue;
     if (shouldRejectLowQualityDomain(domain, flags, row)) continue;
@@ -745,6 +766,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
     const region = getRegionKey(row.lat, row.lon, row.countryCode || '');
     let score = scoreEvent(row, mention, tone, domain, flags, region);
     if (themes.some(theme => /MILITARY|ARMED|TERROR|CYBER|NUCLEAR|MISSILE|SPACE|AVIATION|MARITIME/i.test(theme))) score += 12;
+    score += militaryContextBoost(themes, organizations, persons, textBlob);
     const domain_bucket = domainBucketFromFlags(flags);
     const is_strategic = isStrategicEvent(row, score) ? 1 : 0;
     const dedup_key = buildDedupKey(row);
