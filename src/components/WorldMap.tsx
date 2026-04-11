@@ -818,19 +818,55 @@ export function WorldMap({
         ? new Date(timestampMs).toUTCString().replace(' GMT', ' UTC').slice(0, 22)
         : '-';
 
+      const popId = `news-${ev.id || Math.random().toString(36).slice(2)}`;
+      const rawTitle = ev.title || '';
+
       const domainBadge = `<span style="padding:1px 6px;font-size:8px;background:${color}18;color:${color};border:1px solid ${color}44;">${escapeHtml(ev.label || ev.domain.toUpperCase())}</span>`;
       const sourceBadge = `<span style="padding:1px 6px;font-size:8px;background:#ffffff10;color:#8899aa;border:1px solid #334455;">${escapeHtml(ev.source)}</span>`;
       const confBadge   = `<span style="font-size:9px;color:#4a6a7a;margin-left:auto;">${ev.confidence}%</span>`;
 
-      const titleHtml = ev.url
-        ? `<a href="${escapeHtml(ev.url)}" target="_blank" rel="noopener" style="color:#e8f4ff;text-decoration:none;">${escapeHtml(ev.title)}</a>`
-        : escapeHtml(ev.title);
+      const titleUrl = ev.url
+        ? `<a href="${escapeHtml(ev.url)}" target="_blank" rel="noopener" style="color:#e8f4ff;text-decoration:none;" id="${popId}-link">`
+        : '';
+      const titleClose = ev.url ? '</a>' : '';
 
       marker.bindPopup(mono(`
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+          <button id="${popId}-btn"
+            data-title="${escapeHtml(rawTitle)}"
+            data-url="${escapeHtml(ev.url || '')}"
+            data-domain="${escapeHtml(ev.domain || '')}"
+            data-country="${escapeHtml(ev.location || '')}"
+            onclick="(function(){
+              var btn=document.getElementById('${popId}-btn');
+              var box=document.getElementById('${popId}-title');
+              if(!btn||!box)return;
+              var cached=btn.getAttribute('data-title-fr')||'';
+              if(cached){box.textContent=cached;btn.textContent='✓ FR';return;}
+              var q=btn.getAttribute('data-title')||'';
+              btn.textContent='...';btn.disabled=true;
+              fetch('${RAILWAY_URL}/translate-title',{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({
+                  title:q,
+                  url:btn.getAttribute('data-url')||'',
+                  domain:btn.getAttribute('data-domain')||'',
+                  country:btn.getAttribute('data-country')||''
+                })
+              })
+                .then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error((d&&d.error)||'err');return d;});})
+                .then(function(d){
+                  var tr=d&&(d.title||d.fr);
+                  if(tr){btn.setAttribute('data-title-fr',tr);box.textContent=tr;btn.textContent='✓ FR';}
+                  else{btn.textContent='NO FR';btn.disabled=false;}
+                })
+                .catch(function(){btn.textContent='ERR';btn.disabled=false;});
+            })()"
+            style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#00d4ff;border:1px solid #1a4a5a;cursor:pointer;font-family:inherit;flex-shrink:0;">FR</button>
           ${domainBadge} ${sourceBadge} ${confBadge}
         </div>
-        <p style="color:#e8f4ff;margin:0 0 4px 0;font-size:12px;">${titleHtml}</p>
+        <p id="${popId}-title" style="color:#e8f4ff;margin:0 0 4px 0;font-size:12px;">${titleUrl}${escapeHtml(rawTitle)}${titleClose}</p>
         <p style="color:#4a6a7a;margin:0 0 8px 0;font-size:9px;">${escapeHtml(ev.location || '-')} | Google News RSS</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9px;border-top:1px solid #1a2a3a;padding-top:8px;">
           <div><span style="color:#4a6a7a;">TYPE</span><br><span style="color:#c8d8e8;">${escapeHtml(ev.eventType || ev.domain)}</span></div>
