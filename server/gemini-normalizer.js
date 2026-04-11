@@ -15,6 +15,7 @@ const AI_FILTER_MAX_RETRIES = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRI
 const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
+const MISTRAL_API_KEY  = (process.env.MISTRAL_API_KEY || '').trim().replace(/^=+/, '') || undefined;
 const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'mistral')).toLowerCase();
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
 const OPENAI_TRANSLATE_FALLBACK = process.env.OPENAI_TRANSLATE_FALLBACK === 'true';
@@ -34,7 +35,7 @@ console.log('[normalizer] DEEPSEEK_API_KEY set:', !!DEEPSEEK_API_KEY);
 console.log('[normalizer] DEEPSEEK_API_KEY len:', DEEPSEEK_API_KEY ? DEEPSEEK_API_KEY.length : 0, '(expected 35)');
 console.log('[normalizer] DEEPSEEK_API_KEY chars:', DEEPSEEK_API_KEY ? [...DEEPSEEK_API_KEY].map(c => c.charCodeAt(0)) : []);
 console.log('[normalizer] OPENAI_API_KEY set:   ', !!OPENAI_API_KEY);
-console.log('[normalizer] MISTRAL_API_KEY set:  ', !!process.env.MISTRAL_API_KEY);
+console.log('[normalizer] MISTRAL_API_KEY set:  ', !!MISTRAL_API_KEY);
 console.log('[normalizer] OPENAI_MODEL:         ', OPENAI_MODEL);
 console.log('[normalizer] active key suffix:    ', (DEEPSEEK_API_KEY || OPENAI_API_KEY || '') ? `****${(DEEPSEEK_API_KEY || OPENAI_API_KEY).slice(-4)}` : 'none');
 
