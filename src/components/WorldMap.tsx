@@ -141,7 +141,7 @@ export function WorldMap({
   const airOsintLayerRef   = useRef<L.LayerGroup | null>(null);
   const seaOsintLayerRef   = useRef<L.LayerGroup | null>(null);
   const spaceOsintLayerRef = useRef<L.LayerGroup | null>(null);
-  const newsLayerRef        = useRef<L.LayerGroup | null>(null);
+  const newsLayerRef        = useRef<L.MarkerClusterGroup | null>(null);
 
   // Track currently open popup so we can re-open after layer refresh
   const openAircraftIdRef = useRef<string | null>(null);
@@ -204,7 +204,30 @@ export function WorldMap({
     const airOsintLayer   = L.layerGroup();
     const seaOsintLayer   = L.layerGroup();
     const spaceOsintLayer = L.layerGroup();
-    const newsLayer       = L.layerGroup();
+    const newsLayer       = (L as any).markerClusterGroup({
+      maxClusterRadius: (zoom: number) => {
+        if (zoom <= 3) return 60;
+        if (zoom <= 5) return 25;
+        if (zoom <= 6) return 10;
+        return 5;
+      },
+      showCoverageOnHover: false,
+      zoomToBoundsOnClick: true,
+      spiderfyOnMaxZoom:   true,
+      spiderfyDistanceMultiplier: 2,
+      animate:             true,
+      animateAddingMarkers: false,
+      iconCreateFunction: (cluster: any) => {
+        const count = cluster.getChildCount();
+        const size  = 36;
+        return L.divIcon({
+          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:#22d3ee33;border:1px solid #22d3ee;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:12px;color:#22d3ee;">${count}</div>`,
+          className: '',
+          iconSize:   [size, size],
+          iconAnchor: [size / 2, size / 2],
+        });
+      },
+    });
 
     eventsCluster.addTo(map);
     maritimeLayer.addTo(map);
@@ -774,20 +797,15 @@ export function WorldMap({
     filtered.forEach(ev => {
       if (!ev.lat || !ev.lon) return;
       const color  = ev.color || '#22d3ee';
-      const radius = ev.confidence >= 75 ? 9 : ev.confidence >= 50 ? 7 : 5;
+      const score  = ev.confidence || 50;
+      const radius = Math.max(5, Math.min(12, 5 + score / 20));
 
-      // Jitter: disperser les marqueurs empilés sur le même point (centre pays)
-      const jitter = () => (Math.random() - 0.5) * 1.8;
-      const lat = ev.lat + jitter();
-      const lon = ev.lon + jitter();
-
-      const marker = L.circleMarker([lat, lon], {
+      const marker = L.circleMarker([ev.lat, ev.lon], {
         radius,
-        color:       '#ffffff',
-        weight:      2,
+        color,
         fillColor:   color,
-        fillOpacity: 0.85,
-        pane:        'markerPane',     // above default overlayPane
+        fillOpacity: 0.75,
+        weight:      1,
       });
 
       const timestampMs = ev.date ? Date.parse(ev.date) : Number.NaN;
