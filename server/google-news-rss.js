@@ -409,27 +409,64 @@ function detectLocationFromTitle(title) {
 }
 
 function computeConfidence(title, domain, feedDomain, location) {
-  let score = 55; // base rehaussée — les feeds sont déjà ciblés sécurité/défense
+  let score = 55; // base — les feeds sont déjà ciblés sécurité/défense
+  const t = title.toLowerCase();
 
-  // Le domaine du flux correspond au domaine détecté → +10
-  if (domain === feedDomain) score += 10;
+  // ── Bonus génériques ───────────────────────────────────────────────
+  if (domain === feedDomain) score += 10;       // domaine flux = domaine détecté
+  if (location)              score += 15;       // lieu identifié
+  if (t.split(/\s+/).length <= 15) score += 5;  // titre court = info factuelle
 
-  // Lieu détecté → +15
-  if (location) score += 15;
+  // Mots d'action forts (événement en cours) → +12
+  if (/launch|test|strike|attack|deploy|exercise|fire|intercept|shoot|bomb|detonate|explosion|incident|breach|intrusion/i.test(t)) score += 12;
 
-  // Mots d'action forts → +10
-  if (/launch|test|strike|attack|deploy|fire|intercept|shoot|bomb/i.test(title)) score += 10;
+  // ── Bonus militaire/stratégique par domaine ────────────────────────
+  if (domain === 'spatial') {
+    // Pertinente : militaire, renseignement, guerre spatiale
+    if (/military|spy|reconnaissance|asat|anti.satellite|jamming|spoofing|debris|weapon|classified|nro|intelligence|warning|defense|sensor|radar|tracking|destroyed|hit|strike/i.test(t)) score += 20;
+    // Pénalité forte : contenu civil/tourisme/science grand public
+    if (/how to (see|watch|view)|viewing guide|schedule|liftoff (time|tonight)|visible (from|in)|sonic boom|ticket|livestream|live stream|live coverage|photo.*launch|launch.*photo|watchers/i.test(t)) score -= 45;
+    // Pénalité modérée : science ordinaire sans enjeu militaire
+    if (/spacex|falcon 9|starlink/i.test(t) && !/military|nro|spy|classified|ussf|space force|dod|pentagon|missile|hypersonic/i.test(t)) score -= 20;
+  }
 
-  // Source fiable (Reuters, AP, etc.) → sera ajusté au moment de la création
-  // Titre court (probable réel, pas opinion) → +5
-  if (title.split(/\s+/).length <= 15) score += 5;
+  if (domain === 'aviation') {
+    // Pertinente : militaire, frappe, drone militaire
+    if (/military|airstrike|air strike|bomber|fighter|f-35|f-16|su-|mig|drone strike|shootdown|intercept|scramble|warplane|combat|air force|close air support/i.test(t)) score += 20;
+    // Pénalité forte : aviation civile
+    if (/airline|passenger|commercial flight|airport|flight delay|ticket|booking|baggage|travel|tourism|runway|gate|departure|arrival|cargo plane|freighter/i.test(t)) score -= 50;
+  }
 
-  // Pénalités
-  if (/opinion|editorial|analysis|could|might|may|if\s/i.test(title)) score -= 20;
-  if (/historical|anniversary|years ago|cold war/i.test(title)) score -= 25;
+  if (domain === 'naval') {
+    // Pertinente : militaire, exercice, tension navale
+    if (/military|warship|navy|naval|destroyer|frigate|submarine|carrier|exercise|patrol|drill|blockade|incident|collision|intrusion|contested/i.test(t)) score += 20;
+    // Pénalité forte : maritime civil
+    if (/cruise ship|container ship|cargo ship|merchant|ferry|fishing|coast guard rescue|grounded|stuck|accident|pollution|piracy.*cargo|shipping lane.*trade/i.test(t)) score -= 50;
+  }
+
+  if (domain === 'military') {
+    // Pertinente : opérations, conflits, déploiements
+    if (/offensive|assault|battle|war|conflict|casualt|killed|soldier|troops|frontline|ceasefire|escalat|invasion|occupation|siege/i.test(t)) score += 15;
+    // Pénalité : opinion, analyse, diplomatie pure
+    if (/summit|diplomat|sanction|trade war|tariff|negotiat/i.test(t) && !/military|troops|army|force|weapon/i.test(t)) score -= 25;
+  }
+
+  // ── Pénalités génériques (bruit) ──────────────────────────────────
+  if (/opinion|editorial|could|might|may consider|if.*war|hypothetical|scenario/i.test(t)) score -= 20;
+  if (/historical|anniversary|years ago|world war ii|cold war era|in \d{4}/i.test(t)) score -= 30;
+  if (/sport|football|soccer|basketball|cricket|olympic|medal|tourism|hotel|restaurant|recipe|fashion|entertainment/i.test(t)) score -= 60;
 
   return Math.max(10, Math.min(95, score));
 }
+
+// Seuil minimum par domaine — aviation/naval/spatial exigent plus de pertinence
+const MIN_CONFIDENCE_BY_DOMAIN = {
+  spatial:  62,
+  aviation: 60,
+  naval:    60,
+  missile:  55,
+  military: 50,
+};
 
 // ── Geocoding ─────────────────────────────────────────────────────────────────
 
@@ -697,7 +734,8 @@ async function fetchGoogleNewsEvents() {
     const newEvents = [];
     for (let i = 0; i < classified.length; i++) {
       const c = classified[i];
-      if (c.confidence < 25) continue; // trop faible, on jette
+      const minConf = MIN_CONFIDENCE_BY_DOMAIN[c.domain] ?? 50;
+      if (c.confidence < minConf) continue; // seuil par domaine
 
       let lat = null, lon = null;
       if (c.location) {
@@ -747,7 +785,10 @@ async function fetchGoogleNewsEvents() {
     saveToDisk();
 
     const aiCount = newEvents.filter(e => e.usedAI).length;
-    console.log(`[google-news] done — ${newEvents.length} new (${aiCount} via AI), ${merged.length} total`);
+    const byDomain = newEvents.reduce((acc, e) => { acc[e.domain] = (acc[e.domain]||0)+1; return acc; }, {});
+    const rejCount = classified.length - newEvents.length;
+    console.log(`[google-news] done — ${newEvents.length} new (${aiCount} via AI, ${rejCount} rejected by quality), ${merged.length} total`);
+    console.log(`[google-news] by domain: ${JSON.stringify(byDomain)}`);
 
     // ── STEP 8 : Async link resolution (non-blocking) ──────────────────
     resolveLinksAsync(newEvents).catch(() => {});
