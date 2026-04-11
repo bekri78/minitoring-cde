@@ -13,27 +13,28 @@ const AI_FILTER_DELAY   = Number(process.env.AI_FILTER_DELAY || 1200); // ms bet
 const AI_FILTER_TIMEOUT_MS = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
 const AI_FILTER_MAX_RETRIES = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
 const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
-// DeepSeek uses OpenAI-compatible API via official OpenAI SDK
-const OPENAI_API_KEY = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.chatgpt;
-const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'deepseek-chat';
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const OPENAI_API_KEY   = process.env.OPENAI_API_KEY || process.env.chatgpt;
+const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'mistral')).toLowerCase();
+const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
 const OPENAI_TRANSLATE_FALLBACK = process.env.OPENAI_TRANSLATE_FALLBACK === 'true';
-const AI_PRIMARY_PROVIDER = (process.env.GDELT_AI_PROVIDER || (OPENAI_API_KEY ? 'openai' : 'mistral')).toLowerCase();
+const AI_PRIMARY_PROVIDER = (process.env.GDELT_AI_PROVIDER || (LLM_PROVIDER !== 'mistral' ? 'openai' : 'mistral')).toLowerCase();
 const AI_NORMALIZE_PROVIDER = (process.env.GDELT_NORMALIZE_PROVIDER || AI_PRIMARY_PROVIDER).toLowerCase();
 const AI_FILTER_ALWAYS_KEEP_SCORE = Number(process.env.AI_FILTER_ALWAYS_KEEP_SCORE || 88);
 
-// Build OpenAI-compatible client (DeepSeek or OpenAI)
-const openaiClient = OPENAI_API_KEY ? new OpenAI({
-  apiKey: OPENAI_API_KEY,
-  baseURL: process.env.DEEPSEEK_API_KEY ? 'https://api.deepseek.com' : 'https://api.openai.com/v1',
-}) : null;
+const openaiClient = LLM_PROVIDER === 'deepseek'
+  ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' })
+  : LLM_PROVIDER === 'openai'
+  ? new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1' })
+  : null;
 
 // Startup diagnostics
-console.log('[normalizer] DEEPSEEK_API_KEY set:', !!process.env.DEEPSEEK_API_KEY);
-console.log('[normalizer] OPENAI_API_KEY set:   ', !!process.env.OPENAI_API_KEY);
+console.log('[normalizer] LLM_PROVIDER:         ', LLM_PROVIDER);
+console.log('[normalizer] DEEPSEEK_API_KEY set:', !!DEEPSEEK_API_KEY);
+console.log('[normalizer] OPENAI_API_KEY set:   ', !!OPENAI_API_KEY);
 console.log('[normalizer] MISTRAL_API_KEY set:  ', !!process.env.MISTRAL_API_KEY);
-console.log('[normalizer] AI_PRIMARY_PROVIDER:  ', AI_PRIMARY_PROVIDER);
 console.log('[normalizer] OPENAI_MODEL:         ', OPENAI_MODEL);
-console.log('[normalizer] active key suffix:    ', OPENAI_API_KEY ? `****${OPENAI_API_KEY.slice(-4)}` : 'none');
+console.log('[normalizer] active key suffix:    ', (DEEPSEEK_API_KEY || OPENAI_API_KEY || '') ? `****${(DEEPSEEK_API_KEY || OPENAI_API_KEY).slice(-4)}` : 'none');
 
 const VALID_CATEGORIES = new Set([
   'terrorism', 'military', 'conflict', 'protest',

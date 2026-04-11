@@ -20,13 +20,15 @@ const path = require('path');
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const OpenAI = require('openai');
-// DeepSeek uses OpenAI-compatible API via official SDK — drop-in replacement for gpt-4o
-const OPENAI_API_KEY = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.chatgpt;
-const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'deepseek-chat';
-const openaiClient   = OPENAI_API_KEY ? new OpenAI({
-  apiKey:  OPENAI_API_KEY,
-  baseURL: process.env.DEEPSEEK_API_KEY ? 'https://api.deepseek.com' : 'https://api.openai.com/v1',
-}) : null;
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const OPENAI_API_KEY   = process.env.OPENAI_API_KEY || process.env.chatgpt;
+const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'none')).toLowerCase();
+const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
+const openaiClient     = LLM_PROVIDER === 'deepseek'
+  ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' })
+  : LLM_PROVIDER === 'openai'
+  ? new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1' })
+  : null;
 
 const CACHE_DIR      = process.env.CACHE_DIR || '/data';
 const DISK_PATH      = path.join(CACHE_DIR, 'google-news-events.json');

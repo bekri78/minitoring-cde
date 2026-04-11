@@ -3,21 +3,20 @@
 const crypto = require('crypto');
 const OpenAI = require('openai');
 
-const _USE_MISTRAL   = true;
-// DeepSeek uses OpenAI-compatible API via official SDK
-const ENRICH_API_KEY = process.env.DEEPSEEK_API_KEY || process.env.MISTRAL_API_KEY;
-const ENRICH_MODEL   = process.env.ENRICH_MODEL || (process.env.DEEPSEEK_API_KEY ? 'deepseek-chat' : 'mistral-medium-latest');
-const ENRICH_URL     = process.env.DEEPSEEK_API_KEY
-  ? 'https://api.deepseek.com/v1/chat/completions'
-  : 'https://api.mistral.ai/v1/chat/completions';
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const OPENAI_API_KEY   = process.env.OPENAI_API_KEY;
+const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'mistral')).toLowerCase();
+const ENRICH_MODEL     = process.env.ENRICH_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-chat' : LLM_PROVIDER === 'openai' ? 'gpt-4o' : 'mistral-medium-latest');
+const ENRICH_URL       = LLM_PROVIDER === 'mistral' ? 'https://api.mistral.ai/v1/chat/completions' : null;
+const ENRICH_API_KEY   = LLM_PROVIDER === 'mistral' ? process.env.MISTRAL_API_KEY : (DEEPSEEK_API_KEY || OPENAI_API_KEY);
 
-const openaiClient = process.env.DEEPSEEK_API_KEY ? new OpenAI({
-  apiKey:  process.env.DEEPSEEK_API_KEY,
-  baseURL: 'https://api.deepseek.com',
-}) : null;
+const openaiClient = LLM_PROVIDER === 'deepseek'
+  ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' })
+  : LLM_PROVIDER === 'openai'
+  ? new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1' })
+  : null;
 
 // Compat interne
-const OPENAI_API_KEY = ENRICH_API_KEY;
 const OPENAI_MODEL   = ENRICH_MODEL;
 const OPENAI_URL     = ENRICH_URL;
 const AI_FILTER_ENABLED = process.env.AI_FILTER_ENABLED !== 'false';
