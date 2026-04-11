@@ -686,22 +686,26 @@ function scoreEvent(row, mention, tone, domain, flags, region) {
 function shouldKeepEvent(row, flags, isStructural = false) {
   const rootCode = String(row.rootCode || '');
   const eventCode = String(row.eventCode || '');
-
-  // Require at least 2 sources for non-structural general events
   const sources = Number(row.numSources || 0);
-  if (!isStructural && !flags.military_keyword_flag && sources < 2) return false;
 
-  const structuralKeep =
-    isStructural ||
-    (['18', '19', '20'].includes(rootCode) && flags.military_keyword_flag) ||
-    STRUCTURAL_EVENT_CODES.has(eventCode) ||
-    (['13', '14', '15', '16', '17'].includes(rootCode) && flags.military_keyword_flag);
+  // Terrorism / cyber event codes → always keep
+  if (STRUCTURAL_EVENT_CODES.has(eventCode)) return true;
 
-  const structuralReject =
-    flags.civilian_noise_flag &&
-    !flags.military_keyword_flag;
+  // Civilian noise with no military signal → always reject
+  if (flags.civilian_noise_flag && !flags.military_keyword_flag) return false;
 
-  return structuralKeep && !structuralReject;
+  // Military keyword confirmed → keep (positive signal approach)
+  if (flags.military_keyword_flag) return true;
+
+  // Without military keyword: require CAMEO conflict/coercion root code + multi-source confirmation
+  // This is the core gate — events with no military keyword AND no conflict CAMEO are dropped
+  // regardless of country, score, or any other factor.
+  if (!STRUCTURAL_ROOT_CODES.has(rootCode)) return false;
+  if (['18', '19', '20'].includes(rootCode) && sources >= 2) return true; // armed conflict
+  if (['14', '15'].includes(rootCode) && sources >= 3) return true;       // protest / force display
+  if (['13', '16', '17'].includes(rootCode) && sources >= 4) return true; // threaten / coerce / sanction
+
+  return false;
 }
 
 function domainBucketFromFlags(_flags) {
