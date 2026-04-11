@@ -41,7 +41,9 @@ const GEOCODE_DELAY  = 1100; // 1 req/s Nominatim
 const RSS_FEEDS = [
   // ── GLOBAL par domaine (pas de hintLocation — mondial) ──────────────
   { domain: 'spatial',  label: 'Space & Satellites',
-    query: '("satellite launch" OR "military satellite" OR "spy satellite" OR "rocket launch" OR "space launch")' },
+    query: '("satellite launch" OR "military satellite" OR "spy satellite" OR "rocket launch" OR "space launch" OR SpaceX OR Starlink OR "Falcon 9" OR "Blue Origin" OR NASA OR "space force")' },
+  { domain: 'spatial',  label: 'Space Ops & Launches',
+    query: '(Vandenberg OR "Cape Canaveral" OR Wallops OR Baikonur OR "Rocket Lab" OR Ariane OR Artemis OR "space station" OR "ISS cargo" OR orbit)' },
   { domain: 'missile',  label: 'Missile Activity',
     query: '("missile test" OR "ballistic missile" OR "hypersonic missile" OR "rocket test")' },
   { domain: 'naval',    label: 'Naval Military',
@@ -318,10 +320,10 @@ function detectDomainFromTitle(title) {
   if (/missile|ballistic|hypersonic|icbm|slbm|warhead/i.test(t))                return 'missile';
   // Military rocket ≠ space: exclude "rocket launch" when context is clearly military strikes
   if (/hezbollah|hamas|idf|israel.*rocket|rocket.*platform.*target|strikes.*rocket/i.test(t)) return 'military';
-  // Spatial: genuine space/satellite context
-  if (/satellite|space launch|orbit|space force|spacex|starlink|falcon 9|atlas v|vulcan|artemis|nasa.*launch|blue origin/i.test(t)) return 'spatial';
+  // Spatial: genuine space/satellite context — broad keyword set
+  if (/satellite|space launch|orbit|space force|spaceforce|spacex|starlink|falcon 9|atlas v|vulcan|artemis|nasa.*launch|blue origin|vandenberg|cape canaveral|wallops|minotaur|delta iv|soyuz|long march|ariane|vega.*rocket|electron.*rocket|rocket lab|ula |iss |international space station|cosmodrome|baikonur|jiuquan|xichang|wenchang|space daily|spaceflight|spacety|xona space/i.test(t)) return 'spatial';
   // "rocket launch" only if no military context words
-  if (/rocket launch/i.test(t) && !/strike|attack|target|military|bomb|shell|hezbollah|hamas|idf|israel/i.test(t)) return 'spatial';
+  if (/rocket launch|rocket.*liftoff|launch.*rocket/i.test(t) && !/strike|attack|target|military|bomb|shell|hezbollah|hamas|idf|israel|intercept/i.test(t)) return 'spatial';
   if (/naval|warship|carrier|submarine|fleet|destroyer|frigate|navy/i.test(t))   return 'naval';
   if (/fighter jet|airstrike|air force|drone strike|military aircraft|bomber|f-35|f-16|su-/i.test(t)) return 'aviation';
   return 'military';
