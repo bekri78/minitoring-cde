@@ -1226,12 +1226,22 @@ function logCalibration(snapshot, selected) {
   console.log(`[gdelt-cal] top\n${topPreview}`);
 }
 
+async function downloadZipTextOptional(url) {
+  try {
+    return await downloadZipText(url);
+  } catch (err) {
+    console.warn(`[gdelt-files] optional download failed (skipping): ${url} — ${err.message}`);
+    return '';
+  }
+}
+
 async function processBatch(batch) {
   console.log(`[gdelt-files] batch ${batch.ts} — download events/mentions/gkg`);
+  // events + mentions are mandatory; gkg is optional (themes/tone enrichment only)
   const [eventsText, mentionsText, gkgText] = await Promise.all([
     downloadZipText(batch.events),
     downloadZipText(batch.mentions),
-    downloadZipText(batch.gkg),
+    downloadZipTextOptional(batch.gkg),
   ]);
   const eventRows = parseEventRows(eventsText);
   const mentionMap = parseMentions(mentionsText);
@@ -1298,9 +1308,13 @@ async function fetchTodayEvents(options = {}) {
 
   // Process English batches
   for (const batch of toProcess) {
-    const fresh = await processBatch(batch);
-    snapshot = mergeSnapshot(snapshot, fresh);
-    state.lastBatchTs = batch.ts;
+    try {
+      const fresh = await processBatch(batch);
+      snapshot = mergeSnapshot(snapshot, fresh);
+      state.lastBatchTs = batch.ts;
+    } catch (err) {
+      console.warn(`[gdelt-files] English batch ${batch.ts} failed (skipping):`, err.message);
+    }
   }
 
   // Process translation batches (non-English sources: RU, ZH, AR, KO, JA, FA, etc.)
