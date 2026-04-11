@@ -1226,10 +1226,23 @@ function logCalibration(snapshot, selected) {
   console.log(`[gdelt-cal] top\n${topPreview}`);
 }
 
-async function downloadZipTextOptional(url, retries = 3, delayMs = 12000) {
-  for (let attempt = 1; attempt <= retries; attempt++) {
+let _gkgOutage = false; // true when GDELT GKG is consistently unavailable this run
+
+async function downloadZipTextOptional(url, retries = 2, delayMs = 10000) {
+  // If GKG was already missing for a previous batch this run, skip retries immediately
+  if (_gkgOutage) {
     try {
       return await downloadZipText(url);
+    } catch {
+      return '';
+    }
+  }
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const result = await downloadZipText(url);
+      _gkgOutage = false; // recovered
+      return result;
     } catch (err) {
       const is404 = err.message.includes('HTTP 404');
       if (attempt < retries && is404) {
@@ -1237,6 +1250,7 @@ async function downloadZipTextOptional(url, retries = 3, delayMs = 12000) {
         await new Promise(r => setTimeout(r, delayMs));
       } else {
         console.warn(`[gdelt-files] GKG unavailable after ${attempt} attempt(s), proceeding without it — ${err.message}`);
+        _gkgOutage = true; // skip retries for remaining batches this run
         return '';
       }
     }
@@ -1313,6 +1327,7 @@ async function fetchTodayEvents(options = {}) {
   const lastTs = toProcess[toProcess.length - 1]?.ts || toProcessTranslation[toProcessTranslation.length - 1]?.ts;
   console.log(`[gdelt-files] processing EN=${toProcess.length} TR=${toProcessTranslation.length} batch(es) from ${firstTs} to ${lastTs}`);
 
+  _gkgOutage = false; // reset per-run GKG outage flag
   let snapshot = forceReprocess ? [] : (state.snapshot || []);
 
   // Process English batches
