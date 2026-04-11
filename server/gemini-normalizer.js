@@ -7,6 +7,9 @@ const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
 const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const MISTRAL_MODEL   = process.env.MISTRAL_TRANSLATE_MODEL || 'mistral-small-latest';
 const MISTRAL_URL     = 'https://api.mistral.ai/v1/chat/completions';
+const AI_FILTER_ENABLED = process.env.AI_FILTER_ENABLED !== 'false';
+const AI_FILTER_BATCH   = Number(process.env.AI_FILTER_BATCH || 30);
+const AI_FILTER_LIMIT   = Number(process.env.AI_FILTER_LIMIT || 1500);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
 const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || 'gpt-4o-mini';
 const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
@@ -420,6 +423,116 @@ async function normalizeBatchWithMistral(events) {
   return extractJsonArray(text);
 }
 
+function buildFilterPrompt(events) {
+  const lines = events.map(e => JSON.stringify({
+    id: e.id,
+    title: e.title,
+    domain: e.domain || null,
+    category: e.category || null,
+    actor1: e.actor1 || null,
+    actor2: e.actor2 || null,
+  })).join('\n');
+
+  return `You are an OSINT military intelligence analyst reviewing news events for a geopolitical security dashboard.
+
+KEEP if the event is about:
+- Armed conflict, airstrikes, shelling, military operations
+- Naval / aviation / space activity in a military or strategic context
+- Terrorism, hostage situations, IED/bombing attacks
+- Sanctions, coups, diplomatic crises, geopolitical tensions
+- Cyber attacks on infrastructure or state actors
+- Weapons programs, nuclear, ballistic or hypersonic missiles
+- Significant protests turning violent or with geopolitical impact
+
+DISCARD if the event is about:
+- Lifestyle, sports, entertainment, celebrity, music, food, tourism
+- Viral or human-interest stories (even if they mention NASA, military, police)
+- Business, finance, stock markets, earnings, IPO, real estate
+- Local crime, road accidents, natural disasters unrelated to conflict
+- Elections, parliament, diplomacy with no security dimension
+- Humanitarian aid, health, education with no conflict context
+
+Reply ONLY with a valid JSON array, one object per input, in the same order:
+[{"id":"<same id>","keep":true},{"id":"<same id>","keep":false},...]
+
+Events:
+${lines}`;
+}
+
+async function filterEventsWithMistral(events) {
+  if (!AI_FILTER_ENABLED) {
+    console.log('[ai-filter] disabled via AI_FILTER_ENABLED=false');
+    return events;
+  }
+  if (!MISTRAL_API_KEY) {
+    console.log('[ai-filter] skipped: MISTRAL_API_KEY missing');
+    return events;
+  }
+
+  const candidates = events.slice(0, AI_FILTER_LIMIT);
+  const discardedIds = new Set();
+  let aiProcessed = 0;
+
+  for (let i = 0; i < candidates.length; i += AI_FILTER_BATCH) {
+    const batch = candidates.slice(i, i + AI_FILTER_BATCH);
+    try {
+      const controller = new AbortController();
+      const timeoutHandle = setTimeout(() => controller.abort(), 30000);
+      let resp;
+      try {
+        resp = await fetch(MISTRAL_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${MISTRAL_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: MISTRAL_MODEL,
+            messages: [
+              { role: 'system', content: 'You are an OSINT analyst. Return ONLY a valid JSON array, no prose.' },
+              { role: 'user', content: buildFilterPrompt(batch) },
+            ],
+            temperature: 0,
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => '');
+        throw new Error(`HTTP_${resp.status} ${body.slice(0, 120)}`);
+      }
+
+      const data = await resp.json();
+      const content = data.choices?.[0]?.message?.content;
+      const text = Array.isArray(content)
+        ? content.map(p => p?.text || p?.content || '').join('')
+        : String(content || '');
+      const results = extractJsonArray(text);
+
+      let kept = 0;
+      for (const result of results) {
+        if (!result?.id) continue;
+        if (result.keep === false) discardedIds.add(String(result.id));
+        else kept++;
+      }
+      aiProcessed += batch.length;
+      console.log(`[ai-filter] batch ${Math.floor(i / AI_FILTER_BATCH) + 1}: ${kept}/${batch.length} kept`);
+    } catch (err) {
+      console.warn(`[ai-filter] batch ${Math.floor(i / AI_FILTER_BATCH) + 1} failed (fail-open):`, err.message);
+      // Fail-open: keep all events if Mistral is unreachable
+    }
+
+    if (i + AI_FILTER_BATCH < candidates.length) await sleep(250);
+  }
+
+  const filtered = events.filter(e => !discardedIds.has(String(e.id)));
+  console.log(`[ai-filter] done: ${discardedIds.size} discarded, ${filtered.length}/${events.length} kept (${aiProcessed} AI-checked)`);
+  return filtered;
+}
+
 async function normalizeEventsWithMistral(events) {
   if (!MISTRAL_API_KEY) {
     console.log('[mistral] skipped: MISTRAL_API_KEY missing');
@@ -586,4 +699,4 @@ async function normalizeTitleWithGemini(event) {
   };
 }
 
-module.exports = { normalizeEventsWithGemini, normalizeEventsWithMistral, normalizeTitleWithGemini };
+module.exports = { normalizeEventsWithGemini, normalizeEventsWithMistral, normalizeTitleWithGemini, filterEventsWithMistral };
