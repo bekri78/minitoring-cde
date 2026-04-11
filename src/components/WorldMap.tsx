@@ -749,13 +749,29 @@ export function WorldMap({
     });
   }, [navalEvents]);
 
+  // ── Domain view (used for news filtering + layer visibility toggle) ───────
+  const { domainView } = useFilterStore();
+
   // ── Update Google News events layer ───────────────────────────────────────
   useEffect(() => {
     const layer = newsLayerRef.current;
     if (!layer) return;
     layer.clearLayers();
 
-    newsEvents.forEach(ev => {
+    // Filtrer par domainView pour n'afficher que les articles du domaine sélectionné
+    const domainFilter: Record<string, string[]> = {
+      air:   ['aviation'],
+      sea:   ['naval'],
+      space: ['spatial', 'missile'],
+      osint: [],   // tout
+      all:   [],   // tout
+    };
+    const allowed = domainFilter[domainView] || [];
+    const filtered = allowed.length > 0
+      ? newsEvents.filter(ev => allowed.includes(ev.domain))
+      : newsEvents;
+
+    filtered.forEach(ev => {
       if (!ev.lat || !ev.lon) return;
       const color  = ev.color || '#22d3ee';
       const radius = ev.confidence >= 75 ? 8 : ev.confidence >= 50 ? 6 : 4;
@@ -795,10 +811,7 @@ export function WorldMap({
 
       layer.addLayer(marker);
     });
-  }, [newsEvents]);
-
-  // ── Toggle layer visibility based on domain view ──────────────────────────
-  const { domainView } = useFilterStore();
+  }, [newsEvents, domainView]);
 
   useEffect(() => {
     const map = mapRef.current;
