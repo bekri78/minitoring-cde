@@ -19,10 +19,7 @@ const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 200);
 const MIN_RELEVANCE_SCORE = Number(process.env.GDELT_MIN_SCORE || 60);
 const FINAL_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 800);
 const BASELINE_FINAL_EVENTS = 800;
-const DOMAIN_MIN_SPATIAL = Number(process.env.GDELT_DOMAIN_MIN_SPATIAL || Math.max(10, Math.round(FINAL_EVENTS * (30 / BASELINE_FINAL_EVENTS))));
-const DOMAIN_MIN_AVIATION = Number(process.env.GDELT_DOMAIN_MIN_AVIATION || Math.max(25, Math.round(FINAL_EVENTS * (80 / BASELINE_FINAL_EVENTS))));
-const DOMAIN_MIN_MARITIME = Number(process.env.GDELT_DOMAIN_MIN_MARITIME || Math.max(25, Math.round(FINAL_EVENTS * (80 / BASELINE_FINAL_EVENTS))));
-const GDELT_ENABLE_SPATIAL_DOMAIN = process.env.GDELT_ENABLE_SPATIAL_DOMAIN === 'true';
+// Spatial / aviation / maritime domain classification removed — covered by Google News RSS feeds.
 
 const STRATEGIC_COUNTRY_CODES = new Set([
   'RS', 'CH', 'KN', 'KS', 'TW', 'VM',
@@ -35,120 +32,8 @@ const STRATEGIC_REGION_BOOST = new Set(['russia_cis', 'east_asia', 'middleeast',
 const STRUCTURAL_ROOT_CODES = new Set(['13', '14', '15', '16', '17', '18', '19', '20']);
 const STRUCTURAL_EVENT_CODES = new Set(['155', '181', '1831', '1832', '1833']);
 
-// --- SPATIAL domain lists ---
-// Strong anchors: these alone are sufficient to qualify as spatial
-const SPATIAL_ANCHORS = [
-  'satellite', 'spacecraft', 'orbital', 'orbit', 'spaceport', 'cosmodrome',
-  'reentry', 're-entry', 'deorbit', 'de-orbit', 'asat', 'anti-satellite',
-  'launch vehicle', 'launch pad', 'payload', 'upper stage', 'capsule',
-  'rocket test', 'booster', 'rocket launch', 'space debris',
-  'gnss', 'gps jamming', 'satcom', 'satellite imagery', 'launch campaign',
-];
-// Agency names: need at least one corroborating space term to qualify
-const SPATIAL_AGENCY_ANCHORS = [
-  'spacex', 'nasa', 'esa', 'cnes', 'isro', 'roscosmos', 'jaxa',
-  'space force', 'space command', 'ussf',
-];
-// Terms that corroborate an agency anchor
-const SPATIAL_AGENCY_CORROBORATION = [
-  'launch', 'satellite', 'rocket', 'orbit', 'spacecraft', 'mission',
-  'liftoff', 'payload', 'booster', 'reentry', 'debris', 'station',
-  'lunar', 'mars', 'asteroid', 'telescope', 'probe', 'capsule',
-];
-const SPATIAL_SUPPORT_KEYWORDS = [
-  'launch', 'liftoff', 'rocket', 'missile defense', 'icbm',
-];
-const SPATIAL_PHRASE_PATTERNS = [
-  'satellite launch', 'rocket launch', 'launch vehicle', 'launch pad',
-  'orbital mission', 'space debris', 'atmospheric reentry', 'rocket booster',
-  'space station', 'lunar mission', 'mars mission', 'satellite imagery',
-  'anti-satellite weapon', 'space force', 'space command',
-];
-// Hard exclusions: always disqualify, even if an anchor is present
-const SPATIAL_HARD_EXCLUSIONS = [
-  'goes viral', 'went viral', 'viral video', 'heartfelt', 'heartwarming',
-  'open letter', 'letter to nasa', 'petition', 'plea', 'bring back pluto',
-  'pluto planet', 'years old', 'year old', 'child asks', 'kid asks',
-  'fan mail', 'wishes', 'adorable', 'cute', 'funny', 'meme',
-  'anniversary', 'museum', 'exhibition', 'documentary', 'film about',
-  'movie about', 'book about', 'tv show', 'series about',
-];
-const SPATIAL_EXCLUSIONS = [
-  'product launch', 'campaign launch', 'initiative launch', 'startup launch',
-  'market launch', 'launch event', 'launch party', 'launch date', 'app launch',
-  'book launch', 'brand launch', 'film launch', 'album launch', 'launch pad for',
-  'launching a new', 'launching his', 'launching her', 'launching its',
-  'launching the', 'launched a campaign', 'launched an investigation',
-];
-
-// --- AVIATION domain lists ---
-const AVIATION_ANCHORS = [
-  'fighter jet', 'warplane', 'bomber', 'airstrike', 'air strike',
-  'air defense', 'air-defence', 'awacs', 'combat air patrol', 'sortie',
-  'airbase', 'air base', 'military aircraft', 'reconnaissance aircraft',
-  'surveillance aircraft', 'drone strike', 'uav strike', 'runway strike',
-  'airport strike', 'sam battery', 'no-fly zone', 'transport aircraft',
-  'combat aircraft', 'stealth fighter', 'stealth bomber', 'air superiority',
-  'airspace violation', 'fighter scramble', 'scrambled jets', 'combat drone',
-  'military transport', 'air intercept', 'interceptor aircraft',
-];
-const AVIATION_SUPPORT_KEYWORDS = [
-  'aircraft', 'helicopter', 'drone', 'uav', 'interception', 'intercepted',
-  'air patrol', 'sorties',
-];
-const AVIATION_PHRASE_PATTERNS = [
-  'fighter jet', 'military aircraft', 'combat aircraft', 'air strike',
-  'drone strike', 'air defense', 'combat air patrol', 'reconnaissance aircraft',
-  'military helicopter', 'attack helicopter', 'surveillance drone',
-  'armed drone', 'military drone', 'air force deployment',
-  'aerial bombardment', 'air superiority', 'stealth fighter',
-];
-const AVIATION_EXCLUSIONS = [
-  'civil aviation', 'airport delay', 'passenger plane', 'tourist helicopter',
-  'medical helicopter', 'light aircraft', 'rescue helicopter', 'air ambulance',
-  'flight delay', 'flight cancelled', 'airline', 'aviation industry',
-  'aviation safety', 'plane crash', 'helicopter crash', 'drone delivery',
-  'drone photography', 'drone racing', 'commercial aircraft', 'passenger aircraft',
-  'private jet', 'charter flight', 'crop duster', 'air show',
-];
-
-// --- MARITIME domain lists ---
-const MARITIME_ANCHORS = [
-  'warship', 'frigate', 'destroyer', 'submarine', 'corvette',
-  'aircraft carrier', 'carrier strike group', 'naval exercise',
-  'naval patrol', 'missile boat', 'task force', 'amphibious assault ship',
-  'patrol vessel', 'sea drone', 'maritime patrol', 'port strike',
-  'naval blockade', 'naval deployment', 'torpedo', 'mine sweeper',
-  'guided missile', 'naval base', 'anti-ship missile', 'merchant vessel attack',
-  'commercial ship attack', 'shipping lane security', 'strait transit',
-  'tanker seizure', 'vessel intercepted', 'boarding operation', 'naval convoy',
-  'red sea shipping', 'hormuz transit', 'merchant shipping',
-  'russian navy', 'vmf', 'black sea fleet', 'pacific fleet', 'northern fleet', 'baltic fleet',
-];
-const MARITIME_SUPPORT_KEYWORDS = [
-  'naval', 'navy', 'fleet', 'flotilla', 'coast guard', 'blockade',
-  'maritime', 'sea lane', 'shipping lane', 'merchant vessel', 'tanker',
-  'houthis', 'houthi', 'strait of hormuz', 'red sea', 'vmf',
-];
-const MARITIME_PHRASE_PATTERNS = [
-  'carrier strike group', 'naval exercise', 'warship deployment',
-  'naval patrol', 'submarine detection', 'missile boat', 'amphibious assault ship',
-  'naval blockade', 'fleet deployment', 'navy deployment', 'naval task force',
-  'maritime security', 'anti-submarine warfare', 'naval confrontation',
-  'coast guard intercept', 'naval drill',
-];
-const MARITIME_EXCLUSIONS = [
-  'tourism boat', 'fishing boat', 'capsized boat', 'leisure boat',
-  'cruise ship', 'boat accident', 'ferry', 'yacht', 'sailboat',
-  'fishing vessel', 'cargo ship', 'container ship', 'oil tanker accident',
-  'boat race', 'rowing', 'maritime museum', 'maritime heritage',
-  'maritime law', 'coast guard rescue', 'coast guard saves',
-];
-
-// Combined lists for backward-compat checks (isCivilianNoise, shouldKeepEvent)
-const SPATIAL_KEYWORDS = [...SPATIAL_ANCHORS, ...SPATIAL_AGENCY_ANCHORS, ...SPATIAL_SUPPORT_KEYWORDS];
-const AVIATION_KEYWORDS = [...AVIATION_ANCHORS, ...AVIATION_SUPPORT_KEYWORDS];
-const MARITIME_KEYWORDS = [...MARITIME_ANCHORS, ...MARITIME_SUPPORT_KEYWORDS];
+// Spatial / aviation / maritime keyword lists removed — domain classification now handled by Google News RSS feeds.
+// GDELT focuses on: military / conflict / terrorism / protest (non-English sources, CAMEO codes, multi-source confirmation).
 
 const MILITARY_KEYWORDS = [
   'missile', 'ballistic', 'cruise missile', 'shelling', 'artillery',
@@ -467,34 +352,6 @@ function matchedPhrases(text, phrases) {
   return phrases.filter(phrase => normalized.includes(normalizeText(phrase)));
 }
 
-function isSpatialEligible(textBlob) {
-  // Hard exclusions always win — viral/human-interest content, even with "nasa"
-  if (containsAnyKeyword(textBlob, SPATIAL_HARD_EXCLUSIONS)) return false;
-  // Standard exclusions block if no strong anchor is present
-  if (containsAnyKeyword(textBlob, SPATIAL_EXCLUSIONS) && !containsAnyKeyword(textBlob, SPATIAL_ANCHORS)) return false;
-  // Strong anchor alone is sufficient
-  if (containsAnyKeyword(textBlob, SPATIAL_ANCHORS)) return true;
-  // Agency names (nasa/esa/spacex…) require at least one corroborating space term
-  if (containsAnyKeyword(textBlob, SPATIAL_AGENCY_ANCHORS) && containsAnyKeyword(textBlob, SPATIAL_AGENCY_CORROBORATION)) return true;
-  // Multi-word phrase pattern is sufficient
-  if (containsAnyPhrase(textBlob, SPATIAL_PHRASE_PATTERNS)) return true;
-  return false;
-}
-
-function isAviationEligible(textBlob) {
-  if (containsAnyKeyword(textBlob, AVIATION_EXCLUSIONS) && !containsAnyKeyword(textBlob, AVIATION_ANCHORS)) return false;
-  if (containsAnyKeyword(textBlob, AVIATION_ANCHORS)) return true;
-  if (containsAnyPhrase(textBlob, AVIATION_PHRASE_PATTERNS)) return true;
-  return false;
-}
-
-function isMaritimeEligible(textBlob) {
-  if (containsAnyKeyword(textBlob, MARITIME_EXCLUSIONS) && !containsAnyKeyword(textBlob, MARITIME_ANCHORS)) return false;
-  if (containsAnyKeyword(textBlob, MARITIME_ANCHORS)) return true;
-  if (containsAnyPhrase(textBlob, MARITIME_PHRASE_PATTERNS)) return true;
-  return false;
-}
-
 function safeDomainFromUrl(url) {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
@@ -569,9 +426,6 @@ function isDomesticSecurityNoise(text, event) {
 
 function isLocalAdministrativeNoise(textBlob) {
   if (containsAnyKeyword(textBlob, GLOBAL_SECURITY_OVERRIDE)) return false;
-  if (containsAnyKeyword(textBlob, MARITIME_KEYWORDS)) return false;
-  if (containsAnyKeyword(textBlob, AVIATION_KEYWORDS)) return false;
-  if (containsAnyKeyword(textBlob, SPATIAL_KEYWORDS)) return false;
   if (containsAnyKeyword(textBlob, MILITARY_KEYWORDS)) return false;
   return containsAnyKeyword(textBlob, LOCAL_ADMIN_NOISE_KEYWORDS);
 }
@@ -579,9 +433,6 @@ function isLocalAdministrativeNoise(textBlob) {
 function isCivilCrimeNoise(textBlob) {
   if (containsAnyKeyword(textBlob, GLOBAL_SECURITY_OVERRIDE)) return false;
   if (containsAnyKeyword(textBlob, MILITARY_KEYWORDS)) return false;
-  if (containsAnyKeyword(textBlob, AVIATION_KEYWORDS)) return false;
-  if (containsAnyKeyword(textBlob, MARITIME_KEYWORDS)) return false;
-  if (containsAnyKeyword(textBlob, SPATIAL_KEYWORDS)) return false;
   return containsAnyKeyword(textBlob, CIVIL_CRIME_NOISE_KEYWORDS);
 }
 
@@ -685,10 +536,7 @@ function isCivilianNoise(text) {
   return (
     (containsAnyKeyword(text, CIVILIAN_OVERRIDE) || containsAnyKeyword(text, CIVILIAN_NOISE_KEYWORDS)) &&
     !containsAnyKeyword(text, SECURITY_OVERRIDE_KEYWORDS) &&
-    !containsAnyKeyword(text, MILITARY_KEYWORDS) &&
-    !containsAnyKeyword(text, SPATIAL_KEYWORDS) &&
-    !containsAnyKeyword(text, AVIATION_KEYWORDS) &&
-    !containsAnyKeyword(text, MARITIME_KEYWORDS)
+    !containsAnyKeyword(text, MILITARY_KEYWORDS)
   );
 }
 
@@ -698,9 +546,8 @@ function isNoiseEvent(title, url, domain) {
 }
 
 function shouldRejectLowQualityDomain(domain, flags, row) {
-  if (HARD_REJECT_DOMAINS.has(domain) && !flags.spatial_flag && !flags.aviation_flag && !flags.maritime_flag) return true;
+  if (HARD_REJECT_DOMAINS.has(domain)) return true;
   if (!LOW_QUALITY_NEWS_DOMAINS.has(domain)) return false;
-  if (flags.spatial_flag || flags.aviation_flag || flags.maritime_flag) return false;
   if (STRUCTURAL_EVENT_CODES.has(String(row.eventCode || ''))) return false;
   if (['18', '19', '20'].includes(String(row.rootCode || '')) && Number(row.goldstein || 0) <= -5) return false;
   return true;
@@ -721,40 +568,17 @@ function buildSignalTextBlob(title, actor1, actor2, themes = [], organizations =
 }
 
 function buildFlags(textBlob) {
-  const spatial_anchor_flag = containsAnyKeyword(textBlob, SPATIAL_ANCHORS) ? 1 : 0;
-  const spatial_support_flag = containsAnyKeyword(textBlob, SPATIAL_SUPPORT_KEYWORDS) ? 1 : 0;
-  const spatial_pattern_flag = containsAnyPhrase(textBlob, SPATIAL_PHRASE_PATTERNS) ? 1 : 0;
-  const spatial_exclusion_flag = containsAnyKeyword(textBlob, SPATIAL_EXCLUSIONS) ? 1 : 0;
-  const spatial_eligible = isSpatialEligible(textBlob);
-
-  const aviation_anchor_flag = containsAnyKeyword(textBlob, AVIATION_ANCHORS) ? 1 : 0;
-  const aviation_support_flag = containsAnyKeyword(textBlob, AVIATION_SUPPORT_KEYWORDS) ? 1 : 0;
-  const aviation_pattern_flag = containsAnyPhrase(textBlob, AVIATION_PHRASE_PATTERNS) ? 1 : 0;
-  const aviation_exclusion_flag = containsAnyKeyword(textBlob, AVIATION_EXCLUSIONS) ? 1 : 0;
-  const aviation_eligible = isAviationEligible(textBlob);
-
-  const maritime_anchor_flag = containsAnyKeyword(textBlob, MARITIME_ANCHORS) ? 1 : 0;
-  const maritime_support_flag = containsAnyKeyword(textBlob, MARITIME_SUPPORT_KEYWORDS) ? 1 : 0;
-  const maritime_pattern_flag = containsAnyPhrase(textBlob, MARITIME_PHRASE_PATTERNS) ? 1 : 0;
-  const maritime_exclusion_flag = containsAnyKeyword(textBlob, MARITIME_EXCLUSIONS) ? 1 : 0;
-  const maritime_eligible = isMaritimeEligible(textBlob);
-
-  // Legacy flags now reflect eligibility, not just keyword presence
-  const spatial_flag = spatial_eligible ? 1 : 0;
-  const aviation_flag = aviation_eligible ? 1 : 0;
-  const maritime_flag = maritime_eligible ? 1 : 0;
-
   return {
-    spatial_flag,
-    aviation_flag,
-    maritime_flag,
     military_keyword_flag: containsAnyKeyword(textBlob, MILITARY_KEYWORDS) ? 1 : 0,
     civilian_noise_flag: isCivilianNoise(textBlob) ? 1 : 0,
     deescalation_flag: containsAnyKeyword(textBlob, DEESCALATION_KEYWORDS) ? 1 : 0,
-
-    spatial_anchor_flag, spatial_support_flag, spatial_pattern_flag, spatial_exclusion_flag, spatial_eligible,
-    aviation_anchor_flag, aviation_support_flag, aviation_pattern_flag, aviation_exclusion_flag, aviation_eligible,
-    maritime_anchor_flag, maritime_support_flag, maritime_pattern_flag, maritime_exclusion_flag, maritime_eligible,
+    // Legacy domain flags kept as 0 to avoid breaking downstream references
+    spatial_flag: 0, aviation_flag: 0, maritime_flag: 0,
+    spatial_anchor_flag: 0, aviation_anchor_flag: 0, maritime_anchor_flag: 0,
+    spatial_eligible: false, aviation_eligible: false, maritime_eligible: false,
+    spatial_exclusion_flag: 0, aviation_exclusion_flag: 0, maritime_exclusion_flag: 0,
+    spatial_support_flag: 0, aviation_support_flag: 0, maritime_support_flag: 0,
+    spatial_pattern_flag: 0, aviation_pattern_flag: 0, maritime_pattern_flag: 0,
   };
 }
 
@@ -771,19 +595,19 @@ function militaryContextBoost(themes, organizations, persons, textBlob) {
 
 function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
   const normalized = normalizeText(text);
-  // Civilian noise check first — but allow through if strong domain anchor exists
-  if (flags.civilian_noise_flag && !flags.spatial_anchor_flag && !flags.aviation_anchor_flag && !flags.maritime_anchor_flag) return 'discard';
+  // Civilian noise check first
+  if (flags.civilian_noise_flag && !flags.military_keyword_flag) return 'discard';
   if (String(eventCode || '').startsWith('155')) return 'cyber';
   if (['181', '1831', '1832', '1833'].some(prefix => String(eventCode || '').startsWith(prefix))) return 'terrorism';
   if (['18', '19', '20'].includes(String(rootCode || ''))) {
-    if (flags.military_keyword_flag || flags.aviation_eligible || flags.maritime_eligible || /\b(attack|airstrike|strike|missile|drone|troops|forces|army|navy|militia|rebels|offensive|shelling|artillery|deployment|deployed|warship|submarine)\b/.test(normalized)) {
+    if (flags.military_keyword_flag || /\b(attack|airstrike|strike|missile|drone|troops|forces|army|navy|militia|rebels|offensive|shelling|artillery|deployment|deployed|warship|submarine)\b/.test(normalized)) {
       return 'conflict';
     }
     return 'incident';
   }
   if (String(rootCode || '') === '15') return 'military';
   if (String(rootCode || '') === '14') return 'protest';
-  // Keyword-based classification (domain bucket is separate — no shortcut here)
+  // Keyword-based classification
   for (const rule of CATEGORY_RULES) {
     if (rule.keywords.some(keyword => normalized.includes(normalizeText(keyword)))) return rule.key;
   }
@@ -791,14 +615,11 @@ function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
     if (rule.cameo.some(prefix => String(eventCode || '').startsWith(prefix))) return rule.key;
   }
   if (['13', '16', '17'].includes(String(rootCode || ''))) {
-    if (flags.spatial_eligible || flags.military_keyword_flag || /\b(sanction|nuclear|ballistic|hypersonic|missile|border|diplomatic|naval|warship|drone|satellite|space)\b/.test(normalized)) {
+    if (flags.military_keyword_flag || /\b(sanction|nuclear|ballistic|hypersonic|missile|border|diplomatic|naval|warship|drone|satellite|space)\b/.test(normalized)) {
       return 'strategic';
     }
     return 'incident';
   }
-  // Eligible domain flags can hint at military category if no other match
-  if (flags.aviation_eligible || flags.maritime_eligible) return 'military';
-  if (flags.spatial_eligible) return 'strategic';
   return 'incident';
 }
 
@@ -836,22 +657,7 @@ function mediaVisibilityScore(row, mention) {
 
 function domainBonus(flags) {
   let score = 0;
-  // Anchor-based bonus (strong signal)
-  if (flags.spatial_anchor_flag) score += 20;
-  else if (flags.spatial_eligible) score += 12;
-  if (flags.aviation_anchor_flag) score += 18;
-  else if (flags.aviation_eligible) score += 10;
-  if (flags.maritime_anchor_flag) score += 18;
-  else if (flags.maritime_eligible) score += 10;
   if (flags.military_keyword_flag) score += 12;
-  // Pattern bonus on top of anchor
-  if (flags.spatial_pattern_flag) score += 6;
-  if (flags.aviation_pattern_flag) score += 6;
-  if (flags.maritime_pattern_flag) score += 6;
-  // Exclusion penalty: support keyword present but excluded context
-  if (flags.spatial_exclusion_flag && !flags.spatial_anchor_flag) score -= 15;
-  if (flags.aviation_exclusion_flag && !flags.aviation_anchor_flag) score -= 15;
-  if (flags.maritime_exclusion_flag && !flags.maritime_anchor_flag) score -= 15;
   return score;
 }
 
@@ -868,10 +674,6 @@ function scoreEvent(row, mention, tone, domain, flags, region) {
   if (STRATEGIC_REGION_BOOST.has(region)) score += 8;
   if (flags.civilian_noise_flag) score -= 45;
   if (flags.deescalation_flag) score -= 20;
-  // Penalize support-only domain hits (generic terms without anchor)
-  if (flags.spatial_support_flag && !flags.spatial_eligible) score -= 8;
-  if (flags.aviation_support_flag && !flags.aviation_eligible) score -= 8;
-  if (flags.maritime_support_flag && !flags.maritime_eligible) score -= 8;
   return Math.round(score);
 }
 
@@ -880,39 +682,24 @@ function shouldKeepEvent(row, flags, isStructural = false) {
   const eventCode = String(row.eventCode || '');
 
   // Require at least 2 sources for non-structural general events
-  // Google News RSS already covers single-source headlines
   const sources = Number(row.numSources || 0);
-  const hasDomainSignal = flags.spatial_flag || flags.aviation_flag || flags.maritime_flag;
-  if (!isStructural && !hasDomainSignal && !flags.military_keyword_flag && sources < 2) return false;
+  if (!isStructural && !flags.military_keyword_flag && sources < 2) return false;
 
   const structuralKeep =
     isStructural ||
-    (['18', '19', '20'].includes(rootCode) && (flags.military_keyword_flag || flags.aviation_flag || flags.maritime_flag)) ||
+    (['18', '19', '20'].includes(rootCode) && flags.military_keyword_flag) ||
     STRUCTURAL_EVENT_CODES.has(eventCode) ||
-    (['13', '14', '15', '16', '17'].includes(rootCode) && flags.military_keyword_flag) ||
-    flags.spatial_flag ||
-    flags.aviation_flag ||
-    flags.maritime_flag;
+    (['13', '14', '15', '16', '17'].includes(rootCode) && flags.military_keyword_flag);
 
   const structuralReject =
     flags.civilian_noise_flag &&
-    !flags.military_keyword_flag &&
-    !flags.spatial_flag &&
-    !flags.aviation_flag &&
-    !flags.maritime_flag;
+    !flags.military_keyword_flag;
 
   return structuralKeep && !structuralReject;
 }
 
-function domainBucketFromFlags(flags) {
-  // Only assign specialized bucket if domain is truly eligible (anchor or strong pattern)
-  const candidates = [];
-  if (GDELT_ENABLE_SPATIAL_DOMAIN && flags.spatial_eligible) candidates.push({ bucket: 'spatial', strength: (flags.spatial_anchor_flag ? 3 : 0) + (flags.spatial_pattern_flag ? 2 : 0) + (flags.spatial_support_flag ? 1 : 0) });
-  if (flags.aviation_eligible) candidates.push({ bucket: 'aviation', strength: (flags.aviation_anchor_flag ? 3 : 0) + (flags.aviation_pattern_flag ? 2 : 0) + (flags.aviation_support_flag ? 1 : 0) });
-  if (flags.maritime_eligible) candidates.push({ bucket: 'maritime', strength: (flags.maritime_anchor_flag ? 3 : 0) + (flags.maritime_pattern_flag ? 2 : 0) + (flags.maritime_support_flag ? 1 : 0) });
-  if (!candidates.length) return 'general';
-  candidates.sort((a, b) => b.strength - a.strength);
-  return candidates[0].bucket;
+function domainBucketFromFlags(_flags) {
+  return 'general';
 }
 
 function isStrategicEvent(row, score) {
@@ -1170,10 +957,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
 
     // Build diagnostic reject reason
     let rejectReason = null;
-    if (flags.spatial_support_flag && !flags.spatial_eligible) rejectReason = 'generic_launch_without_space_anchor';
-    else if (flags.aviation_support_flag && !flags.aviation_eligible) rejectReason = 'civilian_aviation_only';
-    else if (flags.maritime_support_flag && !flags.maritime_eligible) rejectReason = 'maritime_generic_without_naval_context';
-    else if (domain_bucket !== 'general' && !flags.spatial_anchor_flag && !flags.aviation_anchor_flag && !flags.maritime_anchor_flag) rejectReason = 'specialized_domain_without_strong_anchor';
+    if (flags.civilian_noise_flag && !flags.military_keyword_flag) rejectReason = 'civilian_noise_no_military_context';
 
     const event = {
       id: row.globalEventId,
@@ -1197,7 +981,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       category,
       region,
       domain_bucket,
-      osintDomain: domain_bucket !== 'general' ? domain_bucket : null,
+      osintDomain: null,
       is_strategic,
       dedup_key,
       editorial_dedup_key: [
@@ -1222,23 +1006,9 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       persons,
       organizations,
       text_blob: signalTextBlob,
-      // Legacy flags (now eligibility-based)
-      spatial_flag: flags.spatial_flag,
-      aviation_flag: flags.aviation_flag,
-      maritime_flag: flags.maritime_flag,
       military_keyword_flag: flags.military_keyword_flag,
       civilian_noise_flag: flags.civilian_noise_flag,
       deescalation_flag: flags.deescalation_flag,
-      // Granular anchor/pattern/exclusion flags for debug
-      spatial_anchor_flag: flags.spatial_anchor_flag,
-      aviation_anchor_flag: flags.aviation_anchor_flag,
-      maritime_anchor_flag: flags.maritime_anchor_flag,
-      spatial_eligible: flags.spatial_eligible,
-      aviation_eligible: flags.aviation_eligible,
-      maritime_eligible: flags.maritime_eligible,
-      spatial_exclusion_flag: flags.spatial_exclusion_flag,
-      aviation_exclusion_flag: flags.aviation_exclusion_flag,
-      maritime_exclusion_flag: flags.maritime_exclusion_flag,
       rejectReason,
       batchTs: batch.ts,
     };
@@ -1324,16 +1094,7 @@ function selectDiverseEvents(events) {
     }
   };
 
-  // Only pull eligible events into specialized slots — don't force-fill quotas
-  const eligibleSpatial = GDELT_ENABLE_SPATIAL_DOMAIN
-    ? (byBucket.get('spatial') || []).filter(e => e.spatial_eligible)
-    : [];
-  const eligibleAviation = (byBucket.get('aviation') || []).filter(e => e.aviation_eligible);
-  const eligibleMaritime = (byBucket.get('maritime') || []).filter(e => e.maritime_eligible);
-
-  pushFromList(eligibleSpatial, Math.min(DOMAIN_MIN_SPATIAL, eligibleSpatial.length));
-  pushFromList(eligibleAviation, Math.min(DOMAIN_MIN_AVIATION, eligibleAviation.length));
-  pushFromList(eligibleMaritime, Math.min(DOMAIN_MIN_MARITIME, eligibleMaritime.length));
+  // First: fill strategic events, then backfill with everything else sorted by score
   pushFromList(byBucket.get('general') || [], Math.min(STRATEGIC_MIN_EVENTS, FINAL_EVENTS), event => Boolean(event.is_strategic));
 
   for (const event of sorted) {
