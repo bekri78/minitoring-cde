@@ -795,12 +795,27 @@ function domainBucketFromFlags(flags) {
 }
 
 function isStrategicEvent(row, score) {
-  return (
-    ['18', '19', '20'].includes(String(row.rootCode || '')) ||
-    STRUCTURAL_EVENT_CODES.has(String(row.eventCode || '')) ||
-    Number(row.goldstein || 0) <= -5 ||
-    Number(score || 0) >= 85
-  );
+  const rootCode = String(row.rootCode || '');
+  const eventCode = String(row.eventCode || '');
+  const goldstein = Number(row.goldstein || 0);
+  const s = Number(score || 0);
+
+  // Terrorism / cyber / WMD — always strategic
+  if (STRUCTURAL_EVENT_CODES.has(eventCode)) return true;
+
+  // Active armed conflict with significant impact
+  if (['18', '19', '20'].includes(rootCode) && goldstein <= -7) return true;
+
+  // Extreme negativity regardless of event type
+  if (goldstein <= -9) return true;
+
+  // Very high score AND known hotspot country
+  if (s >= 115 && STRATEGIC_COUNTRY_CODES.has(String(row.countryCode || ''))) return true;
+
+  // Extreme score regardless of country (genuine high-signal event)
+  if (s >= 135) return true;
+
+  return false;
 }
 
 function buildDedupKey(row) {
@@ -834,9 +849,9 @@ function isRelevantEvent(event) {
     return false;
   }
   // Military with strong keyword evidence
-  if (event.category === 'military' && event.military_keyword_flag && score >= MIN_RELEVANCE_SCORE - 10) return true;
-  // Strategic: tighter relaxation
-  if (event.is_strategic && score >= MIN_RELEVANCE_SCORE - 10) return true;
+  if (event.category === 'military' && event.military_keyword_flag && score >= MIN_RELEVANCE_SCORE - 8) return true;
+  // Strategic: only relax if genuinely strategic (tighter criteria now)
+  if (event.is_strategic && score >= MIN_RELEVANCE_SCORE - 5) return true;
   return false;
 }
 
