@@ -11,9 +11,12 @@ const AI_FILTER_DELAY   = Number(process.env.AI_FILTER_DELAY || 1200); // ms bet
 const AI_FILTER_TIMEOUT_MS = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
 const AI_FILTER_MAX_RETRIES = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
 const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
-const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o';
-const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
+// DeepSeek uses OpenAI-compatible API — replaces gpt-4o at ~90% lower cost
+const OPENAI_API_KEY = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.chatgpt;
+const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'deepseek-chat';
+const OPENAI_URL     = process.env.DEEPSEEK_API_KEY
+  ? 'https://api.deepseek.com/v1/chat/completions'
+  : 'https://api.openai.com/v1/chat/completions';
 const OPENAI_TRANSLATE_FALLBACK = process.env.OPENAI_TRANSLATE_FALLBACK === 'true';
 const AI_PRIMARY_PROVIDER = (process.env.GDELT_AI_PROVIDER || (OPENAI_API_KEY ? 'openai' : 'mistral')).toLowerCase();
 const AI_NORMALIZE_PROVIDER = (process.env.GDELT_NORMALIZE_PROVIDER || AI_PRIMARY_PROVIDER).toLowerCase();

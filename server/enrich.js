@@ -3,9 +3,12 @@
 const crypto = require('crypto');
 
 const _USE_MISTRAL   = true;
-const ENRICH_API_KEY = process.env.MISTRAL_API_KEY;
-const ENRICH_MODEL   = process.env.ENRICH_MODEL || 'mistral-medium-latest';
-const ENRICH_URL     = 'https://api.mistral.ai/v1/chat/completions';
+// DeepSeek uses OpenAI-compatible API — replaces mistral-medium at lower cost
+const ENRICH_API_KEY = process.env.DEEPSEEK_API_KEY || process.env.MISTRAL_API_KEY;
+const ENRICH_MODEL   = process.env.ENRICH_MODEL || (process.env.DEEPSEEK_API_KEY ? 'deepseek-chat' : 'mistral-medium-latest');
+const ENRICH_URL     = process.env.DEEPSEEK_API_KEY
+  ? 'https://api.deepseek.com/v1/chat/completions'
+  : 'https://api.mistral.ai/v1/chat/completions';
 
 // Compat interne
 const OPENAI_API_KEY = ENRICH_API_KEY;

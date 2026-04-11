@@ -19,9 +19,12 @@ const path = require('path');
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
-const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o';
-const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
+// DeepSeek uses OpenAI-compatible API — drop-in replacement for gpt-4o at ~90% lower cost
+const OPENAI_API_KEY = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.chatgpt;
+const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'deepseek-chat';
+const OPENAI_URL     = process.env.DEEPSEEK_API_KEY
+  ? 'https://api.deepseek.com/v1/chat/completions'
+  : 'https://api.openai.com/v1/chat/completions';
 
 const CACHE_DIR      = process.env.CACHE_DIR || '/data';
 const DISK_PATH      = path.join(CACHE_DIR, 'google-news-events.json');
