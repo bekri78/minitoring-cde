@@ -22,6 +22,15 @@ const AI_PRIMARY_PROVIDER = (process.env.GDELT_AI_PROVIDER || (OPENAI_API_KEY ? 
 const AI_NORMALIZE_PROVIDER = (process.env.GDELT_NORMALIZE_PROVIDER || AI_PRIMARY_PROVIDER).toLowerCase();
 const AI_FILTER_ALWAYS_KEEP_SCORE = Number(process.env.AI_FILTER_ALWAYS_KEEP_SCORE || 88);
 
+// Startup diagnostics
+console.log('[normalizer] DEEPSEEK_API_KEY set:', !!process.env.DEEPSEEK_API_KEY);
+console.log('[normalizer] OPENAI_API_KEY set:   ', !!process.env.OPENAI_API_KEY);
+console.log('[normalizer] MISTRAL_API_KEY set:  ', !!process.env.MISTRAL_API_KEY);
+console.log('[normalizer] AI_PRIMARY_PROVIDER:  ', AI_PRIMARY_PROVIDER);
+console.log('[normalizer] OPENAI_URL:           ', OPENAI_URL);
+console.log('[normalizer] OPENAI_MODEL:         ', OPENAI_MODEL);
+console.log('[normalizer] active key suffix:    ', OPENAI_API_KEY ? `****${OPENAI_API_KEY.slice(-4)}` : 'none');
+
 const VALID_CATEGORIES = new Set([
   'terrorism', 'military', 'conflict', 'protest',
   'cyber', 'strategic', 'crisis', 'incident', 'discard',
