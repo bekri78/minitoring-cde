@@ -35,12 +35,23 @@ const STRUCTURAL_ROOT_CODES = new Set(['13', '14', '15', '16', '17', '18', '19',
 const STRUCTURAL_EVENT_CODES = new Set(['155', '181', '1831', '1832', '1833']);
 
 // --- SPATIAL domain lists ---
+// Strong anchors: these alone are sufficient to qualify as spatial
 const SPATIAL_ANCHORS = [
   'satellite', 'spacecraft', 'orbital', 'orbit', 'spaceport', 'cosmodrome',
   'reentry', 're-entry', 'deorbit', 'de-orbit', 'asat', 'anti-satellite',
   'launch vehicle', 'launch pad', 'payload', 'upper stage', 'capsule',
-  'spacex', 'nasa', 'esa', 'cnes', 'isro', 'roscosmos', 'rocket test',
-  'booster', 'rocket launch', 'space debris',
+  'rocket test', 'booster', 'rocket launch', 'space debris',
+];
+// Agency names: need at least one corroborating space term to qualify
+const SPATIAL_AGENCY_ANCHORS = [
+  'spacex', 'nasa', 'esa', 'cnes', 'isro', 'roscosmos', 'jaxa',
+  'space force', 'space command',
+];
+// Terms that corroborate an agency anchor
+const SPATIAL_AGENCY_CORROBORATION = [
+  'launch', 'satellite', 'rocket', 'orbit', 'spacecraft', 'mission',
+  'liftoff', 'payload', 'booster', 'reentry', 'debris', 'station',
+  'lunar', 'mars', 'asteroid', 'telescope', 'probe', 'capsule',
 ];
 const SPATIAL_SUPPORT_KEYWORDS = [
   'launch', 'liftoff', 'rocket', 'missile defense', 'icbm',
@@ -50,6 +61,15 @@ const SPATIAL_PHRASE_PATTERNS = [
   'orbital mission', 'space debris', 'atmospheric reentry', 'rocket booster',
   'space station', 'lunar mission', 'mars mission', 'satellite imagery',
   'anti-satellite weapon', 'space force', 'space command',
+];
+// Hard exclusions: always disqualify, even if an anchor is present
+const SPATIAL_HARD_EXCLUSIONS = [
+  'goes viral', 'went viral', 'viral video', 'heartfelt', 'heartwarming',
+  'open letter', 'letter to nasa', 'petition', 'plea', 'bring back pluto',
+  'pluto planet', 'years old', 'year old', 'child asks', 'kid asks',
+  'fan mail', 'wishes', 'adorable', 'cute', 'funny', 'meme',
+  'anniversary', 'museum', 'exhibition', 'documentary', 'film about',
+  'movie about', 'book about', 'tv show', 'series about',
 ];
 const SPATIAL_EXCLUSIONS = [
   'product launch', 'campaign launch', 'initiative launch', 'startup launch',
@@ -117,7 +137,7 @@ const MARITIME_EXCLUSIONS = [
 ];
 
 // Combined lists for backward-compat checks (isCivilianNoise, shouldKeepEvent)
-const SPATIAL_KEYWORDS = [...SPATIAL_ANCHORS, ...SPATIAL_SUPPORT_KEYWORDS];
+const SPATIAL_KEYWORDS = [...SPATIAL_ANCHORS, ...SPATIAL_AGENCY_ANCHORS, ...SPATIAL_SUPPORT_KEYWORDS];
 const AVIATION_KEYWORDS = [...AVIATION_ANCHORS, ...AVIATION_SUPPORT_KEYWORDS];
 const MARITIME_KEYWORDS = [...MARITIME_ANCHORS, ...MARITIME_SUPPORT_KEYWORDS];
 
@@ -411,8 +431,15 @@ function matchedPhrases(text, phrases) {
 }
 
 function isSpatialEligible(textBlob) {
+  // Hard exclusions always win — viral/human-interest content, even with "nasa"
+  if (containsAnyKeyword(textBlob, SPATIAL_HARD_EXCLUSIONS)) return false;
+  // Standard exclusions block if no strong anchor is present
   if (containsAnyKeyword(textBlob, SPATIAL_EXCLUSIONS) && !containsAnyKeyword(textBlob, SPATIAL_ANCHORS)) return false;
+  // Strong anchor alone is sufficient
   if (containsAnyKeyword(textBlob, SPATIAL_ANCHORS)) return true;
+  // Agency names (nasa/esa/spacex…) require at least one corroborating space term
+  if (containsAnyKeyword(textBlob, SPATIAL_AGENCY_ANCHORS) && containsAnyKeyword(textBlob, SPATIAL_AGENCY_CORROBORATION)) return true;
+  // Multi-word phrase pattern is sufficient
   if (containsAnyPhrase(textBlob, SPATIAL_PHRASE_PATTERNS)) return true;
   return false;
 }
