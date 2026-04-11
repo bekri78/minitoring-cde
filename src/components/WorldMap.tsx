@@ -300,8 +300,12 @@ export function WorldMap({
       const score     = Number(p.score || 0);
       // Rayon basé sur le score : 5 à 12px
       const radius    = Math.max(5, Math.min(12, 5 + score / 20));
-      // Couleur par catégorie : military=rouge, protest=jaune, incident=bleu
-      const dotColor  = catColor;
+      // Couleur OSINT domain prioritaire, sinon par catégorie
+      const osintD    = (p.osintDomain || '').toLowerCase();
+      const dotColor  = osintD === 'aviation' ? '#00bfff'
+                      : osintD === 'maritime' ? '#00e5a0'
+                      : osintD === 'spatial'  ? '#b580ff'
+                      : catColor;
 
       const marker = L.circleMarker([lat, lon], {
         radius,
@@ -314,9 +318,8 @@ export function WorldMap({
       const catLabel  = getCategoryLabel(p.category || 'incident');
       const domain    = escapeHtml(p.domain || '');
       const dateStr   = escapeHtml(formatDate(p.date));
-      const osintD    = (p.osintDomain || '').toLowerCase();
       const domainBadge = osintD === 'aviation' ? { icon: '✈', label: 'AIR', color: '#00bfff' }
-                        : osintD === 'maritime' ? { icon: '⚓', label: 'SEA', color: '#00cca3' }
+                        : osintD === 'maritime' ? { icon: '⚓', label: 'SEA', color: '#00e5a0' }
                         : osintD === 'spatial'  ? { icon: '🚀', label: 'SPACE', color: '#b580ff' }
                         : null;
       const rawTitle  = p.title || p.domain || '';
@@ -384,13 +387,12 @@ export function WorldMap({
       `), { maxWidth: 340 });
 
       // Route aviation/maritime/spatial OSINT events to dedicated layers
-      const osintDomain = (p.osintDomain || '').toLowerCase();
-      if (osintDomain === 'aviation' && airOsintLayerRef.current) {
+      if (osintD === 'aviation' && airOsintLayerRef.current) {
         airOsintLayerRef.current.addLayer(marker);
-      } else if (osintDomain === 'maritime' && seaOsintLayerRef.current) {
-        cluster.addLayer(marker);
-      } else if (osintDomain === 'spatial' && spaceOsintLayerRef.current) {
-        cluster.addLayer(marker);
+      } else if (osintD === 'maritime' && seaOsintLayerRef.current) {
+        seaOsintLayerRef.current.addLayer(marker);
+      } else if (osintD === 'spatial' && spaceOsintLayerRef.current) {
+        spaceOsintLayerRef.current.addLayer(marker);
       } else {
         cluster.addLayer(marker);
       }
