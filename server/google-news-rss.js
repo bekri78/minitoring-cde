@@ -61,6 +61,26 @@ const RSS_FEEDS = [
   { domain: 'military', label: 'USA Military', hintLocation: 'united states',
     query: '(Pentagon OR "US military" OR "US Navy" OR "US Air Force" OR CENTCOM OR INDOPACOM)' },
 
+  // ── SPATIAL PAR PAYS ────────────────────────────────────────────────
+  { domain: 'spatial', label: 'Ukraine Satellite', hintLocation: 'ukraine',
+    query: '(Ukraine OR Ukrainian) (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR Starlink OR "communication satellite" OR "electronic warfare" OR terminal)' },
+  { domain: 'spatial', label: 'Russia Space', hintLocation: 'russia',
+    query: '(Russia OR Russian) (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR Roscosmos OR Soyuz OR "space weapon" OR ASAT OR Yamal OR Glonass OR cosmodrome)' },
+  { domain: 'spatial', label: 'China Space', hintLocation: 'china',
+    query: '(China OR Chinese) (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR "Long March" OR Tiangong OR Beidou OR "space station" OR Jiuquan OR Xichang OR Wenchang)' },
+  { domain: 'spatial', label: 'USA Space', hintLocation: 'united states',
+    query: '(USA OR American OR "United States") (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR "Space Force" OR SpaceX OR NASA OR Starlink OR "spy satellite" OR NRO OR "space command" OR "space weapon")' },
+  { domain: 'spatial', label: 'India Space', hintLocation: 'india',
+    query: '(India OR Indian OR ISRO) (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR ASAT OR Chandrayaan OR Gaganyaan OR PSLV OR GSLV)' },
+  { domain: 'spatial', label: 'Europe Space', hintLocation: 'france',
+    query: '(ESA OR Ariane OR "European Space" OR Copernicus OR Galileo OR CNES) (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR launch)' },
+  { domain: 'spatial', label: 'Iran Space', hintLocation: 'iran',
+    query: '(Iran OR Iranian) (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR Simorgh OR Safir OR "space program")' },
+  { domain: 'spatial', label: 'North Korea Space', hintLocation: 'north korea',
+    query: '("North Korea" OR DPRK) (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR "spy satellite" OR reconnaissance)' },
+  { domain: 'spatial', label: 'Japan Space', hintLocation: 'japan',
+    query: '(Japan OR JAXA) (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR "H3 rocket" OR "space debris" OR Hayabusa)' },
+
   // ── PROLIFÉRATION / MENACES NUCLÉAIRES ──────────────────────────────
   { domain: 'missile',  label: 'North Korea', hintLocation: 'north korea',
     query: '("North Korea" OR DPRK OR Pyongyang) (missile OR nuclear OR launch OR test OR military)' },
