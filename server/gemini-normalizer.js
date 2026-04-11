@@ -535,6 +535,7 @@ DISCARD if the event is about:
 - Viral or human-interest stories (even if they mention NASA, military, police)
 - Business, finance, stock markets, earnings, IPO, real estate
 - Local crime, road accidents, natural disasters unrelated to conflict
+- Domestic murder, homicide, family crime, police blotter, cartel-free local crime, civil court/criminal case with no military/security implication
 - Elections, parliament, diplomacy with no security dimension
 - Humanitarian aid, health, education with no conflict context
 

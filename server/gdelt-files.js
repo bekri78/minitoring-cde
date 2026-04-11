@@ -160,6 +160,10 @@ const MILITARY_KEYWORDS = [
   'munitions', 'arms shipment', 'weapons transfer', 'defense ministry',
   'ministry of defence', 'general staff', 'special forces', 'paratrooper',
   'border guard', 'rocket force', 'naval task force', 'fleet command',
+  'deployment', 'deployed', 'forward deployed', 'combat readiness', 'battle group',
+  'carrier strike group', 'destroyer squadron', 'frigate squadron', 'air-defence',
+  'air defence', 'combat drone', 'fighter squadron', 'naval exercise', 'joint exercise',
+  'field exercise', 'warships', 'warship', 'submarine patrol', 'marines',
 ];
 
 const CIVILIAN_NOISE_KEYWORDS = [
@@ -178,6 +182,9 @@ const CIVILIAN_NOISE_KEYWORDS = [
   'rozwod', 'slub', 'wesele', // PL: divorce/wedding
   'ristorante', 'cucina', 'ricetta', // IT
   'receta', 'cocina', 'boda', // ES
+  'murder', 'homicide', 'killed wife', 'killed husband', 'couple arrested',
+  'domestic violence', 'family dispute', 'child abuse', 'parents murdered',
+  'femicide', 'kidnapped child', 'serial killer', 'body found', 'cadaver',
 ];
 
 const DEESCALATION_KEYWORDS = [
@@ -286,6 +293,15 @@ const LOCAL_ADMIN_NOISE_KEYWORDS = [
   'contracts irregularities', 'public works contract', 'municipal tender',
   'urban development authority', 'police station', 'district administration',
   'civic body', 'encroachment drive', 'property dispute',
+  'cordon and search operation', 'local murder case', 'couple arrested', 'civil dispute',
+  'near san antonio', 'parents of a woman', 'otra forma de morir',
+];
+
+const CIVIL_CRIME_NOISE_KEYWORDS = [
+  'murder', 'double murder', 'homicide', 'femicide', 'domestic violence',
+  'couple arrested', 'parents of a woman', 'body in closet', 'family murder',
+  'serial killer', 'stabbed to death', 'shot dead in home', 'civil crime',
+  'san antonio', 'otra forma de morir', 'murder of parents',
 ];
 
 const GLOBAL_SECURITY_OVERRIDE = [
@@ -560,6 +576,15 @@ function isLocalAdministrativeNoise(textBlob) {
   return containsAnyKeyword(textBlob, LOCAL_ADMIN_NOISE_KEYWORDS);
 }
 
+function isCivilCrimeNoise(textBlob) {
+  if (containsAnyKeyword(textBlob, GLOBAL_SECURITY_OVERRIDE)) return false;
+  if (containsAnyKeyword(textBlob, MILITARY_KEYWORDS)) return false;
+  if (containsAnyKeyword(textBlob, AVIATION_KEYWORDS)) return false;
+  if (containsAnyKeyword(textBlob, MARITIME_KEYWORDS)) return false;
+  if (containsAnyKeyword(textBlob, SPATIAL_KEYWORDS)) return false;
+  return containsAnyKeyword(textBlob, CIVIL_CRIME_NOISE_KEYWORDS);
+}
+
 /**
  * Normalise the GDELT FIPS 10-4 country code to ISO 3166-1 alpha-2.
  * GDELT uses FIPS codes (UP=Ukraine, RS=Russia, IS=Israel…) not ISO,
@@ -593,6 +618,25 @@ function titleFromUrl(url) {
         .replace(/(\s+\d+)+\s*$/, '')
         .trim();
       if (!raw || /^\d+$/.test(raw) || URL_NAV_SEGMENTS.has(raw.toLowerCase())) continue;
+      const nextSegment = String(segments[i + 1] || '');
+      const words = raw.split(/\s+/).filter(Boolean);
+      const wordCount = words.length;
+      const lowerRaw = raw.toLowerCase();
+      const alphaWords = words.filter(word => /[a-z]/i.test(word));
+      const hasActionWord = /\b(attack|strike|missile|drone|troops|forces|navy|warship|submarine|exercise|deployment|detains|seizes|launch|returns|meets|talks|warns|says|kills|arrests|blocks|approves|deploys|fires)\b/i.test(raw);
+      const allWordsLookGeneric = alphaWords.length > 0 && alphaWords.every(word =>
+        URL_NAV_SEGMENTS.has(word.toLowerCase()) ||
+        /^(world|local|global|middle|east|west|north|south|cross|strait|politics|business|technology|defense|opinion|commentary|analysis|life|travel|culture)$/.test(word.toLowerCase())
+      );
+      const genericSectionLike = (
+        /^\d{6,}$/.test(nextSegment) &&
+        wordCount <= 3 &&
+        (
+          allWordsLookGeneric ||
+          (!hasActionWord && lowerRaw === normalizeTitleForDedup(raw))
+        )
+      );
+      if (genericSectionLike) continue;
       // Reject hex hashes (MD5/SHA-like: 16-64 hex chars, no spaces)
       if (/^[0-9a-f]{16,64}$/i.test(raw.replace(/ /g, ''))) continue;
       if (hasNativeScript(raw) && raw.length >= 4) return raw;
@@ -731,7 +775,12 @@ function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
   if (flags.civilian_noise_flag && !flags.spatial_anchor_flag && !flags.aviation_anchor_flag && !flags.maritime_anchor_flag) return 'discard';
   if (String(eventCode || '').startsWith('155')) return 'cyber';
   if (['181', '1831', '1832', '1833'].some(prefix => String(eventCode || '').startsWith(prefix))) return 'terrorism';
-  if (['18', '19', '20'].includes(String(rootCode || ''))) return 'conflict';
+  if (['18', '19', '20'].includes(String(rootCode || ''))) {
+    if (flags.military_keyword_flag || flags.aviation_eligible || flags.maritime_eligible || /\b(attack|airstrike|strike|missile|drone|troops|forces|army|navy|militia|rebels|offensive|shelling|artillery|deployment|deployed|warship|submarine)\b/.test(normalized)) {
+      return 'conflict';
+    }
+    return 'incident';
+  }
   if (String(rootCode || '') === '15') return 'military';
   if (String(rootCode || '') === '14') return 'protest';
   // Keyword-based classification (domain bucket is separate — no shortcut here)
@@ -831,7 +880,7 @@ function shouldKeepEvent(row, flags, isStructural = false) {
   const eventCode = String(row.eventCode || '');
   const structuralKeep =
     isStructural ||
-    ['18', '19', '20'].includes(rootCode) ||
+    (['18', '19', '20'].includes(rootCode) && (flags.military_keyword_flag || flags.aviation_flag || flags.maritime_flag)) ||
     STRUCTURAL_EVENT_CODES.has(eventCode) ||
     (['13', '14', '15', '16', '17'].includes(rootCode) && flags.military_keyword_flag) ||
     flags.spatial_flag ||
@@ -1085,6 +1134,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
     if (shouldRejectLowQualityDomain(domain, flags, row)) continue;
     if (isDomesticSecurityNoise(signalTextBlob, { countryCode: row.countryCode, domain })) continue;
     if (isLocalAdministrativeNoise(signalTextBlob)) continue;
+    if (isCivilCrimeNoise(signalTextBlob)) continue;
 
     const category = classifyEvent(text, row.eventCode, row.rootCode, flags);
     if (category === 'discard') continue;
