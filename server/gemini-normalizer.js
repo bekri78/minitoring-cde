@@ -1,10 +1,7 @@
 'use strict';
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL   = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 const GEMINI_LIMIT   = Number(process.env.GEMINI_NORMALIZE_LIMIT || 80);
 const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
-const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const MISTRAL_MODEL   = process.env.MISTRAL_TRANSLATE_MODEL || 'mistral-small-latest';
 const MISTRAL_URL     = 'https://api.mistral.ai/v1/chat/completions';
 const AI_FILTER_ENABLED = process.env.AI_FILTER_ENABLED !== 'false';
@@ -18,7 +15,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
 const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o';
 const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_TRANSLATE_FALLBACK = process.env.OPENAI_TRANSLATE_FALLBACK === 'true';
-const AI_PRIMARY_PROVIDER = (process.env.GDELT_AI_PROVIDER || (OPENAI_API_KEY ? 'openai' : (MISTRAL_API_KEY ? 'mistral' : 'gemini'))).toLowerCase();
+const AI_PRIMARY_PROVIDER = (process.env.GDELT_AI_PROVIDER || (OPENAI_API_KEY ? 'openai' : 'mistral')).toLowerCase();
 const AI_NORMALIZE_PROVIDER = (process.env.GDELT_NORMALIZE_PROVIDER || AI_PRIMARY_PROVIDER).toLowerCase();
 const AI_FILTER_ALWAYS_KEEP_SCORE = Number(process.env.AI_FILTER_ALWAYS_KEEP_SCORE || 88);
 
@@ -208,43 +205,6 @@ ${events.map(e => JSON.stringify({
     subEventType: e.subEventType,
     localCategory: e.category,
   })).join('\n')}`;
-}
-
-async function normalizeBatch(events) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
-
-  let resp;
-  try {
-    resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          { parts: [{ text: buildPrompt(events) }] },
-        ],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: 'application/json',
-        },
-      }),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    const err = new Error(`HTTP_${resp.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
-    err.status = resp.status >= 500 ? 502 : 503;
-    throw err;
-  }
-
-  const data = await resp.json();
-  const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('\n') || '';
-  return extractJsonArray(text);
 }
 
 function mergeResult(event, result) {
@@ -733,52 +693,6 @@ async function normalizeEventsWithMistral(events) {
   return normalized;
 }
 
-async function normalizeEventsWithGemini(events) {
-  if (!GEMINI_API_KEY) {
-    console.log('[gemini] skipped: GEMINI_API_KEY missing');
-    return events;
-  }
-
-  const candidates = events.filter(needsMistral).slice(0, GEMINI_LIMIT);
-  if (!candidates.length) {
-    console.log('[gemini] skipped: no ambiguous titles');
-    return events;
-  }
-
-  const byId = new Map();
-  const rejectedIds = new Set();
-  let rejected = 0;
-
-  for (let i = 0; i < candidates.length; i += GEMINI_BATCH) {
-    const batch = candidates.slice(i, i + GEMINI_BATCH);
-    try {
-      const results = await normalizeBatch(batch);
-      for (const result of results) {
-        const original = batch.find(e => e.id === result.id);
-        if (!original) continue;
-        const merged = mergeResult(original, result);
-        if (merged) byId.set(original.id, merged);
-        else {
-          rejectedIds.add(original.id);
-          rejected++;
-        }
-      }
-      console.log(`[gemini] normalized batch ${Math.floor(i / GEMINI_BATCH) + 1}: ${results.length}/${batch.length}`);
-    } catch (err) {
-      console.warn('[gemini] batch failed:', err.message);
-    }
-
-    if (i + GEMINI_BATCH < candidates.length) await sleep(350);
-  }
-
-  const normalized = events
-    .map(event => byId.get(event.id) || event)
-    .filter(event => !rejectedIds.has(event.id));
-
-  console.log(`[gemini] done: ${byId.size} normalized, ${rejected} rejected, ${candidates.length} checked`);
-  return normalized;
-}
-
 async function normalizeTitleWithGemini(event) {
   const title = String(event?.title || '').trim();
   if (!title) {
@@ -788,69 +702,17 @@ async function normalizeTitleWithGemini(event) {
   }
 
   const id = event?.id || `title_${Date.now()}`;
-  const baseEvent = {
-    ...event,
-    id,
-    title,
-    category: event?.category || 'incident',
-  };
+  const baseEvent = { ...event, id, title, category: event?.category || 'incident' };
 
   if (MISTRAL_API_KEY) {
     return translateTitleWithMistral(baseEvent);
   }
-
-  if (!GEMINI_API_KEY) {
-    if (OPENAI_TRANSLATE_FALLBACK && OPENAI_API_KEY) {
-      console.warn('[translate-title] Gemini API key missing; falling back to OpenAI');
-      return translateTitleWithOpenAI(baseEvent);
-    }
-    const err = new Error('MISTRAL_API_KEY or GEMINI_API_KEY missing');
-    err.status = 503;
-    throw err;
+  if (OPENAI_API_KEY) {
+    return translateTitleWithOpenAI(baseEvent);
   }
-  let result;
-  try {
-    [result] = await normalizeBatch([baseEvent]);
-  } catch (err) {
-    if (OPENAI_TRANSLATE_FALLBACK && OPENAI_API_KEY) {
-      console.warn(`[translate-title] Gemini failed (${err.message}); falling back to OpenAI`);
-      return translateTitleWithOpenAI(baseEvent);
-    }
-    throw err;
-  }
-  const merged = mergeResult(baseEvent, result);
-
-  if (!merged) {
-    return {
-      id,
-      keep: result?.keep !== false,
-      originalTitle: title,
-      title: result?.fr || title,
-      fr: result?.fr || title,
-      headline: result?.en || null,
-      notes: result?.notes || null,
-      category: VALID_CATEGORIES.has(result?.category) ? result.category : 'incident',
-      relevance: Number(result?.relevance || 0),
-      language: result?.language || null,
-      isRomanized: Boolean(result?.is_romanized),
-      nativeTitle: result?.native_text || null,
-    };
-  }
-
-  return {
-    id,
-    keep: true,
-    originalTitle: merged.originalTitle || title,
-    title: merged.title,
-    fr: merged.title,
-    headline: merged.headline,
-    notes: merged.notes,
-    category: merged.category,
-    relevance: merged.relevance,
-    language: merged.language,
-    isRomanized: merged.isRomanized,
-    nativeTitle: merged.nativeTitle,
-  };
+  const err = new Error('MISTRAL_API_KEY or OPENAI_API_KEY missing');
+  err.status = 503;
+  throw err;
 }
 
-module.exports = { normalizeEventsWithGemini, normalizeEventsWithMistral, normalizeTitleWithGemini, filterEventsWithMistral };
+module.exports = { normalizeEventsWithMistral, normalizeTitleWithGemini, filterEventsWithMistral };

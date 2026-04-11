@@ -19,8 +19,6 @@ const path = require('path');
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL   = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
 const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o';
 const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
@@ -583,24 +581,6 @@ const AI_DOUBT_PROMPT = `You are a geopolitical OSINT analyst. For each headline
 Return JSON array: [{"index":0,"location":"...","confidence":80},...]
 ONLY the JSON array.`;
 
-async function analyzeDoubtsWithGemini(titles) {
-  if (!GEMINI_API_KEY) return null;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: AI_DOUBT_PROMPT + '\n\n' + titles.map((t, i) => `${i}. ${t}`).join('\n') }] }],
-      generationConfig: { temperature: 0, maxOutputTokens: 2048 },
-    }),
-    signal: AbortSignal.timeout(25000),
-  });
-  if (!resp.ok) throw new Error(`Gemini HTTP ${resp.status}`);
-  const data = await resp.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  return parseJsonArray(text);
-}
-
 async function analyzeDoubtsWithOpenAI(titles) {
   if (!OPENAI_API_KEY) return null;
   const resp = await fetch(OPENAI_URL, {
@@ -636,12 +616,6 @@ function parseJsonArray(text) {
 }
 
 async function analyzeDoubts(titles) {
-  try {
-    const r = await analyzeDoubtsWithGemini(titles);
-    if (r?.length) return r;
-  } catch (err) {
-    console.warn('[google-news] Gemini doubt-analysis failed:', err.message);
-  }
   try {
     const r = await analyzeDoubtsWithOpenAI(titles);
     if (r?.length) return r;
