@@ -120,10 +120,13 @@ const MARITIME_ANCHORS = [
   'naval blockade', 'naval deployment', 'torpedo', 'mine sweeper',
   'guided missile', 'naval base', 'anti-ship missile', 'merchant vessel attack',
   'commercial ship attack', 'shipping lane security', 'strait transit',
+  'tanker seizure', 'vessel intercepted', 'boarding operation', 'naval convoy',
+  'red sea shipping', 'hormuz transit', 'merchant shipping',
 ];
 const MARITIME_SUPPORT_KEYWORDS = [
   'naval', 'navy', 'fleet', 'flotilla', 'coast guard', 'blockade',
-  'maritime', 'sea lane',
+  'maritime', 'sea lane', 'shipping lane', 'merchant vessel', 'tanker',
+  'houthis', 'houthi', 'strait of hormuz', 'red sea',
 ];
 const MARITIME_PHRASE_PATTERNS = [
   'carrier strike group', 'naval exercise', 'warship deployment',
@@ -261,14 +264,22 @@ const GDELT_FIPS_TO_ISO = {
 const LOW_QUALITY_NEWS_DOMAINS = new Set([
   'dailytrib.com', 'amren.com', 'bearingarms.com', 'nydailynews.com',
   'inquirer.com', 'ksl.com', 'norfolkdailynews.com', 'patch.com',
-  'winnipegfreepress.com', 'radaronline.com',
+  'winnipegfreepress.com', 'radaronline.com', 'zazoom.it', 'inewsgr.com',
 ]);
 
 const DOMESTIC_SECURITY_KEYWORDS = [
   'faa', 'sheriff', 'county', 'police department', 'police chief',
   'state trooper', 'highway patrol', 'district attorney', 'court filing',
   'organized crime', 'gang unit', 'local police', 'border patrol',
-  'county jail', 'public safety',
+  'county jail', 'public safety', 'police commissioner', 'municipal corporation',
+  'city council', 'district court', 'lokayukta', 'demolition drive',
+];
+
+const LOCAL_ADMIN_NOISE_KEYWORDS = [
+  'drug abuse', 'atm machine stolen', 'demolitions', 'illegal terrace',
+  'contracts irregularities', 'public works contract', 'municipal tender',
+  'urban development authority', 'police station', 'district administration',
+  'civic body', 'encroachment drive', 'property dispute',
 ];
 
 const GLOBAL_SECURITY_OVERRIDE = [
@@ -512,6 +523,15 @@ function isDomesticSecurityNoise(text, event) {
   if (!containsAnyKeyword(text, DOMESTIC_SECURITY_KEYWORDS)) return false;
   if (containsAnyKeyword(text, GLOBAL_SECURITY_OVERRIDE)) return false;
   return true;
+}
+
+function isLocalAdministrativeNoise(textBlob) {
+  if (containsAnyKeyword(textBlob, GLOBAL_SECURITY_OVERRIDE)) return false;
+  if (containsAnyKeyword(textBlob, MARITIME_KEYWORDS)) return false;
+  if (containsAnyKeyword(textBlob, AVIATION_KEYWORDS)) return false;
+  if (containsAnyKeyword(textBlob, SPATIAL_KEYWORDS)) return false;
+  if (containsAnyKeyword(textBlob, MILITARY_KEYWORDS)) return false;
+  return containsAnyKeyword(textBlob, LOCAL_ADMIN_NOISE_KEYWORDS);
 }
 
 /**
@@ -1024,6 +1044,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
     if (!shouldKeepEvent(row, flags, isStructural)) continue;
     if (shouldRejectLowQualityDomain(domain, flags, row)) continue;
     if (isDomesticSecurityNoise(textBlob, { countryCode: row.countryCode, domain })) continue;
+    if (isLocalAdministrativeNoise(textBlob)) continue;
 
     const category = classifyEvent(text, row.eventCode, row.rootCode, flags);
     if (category === 'discard') continue;
@@ -1389,4 +1410,3 @@ async function fetchTodayEvents(options = {}) {
 }
 
 module.exports = { fetchTodayEvents };
-

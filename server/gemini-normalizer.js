@@ -101,11 +101,12 @@ async function requestJsonArrayFromOpenAI(messages, timeoutMs = 45000) {
 
 function shouldBypassAiFilter(event) {
   if (!event) return false;
-  if (event.domain_bucket && event.domain_bucket !== 'general') return true;
   if (event.osintDomain) return true;
-  if (event.spatial_eligible || event.aviation_eligible || event.maritime_eligible) return true;
-  if (event.is_strategic) return true;
-  if (Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE) return true;
+  if (event.domain_bucket === 'spatial' && event.spatial_anchor_flag) return true;
+  if (event.domain_bucket === 'aviation' && event.aviation_anchor_flag) return true;
+  if (event.domain_bucket === 'maritime' && event.maritime_anchor_flag) return true;
+  if (event.is_strategic && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 8) return true;
+  if (Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 18) return true;
   if (['terrorism', 'cyber'].includes(String(event.category || ''))) return true;
   return false;
 }
