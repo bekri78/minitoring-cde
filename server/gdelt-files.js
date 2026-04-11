@@ -1226,13 +1226,22 @@ function logCalibration(snapshot, selected) {
   console.log(`[gdelt-cal] top\n${topPreview}`);
 }
 
-async function downloadZipTextOptional(url) {
-  try {
-    return await downloadZipText(url);
-  } catch (err) {
-    console.warn(`[gdelt-files] optional download failed (skipping): ${url} — ${err.message}`);
-    return '';
+async function downloadZipTextOptional(url, retries = 3, delayMs = 12000) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await downloadZipText(url);
+    } catch (err) {
+      const is404 = err.message.includes('HTTP 404');
+      if (attempt < retries && is404) {
+        console.warn(`[gdelt-files] GKG not yet available (attempt ${attempt}/${retries}), retrying in ${delayMs / 1000}s — ${url}`);
+        await new Promise(r => setTimeout(r, delayMs));
+      } else {
+        console.warn(`[gdelt-files] GKG unavailable after ${attempt} attempt(s), proceeding without it — ${err.message}`);
+        return '';
+      }
+    }
   }
+  return '';
 }
 
 async function processBatch(batch) {
