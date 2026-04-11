@@ -168,6 +168,11 @@ export function WorldMap({
 
     L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
+    // Pane dédié aux avions/bateaux — z-index 450 < markerPane 600 (clusters)
+    // Garantit que les clusters passent devant les icônes de mouvement
+    map.createPane('movingObjectsPane');
+    map.getPane('movingObjectsPane')!.style.zIndex = '450';
+
     // ── Layer groups ───────────────────────────────────────────────────────
     const eventsCluster = (L as any).markerClusterGroup({
       maxClusterRadius: (zoom: number) => {
@@ -407,7 +412,7 @@ export function WorldMap({
         ? makeSvgIcon(helicopterSvg, HELICOPTER_COLOR, 30, t.heading ?? 0)
         : makeSvgIcon(airplaneSvg, t.color || '#4a9eff', 28, t.heading ?? 0);
 
-      const marker = L.marker([t.lat, t.lon], { icon, zIndexOffset: 500 });
+      const marker = L.marker([t.lat, t.lon], { icon, zIndexOffset: 500, pane: 'movingObjectsPane' });
 
       const tc     = tierColor(t.milTier || '');
       const altStr = t.altFt != null ? `${Number(t.altFt).toLocaleString()} ft` : '—';
@@ -472,7 +477,7 @@ export function WorldMap({
     seaTracks.forEach(t => {
       if (t.lat == null || t.lon == null) return;
       const icon   = makeSvgIcon(shipSvg, t.color || '#60ddff', 20, 0); // vue de profil — pas de rotation
-      const marker = L.marker([t.lat, t.lon], { icon, zIndexOffset: 400 });
+      const marker = L.marker([t.lat, t.lon], { icon, zIndexOffset: 400, pane: 'movingObjectsPane' });
 
       const tc     = tierColor(t.milTier || '');
       const sogStr = t.sog     != null ? `${Number(t.sog).toFixed(1)} kt` : '—';
