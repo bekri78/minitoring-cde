@@ -11,17 +11,17 @@ const INCLUDE_TRANSLATION = process.env.GDELT_INCLUDE_TRANSLATION !== 'false'; /
 const CACHE_DIR = process.env.CACHE_DIR || '/data';
 const STATE_PATH = path.join(CACHE_DIR, 'gdelt-file-state.json');
 
-const BOOTSTRAP_WINDOWS = Number(process.env.GDELT_BOOTSTRAP_WINDOWS || 12);
-const MAX_WINDOWS_PER_RUN = Number(process.env.GDELT_WINDOWS_PER_RUN || 12);
-const SNAPSHOT_LOOKBACK_HOURS = Number(process.env.GDELT_LOOKBACK_HOURS || 36);
-const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 1500);
-const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 300);
-const MIN_RELEVANCE_SCORE = Number(process.env.GDELT_MIN_SCORE || 48);
-const FINAL_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 1500);
-const BASELINE_FINAL_EVENTS = 1500;
-const DOMAIN_MIN_SPATIAL = Number(process.env.GDELT_DOMAIN_MIN_SPATIAL || Math.max(20, Math.round(FINAL_EVENTS * (70 / BASELINE_FINAL_EVENTS))));
-const DOMAIN_MIN_AVIATION = Number(process.env.GDELT_DOMAIN_MIN_AVIATION || Math.max(50, Math.round(FINAL_EVENTS * (170 / BASELINE_FINAL_EVENTS))));
-const DOMAIN_MIN_MARITIME = Number(process.env.GDELT_DOMAIN_MIN_MARITIME || Math.max(55, Math.round(FINAL_EVENTS * (210 / BASELINE_FINAL_EVENTS))));
+const BOOTSTRAP_WINDOWS = Number(process.env.GDELT_BOOTSTRAP_WINDOWS || 8);
+const MAX_WINDOWS_PER_RUN = Number(process.env.GDELT_WINDOWS_PER_RUN || 8);
+const SNAPSHOT_LOOKBACK_HOURS = Number(process.env.GDELT_LOOKBACK_HOURS || 24);
+const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 800);
+const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 200);
+const MIN_RELEVANCE_SCORE = Number(process.env.GDELT_MIN_SCORE || 60);
+const FINAL_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 800);
+const BASELINE_FINAL_EVENTS = 800;
+const DOMAIN_MIN_SPATIAL = Number(process.env.GDELT_DOMAIN_MIN_SPATIAL || Math.max(10, Math.round(FINAL_EVENTS * (30 / BASELINE_FINAL_EVENTS))));
+const DOMAIN_MIN_AVIATION = Number(process.env.GDELT_DOMAIN_MIN_AVIATION || Math.max(25, Math.round(FINAL_EVENTS * (80 / BASELINE_FINAL_EVENTS))));
+const DOMAIN_MIN_MARITIME = Number(process.env.GDELT_DOMAIN_MIN_MARITIME || Math.max(25, Math.round(FINAL_EVENTS * (80 / BASELINE_FINAL_EVENTS))));
 const GDELT_ENABLE_SPATIAL_DOMAIN = process.env.GDELT_ENABLE_SPATIAL_DOMAIN === 'true';
 
 const STRATEGIC_COUNTRY_CODES = new Set([
@@ -815,15 +815,15 @@ function freshnessScore(dateAdded) {
   const iso = isoFromGdeltTimestamp(dateAdded);
   if (!iso) return 0;
   const ageHours = Math.max(0, (Date.now() - new Date(iso).getTime()) / 3600000);
-  return Math.max(0, 18 - Math.min(18, ageHours * 0.75));
+  return Math.max(0, 16 - Math.min(16, ageHours * 1.0));
 }
 
 function geoPrecisionScore(actionGeoType) {
   const value = String(actionGeoType || '');
-  if (value === '4') return 10;
+  if (value === '4') return 12;
   if (value === '3') return 8;
-  if (value === '2') return 5;
-  if (value === '1') return 2;
+  if (value === '2') return 4;
+  if (value === '1') return 1;
   return 0;
 }
 
@@ -866,8 +866,8 @@ function scoreEvent(row, mention, tone, domain, flags, region) {
   if (domain && PRIORITY_DOMAIN_BOOST[domain]) score += Math.min(20, PRIORITY_DOMAIN_BOOST[domain] / 3);
   if (STRATEGIC_COUNTRY_CODES.has(row.countryCode || '')) score += 18;
   if (STRATEGIC_REGION_BOOST.has(region)) score += 8;
-  if (flags.civilian_noise_flag) score -= 35;
-  if (flags.deescalation_flag) score -= 15;
+  if (flags.civilian_noise_flag) score -= 45;
+  if (flags.deescalation_flag) score -= 20;
   // Penalize support-only domain hits (generic terms without anchor)
   if (flags.spatial_support_flag && !flags.spatial_eligible) score -= 8;
   if (flags.aviation_support_flag && !flags.aviation_eligible) score -= 8;
@@ -878,6 +878,13 @@ function scoreEvent(row, mention, tone, domain, flags, region) {
 function shouldKeepEvent(row, flags, isStructural = false) {
   const rootCode = String(row.rootCode || '');
   const eventCode = String(row.eventCode || '');
+
+  // Require at least 2 sources for non-structural general events
+  // Google News RSS already covers single-source headlines
+  const sources = Number(row.numSources || 0);
+  const hasDomainSignal = flags.spatial_flag || flags.aviation_flag || flags.maritime_flag;
+  if (!isStructural && !hasDomainSignal && !flags.military_keyword_flag && sources < 2) return false;
+
   const structuralKeep =
     isStructural ||
     (['18', '19', '20'].includes(rootCode) && (flags.military_keyword_flag || flags.aviation_flag || flags.maritime_flag)) ||
@@ -917,17 +924,17 @@ function isStrategicEvent(row, score) {
   // Terrorism / cyber / WMD — always strategic
   if (STRUCTURAL_EVENT_CODES.has(eventCode)) return true;
 
-  // Active armed conflict with significant impact
-  if (['18', '19', '20'].includes(rootCode) && goldstein <= -7) return true;
+  // Active armed conflict with significant impact (tightened from -7 to -8)
+  if (['18', '19', '20'].includes(rootCode) && goldstein <= -8) return true;
 
-  // Extreme negativity regardless of event type
-  if (goldstein <= -9) return true;
+  // Extreme negativity regardless of event type (tightened from -9 to -9.5)
+  if (goldstein <= -9.5) return true;
 
-  // Very high score AND known hotspot country
-  if (s >= 115 && STRATEGIC_COUNTRY_CODES.has(String(row.countryCode || ''))) return true;
+  // Very high score AND known hotspot country (raised from 115 to 130)
+  if (s >= 130 && STRATEGIC_COUNTRY_CODES.has(String(row.countryCode || ''))) return true;
 
-  // Extreme score regardless of country (genuine high-signal event)
-  if (s >= 135) return true;
+  // Extreme score regardless of country (raised from 135 to 150)
+  if (s >= 150) return true;
 
   return false;
 }
@@ -953,20 +960,31 @@ function isRelevantEvent(event) {
   if (!event || event.category === 'discard') return false;
   if (!event.keep) return false;
   const score = Number(event.score || 0);
+
+  // ── Minimum source count: GDELT's strength is multi-source confirmation ──
+  // Single-source events are likely noise that Google News RSS handles better
+  const sources = Number(event.numSources || 0);
+  const isMultiSource = sources >= 2;
+  const isHighSource = sources >= 4;
+
+  // Strategic events or strong domain hits bypass source check
+  const hasDomainAnchor = event.spatial_anchor_flag || event.aviation_anchor_flag || event.maritime_anchor_flag;
+  if (!isMultiSource && !event.is_strategic && !hasDomainAnchor && score < MIN_RELEVANCE_SCORE + 20) return false;
+
   if (score >= MIN_RELEVANCE_SCORE) return true;
   // Specialized buckets: only relax threshold if truly eligible (anchor/pattern confirmed)
   if (event.domain_bucket !== 'general') {
     const eligible = event.spatial_eligible || event.aviation_eligible || event.maritime_eligible;
     const hasAnchor = event.spatial_anchor_flag || event.aviation_anchor_flag || event.maritime_anchor_flag;
-    if (eligible && hasAnchor && score >= MIN_RELEVANCE_SCORE - 12) return true;
-    if (eligible && score >= MIN_RELEVANCE_SCORE - 6) return true;
+    if (eligible && hasAnchor && score >= MIN_RELEVANCE_SCORE - 10) return true;
+    if (eligible && score >= MIN_RELEVANCE_SCORE - 5) return true;
     return false;
   }
-  // Military with strong keyword evidence
-  if (event.category === 'military' && event.military_keyword_flag && score >= MIN_RELEVANCE_SCORE - 10) return true;
-  // Strategic: only relax if genuinely strategic (tighter criteria now)
-  if (event.is_strategic && score >= MIN_RELEVANCE_SCORE - 10) return true;
-  if (event.category === 'conflict' && score >= MIN_RELEVANCE_SCORE - 8) return true;
+  // Military with strong keyword evidence AND multi-source
+  if (event.category === 'military' && event.military_keyword_flag && isMultiSource && score >= MIN_RELEVANCE_SCORE - 8) return true;
+  // Strategic: only relax if genuinely strategic
+  if (event.is_strategic && score >= MIN_RELEVANCE_SCORE - 8) return true;
+  if (event.category === 'conflict' && isMultiSource && score >= MIN_RELEVANCE_SCORE - 6) return true;
   return false;
 }
 
