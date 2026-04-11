@@ -11,6 +11,7 @@ import type { TipObject } from '../types/tip';
 import type { Quake } from '../types/earthquake';
 import type { Track } from '../types/track';
 import type { NavalEvent } from '../types/maritime';
+import type { NewsEvent } from '../types/news';
 import { buildGeoJSON } from '../utils/geo';
 import { getCategoryColor, getCategoryLabel } from '../utils/classify';
 import { formatDate, escapeHtml } from '../utils/format';
@@ -31,7 +32,8 @@ interface Props {
   airTracks?:    Track[];
   seaTracks?:    Track[];
   launches?:     Launch[];
-  navalEvents?: NavalEvent[];
+  navalEvents?:  NavalEvent[];
+  newsEvents?:   NewsEvent[];
 }
 
 // ── SVG icons ────────────────────────────────────────────────────────────────
@@ -122,6 +124,7 @@ export function WorldMap({
   pads = [], decayObjects = [], tipObjects = [], quakes = [],
   airTracks = [], seaTracks = [], launches = [],
   navalEvents = [],
+  newsEvents  = [],
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef       = useRef<L.Map | null>(null);
@@ -138,6 +141,7 @@ export function WorldMap({
   const airOsintLayerRef   = useRef<L.LayerGroup | null>(null);
   const seaOsintLayerRef   = useRef<L.LayerGroup | null>(null);
   const spaceOsintLayerRef = useRef<L.LayerGroup | null>(null);
+  const newsLayerRef        = useRef<L.LayerGroup | null>(null);
 
   // Track currently open popup so we can re-open after layer refresh
   const openAircraftIdRef = useRef<string | null>(null);
@@ -200,6 +204,7 @@ export function WorldMap({
     const airOsintLayer   = L.layerGroup();
     const seaOsintLayer   = L.layerGroup();
     const spaceOsintLayer = L.layerGroup();
+    const newsLayer       = L.layerGroup();
 
     eventsCluster.addTo(map);
     maritimeLayer.addTo(map);
@@ -212,6 +217,7 @@ export function WorldMap({
     airOsintLayer.addTo(map);
     seaOsintLayer.addTo(map);
     spaceOsintLayer.addTo(map);
+    newsLayer.addTo(map);
 
     eventsClusterRef.current = eventsCluster;
     aircraftLayerRef.current  = aircraftLayer;
@@ -224,6 +230,7 @@ export function WorldMap({
     airOsintLayerRef.current   = airOsintLayer;
     seaOsintLayerRef.current   = seaOsintLayer;
     spaceOsintLayerRef.current = spaceOsintLayer;
+    newsLayerRef.current        = newsLayer;
 
     mapRef.current = map;
 
@@ -742,6 +749,54 @@ export function WorldMap({
     });
   }, [navalEvents]);
 
+  // ── Update Google News events layer ───────────────────────────────────────
+  useEffect(() => {
+    const layer = newsLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+
+    newsEvents.forEach(ev => {
+      if (!ev.lat || !ev.lon) return;
+      const color  = ev.color || '#22d3ee';
+      const radius = ev.confidence >= 75 ? 8 : ev.confidence >= 50 ? 6 : 4;
+
+      const marker = L.circleMarker([ev.lat, ev.lon], {
+        radius,
+        color,
+        weight:      1.5,
+        fillColor:   color,
+        fillOpacity: ev.confidence >= 50 ? 0.7 : 0.4,
+      });
+
+      const timestampMs = ev.date ? Date.parse(ev.date) : Number.NaN;
+      const dateStr = Number.isFinite(timestampMs)
+        ? new Date(timestampMs).toUTCString().replace(' GMT', ' UTC').slice(0, 22)
+        : '-';
+
+      const domainBadge = `<span style="padding:1px 6px;font-size:8px;background:${color}18;color:${color};border:1px solid ${color}44;">${escapeHtml(ev.label || ev.domain.toUpperCase())}</span>`;
+      const sourceBadge = `<span style="padding:1px 6px;font-size:8px;background:#ffffff10;color:#8899aa;border:1px solid #334455;">${escapeHtml(ev.source)}</span>`;
+      const confBadge   = `<span style="font-size:9px;color:#4a6a7a;margin-left:auto;">${ev.confidence}%</span>`;
+
+      const titleHtml = ev.url
+        ? `<a href="${escapeHtml(ev.url)}" target="_blank" rel="noopener" style="color:#e8f4ff;text-decoration:none;">${escapeHtml(ev.title)}</a>`
+        : escapeHtml(ev.title);
+
+      marker.bindPopup(mono(`
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+          ${domainBadge} ${sourceBadge} ${confBadge}
+        </div>
+        <p style="color:#e8f4ff;margin:0 0 4px 0;font-size:12px;">${titleHtml}</p>
+        <p style="color:#4a6a7a;margin:0 0 8px 0;font-size:9px;">${escapeHtml(ev.location || '-')} | Google News RSS</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9px;border-top:1px solid #1a2a3a;padding-top:8px;">
+          <div><span style="color:#4a6a7a;">TYPE</span><br><span style="color:#c8d8e8;">${escapeHtml(ev.eventType || ev.domain)}</span></div>
+          <div><span style="color:#4a6a7a;">DATE</span><br><span style="color:#c8d8e8;">${escapeHtml(dateStr)}</span></div>
+        </div>
+      `), { maxWidth: 360 });
+
+      layer.addLayer(marker);
+    });
+  }, [newsEvents]);
+
   // ── Toggle layer visibility based on domain view ──────────────────────────
   const { domainView } = useFilterStore();
 
@@ -772,25 +827,26 @@ export function WorldMap({
     const spOsint    = spaceOsintLayerRef.current;
     // Other
     const qLayer     = quakesLayerRef.current;
+    const newsLayer  = newsLayerRef.current;
 
     switch (domainView) {
       case 'air':
-        show(airLayer); show(airOsint);
+        show(airLayer); show(airOsint); show(newsLayer);
         hide(evCluster); hide(seaLayer); hide(navLayer); hide(seaOsint);
         hide(padLayer); hide(decLayer); hide(tipLayer); hide(spOsint); hide(qLayer);
         break;
       case 'sea':
-        show(seaLayer); show(navLayer);
+        show(seaLayer); show(navLayer); show(newsLayer);
         hide(evCluster); hide(airLayer); hide(airOsint);
         hide(seaOsint); hide(padLayer); hide(decLayer); hide(tipLayer); hide(spOsint); hide(qLayer);
         break;
       case 'space':
-        show(padLayer); show(decLayer); show(tipLayer);
+        show(padLayer); show(decLayer); show(tipLayer); show(newsLayer);
         hide(evCluster); hide(airLayer); hide(airOsint); hide(spOsint);
         hide(seaLayer); hide(navLayer); hide(seaOsint); hide(qLayer);
         break;
       case 'osint':
-        show(evCluster); show(qLayer); show(airOsint);
+        show(evCluster); show(qLayer); show(airOsint); show(newsLayer);
         show(padLayer); show(decLayer); show(tipLayer);
         hide(seaLayer); hide(navLayer); hide(seaOsint); hide(spOsint); hide(airLayer);
         break;
@@ -798,7 +854,7 @@ export function WorldMap({
       default:
         show(evCluster); show(airLayer); show(seaLayer); show(navLayer);
         show(padLayer); show(decLayer); show(tipLayer); show(qLayer);
-        show(airOsint);
+        show(airOsint); show(newsLayer);
         hide(seaOsint); hide(spOsint);
         break;
     }

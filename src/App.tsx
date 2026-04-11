@@ -8,6 +8,7 @@ import { useEarthquakes }       from './hooks/useEarthquakes';
 import { useSpaceWeather }      from './hooks/useSpaceWeather';
 import { useTracks } from './hooks/useTracks';
 import { useNavalActivity }     from './hooks/useNavalActivity';
+import { useNewsEvents }        from './hooks/useNewsEvents';
 import { useHistory }      from './hooks/useHistory';
 import { useFilterStore } from './store/filterStore';
 import type { DomainView } from './store/filterStore';
@@ -31,6 +32,7 @@ export default function App() {
   const { data: swData }      = useSpaceWeather();
   const { data: tracksData }  = useTracks();
   const { data: navalData }    = useNavalActivity();
+  const { data: newsEventsData } = useNewsEvents();
   const { data: historyData } = useHistory();
   const { severity, categories, regions } = useFilterStore();
   const domainView = useFilterStore((s): DomainView => s.domainView);
@@ -44,6 +46,7 @@ export default function App() {
     .filter(t => t.country !== 'USA' || (t as any).milScore === 100), [tracksData]);
   const seaTracks  = useMemo(() => tracksData?.tracks.filter(t => t.domain === 'sea') ?? [], [tracksData]);
   const navalEvents = useMemo(() => navalData?.events ?? [], [navalData]);
+  const newsEvents  = useMemo(() => newsEventsData ?? [], [newsEventsData]);
 
   // Apply filters
   const filteredEvents = useMemo(() => allEvents.filter(e => {
@@ -75,9 +78,9 @@ export default function App() {
       case 'sea':   return seaTracks.length + navalEvents.length;
       case 'space': return (launchData?.launches?.length || 0) + (decayData?.objects?.length || 0) + (tipData?.objects?.length || 0);
       case 'osint': return filteredEvents.length;
-      default:      return filteredEvents.length + airTracks.length + seaTracks.length + navalEvents.length;
+      default:      return filteredEvents.length + airTracks.length + seaTracks.length + navalEvents.length + newsEvents.length;
     }
-  }, [domainView, filteredEvents, airTracks, seaTracks, navalEvents, launchData, decayData, tipData]);
+  }, [domainView, filteredEvents, airTracks, seaTracks, navalEvents, newsEvents, launchData, decayData, tipData]);
 
   const handleRefresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['events'] });
@@ -92,7 +95,7 @@ export default function App() {
         onRefresh={handleRefresh}
       />
       <div style={{ position: 'relative', overflow: 'hidden' }}>
-        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} quakes={quakeData?.quakes} airTracks={airTracks} seaTracks={seaTracks} launches={launchData?.launches} navalEvents={navalEvents} />
+        <WorldMap events={filteredEvents} loading={gdeltStatus === 'pending'} pads={launchData?.pads} decayObjects={decayData?.objects} tipObjects={tipData?.objects} quakes={quakeData?.quakes} airTracks={airTracks} seaTracks={seaTracks} launches={launchData?.launches} navalEvents={navalEvents} newsEvents={newsEvents} />
         <FilterPanel />
         <SpacePanel data={launchData} decay={decayData} tip={tipData} loading={launchStatus === 'pending'} />
         <TrendPanel data={historyData?.history ?? []} />

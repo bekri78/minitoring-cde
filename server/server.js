@@ -23,6 +23,7 @@ const { getMaritimeEvents, getMaritimeAnomalies, getNavalActivity }  = require('
 const { fetchMaritimeAnomalies }                                     = require('./maritime-anomalies');
 const { getAviationEvents, refreshOpenSkyCache }                     = require('./aviation-osint');
 const { getSpatialEvents }                                           = require('./spatial-osint');
+const { fetchGoogleNewsEvents, getCache: getNewsCache, getNewsEventsForMap } = require('./google-news-rss');
 const { fetchTodayEvents: fetchTodayEventsFromFiles }                = require('./gdelt-files');
 
 const app      = express();
@@ -438,6 +439,15 @@ publicRouter.get('/space-weather', (req, res) => {
   }));
 });
 
+publicRouter.get('/news-events', (_req, res) => {
+  const c = getNewsCache();
+  const mapEvents = getNewsEventsForMap();
+  res.json(publicEnvelope('news-events', mapEvents, {
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  }));
+});
+
 publicRouter.get('/all', (req, res) => {
   const include = String(req.query.include || 'osint,aircraft,ships,space,earthquakes,space-weather')
     .split(',')
@@ -717,6 +727,29 @@ app.get('/api/spatial/events', (_req, res) => {
   });
 });
 
+// ── Google News RSS events ────────────────────────────────────────────────
+app.get('/api/news/events', (_req, res) => {
+  const c = getNewsCache();
+  const mapEvents = getNewsEventsForMap();
+  res.json({
+    events:     mapEvents,
+    count:      mapEvents.length,
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+    generatedAt: new Date().toISOString(),
+  });
+});
+
+app.get('/api/news/raw', (_req, res) => {
+  const c = getNewsCache();
+  res.json({
+    events:     c.events,
+    count:      c.events.length,
+    lastUpdate: c.lastUpdate,
+    status:     c.lastUpdate ? 'ok' : 'initializing',
+  });
+});
+
 app.get('/diag/ais', async (req, res) => {
   const WebSocket = require('ws');
   const key = (process.env.AISSTREAM_KEY || '').trim().replace(/^=+/, '');
@@ -837,6 +870,11 @@ cron.schedule('*/15 * * * *', () => {
   refreshOpenSkyCache().catch(err => console.error('[opensky-cron]', err.message));
 });
 
+// ── Cron 3h — Google News RSS (journalistic detection) ─────────────────────────
+cron.schedule('0 */3 * * *', () => {
+  fetchGoogleNewsEvents().catch(err => console.error('[google-news-cron]', err.message));
+});
+
 // ── Démarrage ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
@@ -854,6 +892,7 @@ app.listen(PORT, () => {
   fetchWorldEvents().catch(err => console.error('[startup-world-events]', err.message));
   fetchMaritimeAnomalies().catch(err => console.error('[startup-maritime-anomalies]', err.message));
   refreshOpenSkyCache().catch(err => console.error('[startup-opensky]', err.message));
+  fetchGoogleNewsEvents().catch(err => console.error('[startup-google-news]', err.message));
 });
 
 
