@@ -350,9 +350,9 @@ export function WorldMap({
       if (osintDomain === 'aviation' && airOsintLayerRef.current) {
         airOsintLayerRef.current.addLayer(marker);
       } else if (osintDomain === 'maritime' && seaOsintLayerRef.current) {
-        seaOsintLayerRef.current.addLayer(marker);
+        cluster.addLayer(marker);
       } else if (osintDomain === 'spatial' && spaceOsintLayerRef.current) {
-        spaceOsintLayerRef.current.addLayer(marker);
+        cluster.addLayer(marker);
       } else {
         cluster.addLayer(marker);
       }
@@ -784,25 +784,26 @@ export function WorldMap({
         hide(padLayer); hide(decLayer); hide(tipLayer); hide(spOsint); hide(qLayer);
         break;
       case 'sea':
-        show(seaLayer); show(navLayer); show(seaOsint);
+        show(seaLayer); show(navLayer);
         hide(evCluster); hide(airLayer); hide(airOsint);
-        hide(padLayer); hide(decLayer); hide(tipLayer); hide(spOsint); hide(qLayer);
+        hide(seaOsint); hide(padLayer); hide(decLayer); hide(tipLayer); hide(spOsint); hide(qLayer);
         break;
       case 'space':
-        show(padLayer); show(decLayer); show(tipLayer); show(spOsint);
-        hide(evCluster); hide(airLayer); hide(airOsint);
+        show(padLayer); show(decLayer); show(tipLayer);
+        hide(evCluster); hide(airLayer); hide(airOsint); hide(spOsint);
         hide(seaLayer); hide(navLayer); hide(seaOsint); hide(qLayer);
         break;
       case 'osint':
-        show(evCluster); show(qLayer); show(airOsint); show(seaOsint); show(spOsint);
+        show(evCluster); show(qLayer); show(airOsint);
         show(padLayer); show(decLayer); show(tipLayer);
-        hide(airLayer); hide(seaLayer); hide(navLayer);
+        hide(seaLayer); hide(navLayer); hide(seaOsint); hide(spOsint); hide(airLayer);
         break;
       case 'all':
       default:
         show(evCluster); show(airLayer); show(seaLayer); show(navLayer);
         show(padLayer); show(decLayer); show(tipLayer); show(qLayer);
-        show(airOsint); show(seaOsint); show(spOsint);
+        show(airOsint);
+        hide(seaOsint); hide(spOsint);
         break;
     }
   }, [domainView]);

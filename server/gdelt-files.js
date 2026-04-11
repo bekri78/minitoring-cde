@@ -22,6 +22,7 @@ const BASELINE_FINAL_EVENTS = 1500;
 const DOMAIN_MIN_SPATIAL = Number(process.env.GDELT_DOMAIN_MIN_SPATIAL || Math.max(20, Math.round(FINAL_EVENTS * (70 / BASELINE_FINAL_EVENTS))));
 const DOMAIN_MIN_AVIATION = Number(process.env.GDELT_DOMAIN_MIN_AVIATION || Math.max(50, Math.round(FINAL_EVENTS * (170 / BASELINE_FINAL_EVENTS))));
 const DOMAIN_MIN_MARITIME = Number(process.env.GDELT_DOMAIN_MIN_MARITIME || Math.max(55, Math.round(FINAL_EVENTS * (210 / BASELINE_FINAL_EVENTS))));
+const GDELT_ENABLE_SPATIAL_DOMAIN = process.env.GDELT_ENABLE_SPATIAL_DOMAIN === 'true';
 
 const STRATEGIC_COUNTRY_CODES = new Set([
   'RS', 'CH', 'KN', 'KS', 'TW', 'VM',
@@ -850,7 +851,7 @@ function shouldKeepEvent(row, flags, isStructural = false) {
 function domainBucketFromFlags(flags) {
   // Only assign specialized bucket if domain is truly eligible (anchor or strong pattern)
   const candidates = [];
-  if (flags.spatial_eligible) candidates.push({ bucket: 'spatial', strength: (flags.spatial_anchor_flag ? 3 : 0) + (flags.spatial_pattern_flag ? 2 : 0) + (flags.spatial_support_flag ? 1 : 0) });
+  if (GDELT_ENABLE_SPATIAL_DOMAIN && flags.spatial_eligible) candidates.push({ bucket: 'spatial', strength: (flags.spatial_anchor_flag ? 3 : 0) + (flags.spatial_pattern_flag ? 2 : 0) + (flags.spatial_support_flag ? 1 : 0) });
   if (flags.aviation_eligible) candidates.push({ bucket: 'aviation', strength: (flags.aviation_anchor_flag ? 3 : 0) + (flags.aviation_pattern_flag ? 2 : 0) + (flags.aviation_support_flag ? 1 : 0) });
   if (flags.maritime_eligible) candidates.push({ bucket: 'maritime', strength: (flags.maritime_anchor_flag ? 3 : 0) + (flags.maritime_pattern_flag ? 2 : 0) + (flags.maritime_support_flag ? 1 : 0) });
   if (!candidates.length) return 'general';
@@ -1256,7 +1257,9 @@ function selectDiverseEvents(events) {
   };
 
   // Only pull eligible events into specialized slots — don't force-fill quotas
-  const eligibleSpatial = (byBucket.get('spatial') || []).filter(e => e.spatial_eligible);
+  const eligibleSpatial = GDELT_ENABLE_SPATIAL_DOMAIN
+    ? (byBucket.get('spatial') || []).filter(e => e.spatial_eligible)
+    : [];
   const eligibleAviation = (byBucket.get('aviation') || []).filter(e => e.aviation_eligible);
   const eligibleMaritime = (byBucket.get('maritime') || []).filter(e => e.maritime_eligible);
 
