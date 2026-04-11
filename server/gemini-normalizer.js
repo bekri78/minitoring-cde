@@ -15,9 +15,12 @@ const AI_FILTER_TIMEOUT_MS = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
 const AI_FILTER_MAX_RETRIES = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
 const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
-const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || 'gpt-4o-mini';
+const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o';
 const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_TRANSLATE_FALLBACK = process.env.OPENAI_TRANSLATE_FALLBACK === 'true';
+const AI_PRIMARY_PROVIDER = (process.env.GDELT_AI_PROVIDER || (OPENAI_API_KEY ? 'openai' : (MISTRAL_API_KEY ? 'mistral' : 'gemini'))).toLowerCase();
+const AI_NORMALIZE_PROVIDER = (process.env.GDELT_NORMALIZE_PROVIDER || AI_PRIMARY_PROVIDER).toLowerCase();
+const AI_FILTER_ALWAYS_KEEP_SCORE = Number(process.env.AI_FILTER_ALWAYS_KEEP_SCORE || 88);
 
 const VALID_CATEGORIES = new Set([
   'terrorism', 'military', 'conflict', 'protest',
@@ -40,6 +43,71 @@ function sleep(ms) {
 
 function getAiFilterRetryDelay(attempt) {
   return AI_FILTER_RETRY_DELAY_MS * Math.max(1, attempt);
+}
+
+function parseChatTextContent(content) {
+  if (Array.isArray(content)) return content.map(part => part?.text || part?.content || '').join('\n');
+  return String(content || '');
+}
+
+function getRetryableStatus(status) {
+  return status === 429 || status === 503;
+}
+
+async function requestJsonArrayFromOpenAI(messages, timeoutMs = 45000) {
+  if (!OPENAI_API_KEY) {
+    const err = new Error('OPENAI_API_KEY missing');
+    err.status = 503;
+    throw err;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let resp;
+  try {
+    resp = await fetch(OPENAI_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages,
+        temperature: 0,
+        response_format: { type: 'json_object' },
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    const err = new Error(`OpenAI HTTP_${resp.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
+    err.status = resp.status;
+    throw err;
+  }
+
+  const data = await resp.json();
+  const text = parseChatTextContent(data.choices?.[0]?.message?.content);
+  const parsed = extractJsonObject(text);
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed?.events)) return parsed.events;
+  if (Array.isArray(parsed?.results)) return parsed.results;
+  return extractJsonArray(text);
+}
+
+function shouldBypassAiFilter(event) {
+  if (!event) return false;
+  if (event.domain_bucket && event.domain_bucket !== 'general') return true;
+  if (event.osintDomain) return true;
+  if (event.spatial_eligible || event.aviation_eligible || event.maritime_eligible) return true;
+  if (event.is_strategic) return true;
+  if (Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE) return true;
+  if (['terrorism', 'cyber'].includes(String(event.category || ''))) return true;
+  return false;
 }
 
 function normalizeText(value) {
@@ -442,7 +510,10 @@ function buildFilterPrompt(events) {
     id: e.id,
     title: e.title,
     domain: e.domain || null,
+    score: Math.round(Number(e.score || 0)),
     category: e.category || null,
+    domain_bucket: e.domain_bucket || 'general',
+    is_strategic: Boolean(e.is_strategic),
     actor1: e.actor1 || null,
     actor2: e.actor2 || null,
   })).join('\n');
@@ -478,14 +549,26 @@ async function filterEventsWithMistral(events) {
     console.log('[ai-filter] disabled via AI_FILTER_ENABLED=false');
     return events;
   }
-  if (!MISTRAL_API_KEY) {
+  if (AI_PRIMARY_PROVIDER === 'openai' && !OPENAI_API_KEY) {
+    console.log('[ai-filter] skipped: OPENAI_API_KEY missing');
+    return events;
+  }
+  if (AI_PRIMARY_PROVIDER === 'mistral' && !MISTRAL_API_KEY) {
     console.log('[ai-filter] skipped: MISTRAL_API_KEY missing');
     return events;
   }
 
-  const candidates = events.slice(0, AI_FILTER_LIMIT);
+  const guaranteedIds = new Set(events.filter(shouldBypassAiFilter).map(event => String(event.id)));
+  const candidates = events
+    .filter(event => !guaranteedIds.has(String(event.id)))
+    .slice(0, AI_FILTER_LIMIT);
   const discardedIds = new Set();
   let aiProcessed = 0;
+
+  if (!candidates.length) {
+    console.log(`[ai-filter] skipped: ${events.length} events kept locally`);
+    return events;
+  }
 
   for (let i = 0; i < candidates.length; i += AI_FILTER_BATCH) {
     const batch = candidates.slice(i, i + AI_FILTER_BATCH);
@@ -494,51 +577,56 @@ async function filterEventsWithMistral(events) {
 
     for (let attempt = 1; attempt <= AI_FILTER_MAX_RETRIES; attempt++) {
       try {
-        const controller = new AbortController();
-        const timeoutHandle = setTimeout(() => controller.abort(), AI_FILTER_TIMEOUT_MS);
-        let resp;
-        try {
-          resp = await fetch(MISTRAL_URL, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${MISTRAL_API_KEY}`,
-            },
-            body: JSON.stringify({
-              model: MISTRAL_MODEL,
-              messages: [
-                { role: 'system', content: 'You are an OSINT analyst. Return ONLY a valid JSON array, no prose.' },
-                { role: 'user', content: buildFilterPrompt(batch) },
-              ],
-              temperature: 0,
-            }),
-            signal: controller.signal,
-          });
-        } finally {
-          clearTimeout(timeoutHandle);
-        }
-
-        if (resp.status === 503 || resp.status === 429) {
-          const body = await resp.text().catch(() => '');
-          if (attempt < AI_FILTER_MAX_RETRIES) {
-            const retryDelay = getAiFilterRetryDelay(attempt);
-            console.warn(`[ai-filter] batch ${batchNum} got ${resp.status}, retrying in ${Math.round(retryDelay / 1000)}s...`);
-            await sleep(retryDelay);
-            continue;
+        let results;
+        if (AI_PRIMARY_PROVIDER === 'openai') {
+          results = await requestJsonArrayFromOpenAI([
+            { role: 'system', content: 'You are an OSINT analyst. Return JSON only.' },
+            { role: 'user', content: `Return a JSON object with an "events" array.\n${buildFilterPrompt(batch)}` },
+          ], AI_FILTER_TIMEOUT_MS);
+        } else {
+          const controller = new AbortController();
+          const timeoutHandle = setTimeout(() => controller.abort(), AI_FILTER_TIMEOUT_MS);
+          let resp;
+          try {
+            resp = await fetch(MISTRAL_URL, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${MISTRAL_API_KEY}`,
+              },
+              body: JSON.stringify({
+                model: MISTRAL_MODEL,
+                messages: [
+                  { role: 'system', content: 'You are an OSINT analyst. Return ONLY a valid JSON array, no prose.' },
+                  { role: 'user', content: buildFilterPrompt(batch) },
+                ],
+                temperature: 0,
+              }),
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(timeoutHandle);
           }
-          throw new Error(`HTTP_${resp.status} ${body.slice(0, 120)}`);
-        }
-        if (!resp.ok) {
-          const body = await resp.text().catch(() => '');
-          throw new Error(`HTTP_${resp.status} ${body.slice(0, 120)}`);
-        }
 
-        const data = await resp.json();
-        const content = data.choices?.[0]?.message?.content;
-        const text = Array.isArray(content)
-          ? content.map(p => p?.text || p?.content || '').join('')
-          : String(content || '');
-        const results = extractJsonArray(text);
+          if (getRetryableStatus(resp.status)) {
+            const body = await resp.text().catch(() => '');
+            if (attempt < AI_FILTER_MAX_RETRIES) {
+              const retryDelay = getAiFilterRetryDelay(attempt);
+              console.warn(`[ai-filter] batch ${batchNum} got ${resp.status}, retrying in ${Math.round(retryDelay / 1000)}s...`);
+              await sleep(retryDelay);
+              continue;
+            }
+            throw new Error(`HTTP_${resp.status} ${body.slice(0, 120)}`);
+          }
+          if (!resp.ok) {
+            const body = await resp.text().catch(() => '');
+            throw new Error(`HTTP_${resp.status} ${body.slice(0, 120)}`);
+          }
+
+          const data = await resp.json();
+          const text = parseChatTextContent(data.choices?.[0]?.message?.content);
+          results = extractJsonArray(text);
+        }
 
         let kept = 0;
         for (const result of results) {
@@ -551,6 +639,12 @@ async function filterEventsWithMistral(events) {
         success = true;
         break;
       } catch (err) {
+        if (getRetryableStatus(err?.status) && attempt < AI_FILTER_MAX_RETRIES) {
+          const retryDelay = getAiFilterRetryDelay(attempt);
+          console.warn(`[ai-filter] batch ${batchNum} got ${err.status}, retrying in ${Math.round(retryDelay / 1000)}s...`);
+          await sleep(retryDelay);
+          continue;
+        }
         if (err?.name === 'AbortError' && attempt < AI_FILTER_MAX_RETRIES) {
           const retryDelay = getAiFilterRetryDelay(attempt);
           console.warn(`[ai-filter] batch ${batchNum} timed out after ${Math.round(AI_FILTER_TIMEOUT_MS / 1000)}s, retrying in ${Math.round(retryDelay / 1000)}s...`);
@@ -571,13 +665,17 @@ async function filterEventsWithMistral(events) {
     if (i + AI_FILTER_BATCH < candidates.length) await sleep(AI_FILTER_DELAY);
   }
 
-  const filtered = events.filter(e => !discardedIds.has(String(e.id)));
-  console.log(`[ai-filter] done: ${discardedIds.size} discarded, ${filtered.length}/${events.length} kept (${aiProcessed} AI-checked)`);
+  const filtered = events.filter(e => guaranteedIds.has(String(e.id)) || !discardedIds.has(String(e.id)));
+  console.log(`[ai-filter] done: ${discardedIds.size} discarded, ${filtered.length}/${events.length} kept (${aiProcessed} AI-checked, ${guaranteedIds.size} bypassed)`);
   return filtered;
 }
 
 async function normalizeEventsWithMistral(events) {
-  if (!MISTRAL_API_KEY) {
+  if (AI_NORMALIZE_PROVIDER === 'openai' && !OPENAI_API_KEY) {
+    console.log('[normalize] skipped: OPENAI_API_KEY missing');
+    return events;
+  }
+  if (AI_NORMALIZE_PROVIDER === 'mistral' && !MISTRAL_API_KEY) {
     console.log('[mistral] skipped: MISTRAL_API_KEY missing');
     return events;
   }
@@ -595,7 +693,18 @@ async function normalizeEventsWithMistral(events) {
   for (let i = 0; i < candidates.length; i += GEMINI_BATCH) {
     const batch = candidates.slice(i, i + GEMINI_BATCH);
     try {
-      const results = await normalizeBatchWithMistral(batch);
+      const results = AI_NORMALIZE_PROVIDER === 'openai'
+        ? await requestJsonArrayFromOpenAI([
+          {
+            role: 'system',
+            content: 'You are an OSINT geopolitical analyst. Return JSON only.',
+          },
+          {
+            role: 'user',
+            content: `Return a JSON object with an "events" array.\n${buildPrompt(batch)}`,
+          },
+        ])
+        : await normalizeBatchWithMistral(batch);
       for (const result of results) {
         const original = batch.find(e => e.id === result.id);
         if (!original) continue;
@@ -606,9 +715,9 @@ async function normalizeEventsWithMistral(events) {
           rejected++;
         }
       }
-      console.log(`[mistral] normalized batch ${Math.floor(i / GEMINI_BATCH) + 1}: ${results.length}/${batch.length}`);
+      console.log(`[normalize:${AI_NORMALIZE_PROVIDER}] batch ${Math.floor(i / GEMINI_BATCH) + 1}: ${results.length}/${batch.length}`);
     } catch (err) {
-      console.warn('[mistral] batch failed:', err.message);
+      console.warn(`[normalize:${AI_NORMALIZE_PROVIDER}] batch failed:`, err.message);
     }
 
     if (i + GEMINI_BATCH < candidates.length) await sleep(350);
@@ -618,7 +727,7 @@ async function normalizeEventsWithMistral(events) {
     .map(event => byId.get(event.id) || event)
     .filter(event => !rejectedIds.has(event.id));
 
-  console.log(`[mistral] done: ${byId.size} normalized, ${rejected} rejected, ${candidates.length} checked`);
+  console.log(`[normalize:${AI_NORMALIZE_PROVIDER}] done: ${byId.size} normalized, ${rejected} rejected, ${candidates.length} checked`);
   return normalized;
 }
 

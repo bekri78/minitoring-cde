@@ -11,12 +11,12 @@ const INCLUDE_TRANSLATION = process.env.GDELT_INCLUDE_TRANSLATION !== 'false'; /
 const CACHE_DIR = process.env.CACHE_DIR || '/data';
 const STATE_PATH = path.join(CACHE_DIR, 'gdelt-file-state.json');
 
-const BOOTSTRAP_WINDOWS = Number(process.env.GDELT_BOOTSTRAP_WINDOWS || 8);
-const MAX_WINDOWS_PER_RUN = Number(process.env.GDELT_WINDOWS_PER_RUN || 8);
+const BOOTSTRAP_WINDOWS = Number(process.env.GDELT_BOOTSTRAP_WINDOWS || 12);
+const MAX_WINDOWS_PER_RUN = Number(process.env.GDELT_WINDOWS_PER_RUN || 12);
 const SNAPSHOT_LOOKBACK_HOURS = Number(process.env.GDELT_LOOKBACK_HOURS || 36);
 const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 1500);
 const STRATEGIC_MIN_EVENTS = Number(process.env.GDELT_STRATEGIC_MIN || 300);
-const MIN_RELEVANCE_SCORE = Number(process.env.GDELT_MIN_SCORE || 60);
+const MIN_RELEVANCE_SCORE = Number(process.env.GDELT_MIN_SCORE || 48);
 const FINAL_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 1500);
 const BASELINE_FINAL_EVENTS = 1500;
 const DOMAIN_MIN_SPATIAL = Number(process.env.GDELT_DOMAIN_MIN_SPATIAL || Math.max(20, Math.round(FINAL_EVENTS * (70 / BASELINE_FINAL_EVENTS))));
@@ -41,11 +41,12 @@ const SPATIAL_ANCHORS = [
   'reentry', 're-entry', 'deorbit', 'de-orbit', 'asat', 'anti-satellite',
   'launch vehicle', 'launch pad', 'payload', 'upper stage', 'capsule',
   'rocket test', 'booster', 'rocket launch', 'space debris',
+  'gnss', 'gps jamming', 'satcom', 'satellite imagery', 'launch campaign',
 ];
 // Agency names: need at least one corroborating space term to qualify
 const SPATIAL_AGENCY_ANCHORS = [
   'spacex', 'nasa', 'esa', 'cnes', 'isro', 'roscosmos', 'jaxa',
-  'space force', 'space command',
+  'space force', 'space command', 'ussf',
 ];
 // Terms that corroborate an agency anchor
 const SPATIAL_AGENCY_CORROBORATION = [
@@ -87,6 +88,8 @@ const AVIATION_ANCHORS = [
   'surveillance aircraft', 'drone strike', 'uav strike', 'runway strike',
   'airport strike', 'sam battery', 'no-fly zone', 'transport aircraft',
   'combat aircraft', 'stealth fighter', 'stealth bomber', 'air superiority',
+  'airspace violation', 'fighter scramble', 'scrambled jets', 'combat drone',
+  'military transport', 'air intercept', 'interceptor aircraft',
 ];
 const AVIATION_SUPPORT_KEYWORDS = [
   'aircraft', 'helicopter', 'drone', 'uav', 'interception', 'intercepted',
@@ -115,7 +118,8 @@ const MARITIME_ANCHORS = [
   'naval patrol', 'missile boat', 'task force', 'amphibious assault ship',
   'patrol vessel', 'sea drone', 'maritime patrol', 'port strike',
   'naval blockade', 'naval deployment', 'torpedo', 'mine sweeper',
-  'guided missile', 'naval base',
+  'guided missile', 'naval base', 'anti-ship missile', 'merchant vessel attack',
+  'commercial ship attack', 'shipping lane security', 'strait transit',
 ];
 const MARITIME_SUPPORT_KEYWORDS = [
   'naval', 'navy', 'fleet', 'flotilla', 'coast guard', 'blockade',
@@ -846,14 +850,15 @@ function isRelevantEvent(event) {
   if (event.domain_bucket !== 'general') {
     const eligible = event.spatial_eligible || event.aviation_eligible || event.maritime_eligible;
     const hasAnchor = event.spatial_anchor_flag || event.aviation_anchor_flag || event.maritime_anchor_flag;
-    if (eligible && hasAnchor && score >= MIN_RELEVANCE_SCORE - 8) return true;
-    // No anchor = no threshold relaxation for specialized domains
+    if (eligible && hasAnchor && score >= MIN_RELEVANCE_SCORE - 12) return true;
+    if (eligible && score >= MIN_RELEVANCE_SCORE - 6) return true;
     return false;
   }
   // Military with strong keyword evidence
-  if (event.category === 'military' && event.military_keyword_flag && score >= MIN_RELEVANCE_SCORE - 8) return true;
+  if (event.category === 'military' && event.military_keyword_flag && score >= MIN_RELEVANCE_SCORE - 10) return true;
   // Strategic: only relax if genuinely strategic (tighter criteria now)
-  if (event.is_strategic && score >= MIN_RELEVANCE_SCORE - 5) return true;
+  if (event.is_strategic && score >= MIN_RELEVANCE_SCORE - 10) return true;
+  if (event.category === 'conflict' && score >= MIN_RELEVANCE_SCORE - 8) return true;
   return false;
 }
 
@@ -1384,5 +1389,4 @@ async function fetchTodayEvents(options = {}) {
 }
 
 module.exports = { fetchTodayEvents };
-
 
