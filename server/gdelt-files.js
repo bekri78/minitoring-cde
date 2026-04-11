@@ -122,11 +122,12 @@ const MARITIME_ANCHORS = [
   'commercial ship attack', 'shipping lane security', 'strait transit',
   'tanker seizure', 'vessel intercepted', 'boarding operation', 'naval convoy',
   'red sea shipping', 'hormuz transit', 'merchant shipping',
+  'russian navy', 'vmf', 'black sea fleet', 'pacific fleet', 'northern fleet', 'baltic fleet',
 ];
 const MARITIME_SUPPORT_KEYWORDS = [
   'naval', 'navy', 'fleet', 'flotilla', 'coast guard', 'blockade',
   'maritime', 'sea lane', 'shipping lane', 'merchant vessel', 'tanker',
-  'houthis', 'houthi', 'strait of hormuz', 'red sea',
+  'houthis', 'houthi', 'strait of hormuz', 'red sea', 'vmf',
 ];
 const MARITIME_PHRASE_PATTERNS = [
   'carrier strike group', 'naval exercise', 'warship deployment',
@@ -642,6 +643,13 @@ function buildTextBlob(title, actor1, actor2, url, themes = [], organizations = 
     .toLowerCase();
 }
 
+function buildSignalTextBlob(title, actor1, actor2, themes = [], organizations = [], persons = []) {
+  return [title, actor1, actor2, themes.join(' '), organizations.join(' '), persons.join(' ')]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
 function buildFlags(textBlob) {
   const spatial_anchor_flag = containsAnyKeyword(textBlob, SPATIAL_ANCHORS) ? 1 : 0;
   const spatial_support_flag = containsAnyKeyword(textBlob, SPATIAL_SUPPORT_KEYWORDS) ? 1 : 0;
@@ -700,13 +708,18 @@ function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
   if (['18', '19', '20'].includes(String(rootCode || ''))) return 'conflict';
   if (String(rootCode || '') === '15') return 'military';
   if (String(rootCode || '') === '14') return 'protest';
-  if (['13', '16', '17'].includes(String(rootCode || ''))) return 'strategic';
   // Keyword-based classification (domain bucket is separate — no shortcut here)
   for (const rule of CATEGORY_RULES) {
     if (rule.keywords.some(keyword => normalized.includes(normalizeText(keyword)))) return rule.key;
   }
   for (const rule of CATEGORY_RULES) {
     if (rule.cameo.some(prefix => String(eventCode || '').startsWith(prefix))) return rule.key;
+  }
+  if (['13', '16', '17'].includes(String(rootCode || ''))) {
+    if (flags.spatial_eligible || flags.military_keyword_flag || /\b(sanction|nuclear|ballistic|hypersonic|missile|border|diplomatic|naval|warship|drone|satellite|space)\b/.test(normalized)) {
+      return 'strategic';
+    }
+    return 'incident';
   }
   // Eligible domain flags can hint at military category if no other match
   if (flags.aviation_eligible || flags.maritime_eligible) return 'military';
@@ -1040,11 +1053,12 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
     ].filter(Boolean).join(' ');
 
     const textBlob = buildTextBlob(title, row.actor1, row.actor2, candidateUrl || row.sourceUrl, themes, organizations, persons);
-    const flags = buildFlags(textBlob);
+    const signalTextBlob = buildSignalTextBlob(title, row.actor1, row.actor2, themes, organizations, persons);
+    const flags = buildFlags(signalTextBlob);
     if (!shouldKeepEvent(row, flags, isStructural)) continue;
     if (shouldRejectLowQualityDomain(domain, flags, row)) continue;
-    if (isDomesticSecurityNoise(textBlob, { countryCode: row.countryCode, domain })) continue;
-    if (isLocalAdministrativeNoise(textBlob)) continue;
+    if (isDomesticSecurityNoise(signalTextBlob, { countryCode: row.countryCode, domain })) continue;
+    if (isLocalAdministrativeNoise(signalTextBlob)) continue;
 
     const category = classifyEvent(text, row.eventCode, row.rootCode, flags);
     if (category === 'discard') continue;
@@ -1054,7 +1068,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
     const region = getRegionKey(row.lat, row.lon, correctedCode);
     let score = scoreEvent(row, mention, tone, domain, flags, region);
     if (themes.some(theme => /MILITARY|ARMED|TERROR|CYBER|NUCLEAR|MISSILE|SPACE|AVIATION|MARITIME/i.test(theme))) score += 12;
-    score += militaryContextBoost(themes, organizations, persons, textBlob);
+    score += militaryContextBoost(themes, organizations, persons, signalTextBlob);
     const domain_bucket = domainBucketFromFlags(flags);
     const is_strategic = isStrategicEvent(row, score) ? 1 : 0;
     const dedup_key = buildDedupKey(row);
@@ -1113,7 +1127,7 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       themes,
       persons,
       organizations,
-      text_blob: textBlob,
+      text_blob: signalTextBlob,
       // Legacy flags (now eligibility-based)
       spatial_flag: flags.spatial_flag,
       aviation_flag: flags.aviation_flag,
