@@ -268,6 +268,10 @@ const LOW_QUALITY_NEWS_DOMAINS = new Set([
   'winnipegfreepress.com', 'radaronline.com', 'zazoom.it', 'inewsgr.com',
 ]);
 
+const HARD_REJECT_DOMAINS = new Set([
+  'zazoom.it', 'inewsgr.com',
+]);
+
 const DOMESTIC_SECURITY_KEYWORDS = [
   'faa', 'sheriff', 'county', 'police department', 'police chief',
   'state trooper', 'highway patrol', 'district attorney', 'court filing',
@@ -506,6 +510,26 @@ function normalizeTitleForDedup(title) {
     .slice(0, 140);
 }
 
+function storyFamilyKey(event) {
+  const normalized = normalizeTitleForDedup(event.title || event.headline || '');
+  const importantTerms = normalized
+    .split(' ')
+    .filter(token => token.length >= 4)
+    .filter(token => ![
+      'after', 'before', 'first', 'images', 'historic', 'historical', 'mission',
+      'returns', 'return', 'earth', 'safely', 'crew', 'capsule', 'lunar',
+      'around', 'travel', 'journey', 'where', 'does', 'from', 'with',
+    ].includes(token))
+    .slice(0, 6);
+
+  if (!importantTerms.length) return null;
+  return [
+    event.domain_bucket || 'general',
+    event.countryCode || 'UNK',
+    importantTerms.join('|'),
+  ].join('|');
+}
+
 function editorialDedupKey(event) {
   const hour = String(event.dateAdded || event.batchTs || '').slice(0, 10);
   return [
@@ -629,6 +653,7 @@ function isNoiseEvent(title, url, domain) {
 }
 
 function shouldRejectLowQualityDomain(domain, flags, row) {
+  if (HARD_REJECT_DOMAINS.has(domain) && !flags.spatial_flag && !flags.aviation_flag && !flags.maritime_flag) return true;
   if (!LOW_QUALITY_NEWS_DOMAINS.has(domain)) return false;
   if (flags.spatial_flag || flags.aviation_flag || flags.maritime_flag) return false;
   if (STRUCTURAL_EVENT_CODES.has(String(row.eventCode || ''))) return false;
@@ -1181,16 +1206,19 @@ function mergeSnapshot(existingSnapshot, freshEvents) {
   const dedupKeys = new Set();
   const urlKeys = new Set();
   const editorialKeys = new Set();
+  const storyFamilyKeys = new Set();
   const kept = [];
 
   for (const event of candidates) {
     const dedupKey = event.dedup_key || `id:${event.id}`;
     const urlKey = event.canonical_url || canonicalUrl(event.url || '');
     const editorialKey = event.editorial_dedup_key || editorialDedupKey(event);
-    if (dedupKeys.has(dedupKey) || (urlKey && urlKeys.has(urlKey)) || editorialKeys.has(editorialKey)) continue;
+    const familyKey = storyFamilyKey(event);
+    if (dedupKeys.has(dedupKey) || (urlKey && urlKeys.has(urlKey)) || editorialKeys.has(editorialKey) || (familyKey && storyFamilyKeys.has(familyKey))) continue;
     dedupKeys.add(dedupKey);
     if (urlKey) urlKeys.add(urlKey);
     editorialKeys.add(editorialKey);
+    if (familyKey) storyFamilyKeys.add(familyKey);
     kept.push(event);
   }
 
@@ -1208,14 +1236,19 @@ function selectDiverseEvents(events) {
 
   const selected = [];
   const seen = new Set();
+  const storyFamilies = new Set();
   const pushFromList = (list, limit, predicate = null) => {
     if (!Array.isArray(list) || limit <= 0) return;
     let added = 0;
     for (const event of list) {
+      if (HARD_REJECT_DOMAINS.has(String(event.domain || '')) && event.domain_bucket === 'general') continue;
       const key = event.dedup_key || event.url || `id:${event.id}`;
+      const familyKey = storyFamilyKey(event);
       if (seen.has(key)) continue;
+      if (familyKey && storyFamilies.has(familyKey)) continue;
       if (predicate && !predicate(event)) continue;
       seen.add(key);
+      if (familyKey) storyFamilies.add(familyKey);
       selected.push(event);
       added += 1;
       if (selected.length >= FINAL_EVENTS || added >= limit) return;
@@ -1233,9 +1266,13 @@ function selectDiverseEvents(events) {
   pushFromList(byBucket.get('general') || [], Math.min(STRATEGIC_MIN_EVENTS, FINAL_EVENTS), event => Boolean(event.is_strategic));
 
   for (const event of sorted) {
+    if (HARD_REJECT_DOMAINS.has(String(event.domain || '')) && event.domain_bucket === 'general') continue;
     const key = event.dedup_key || event.url || `id:${event.id}`;
+    const familyKey = storyFamilyKey(event);
     if (seen.has(key)) continue;
+    if (familyKey && storyFamilies.has(familyKey)) continue;
     seen.add(key);
+    if (familyKey) storyFamilies.add(familyKey);
     selected.push(event);
     if (selected.length >= FINAL_EVENTS) break;
   }

@@ -30,7 +30,9 @@ const MARITIME_KEYWORDS = [
   'south china sea', 'taiwan strait', 'hormuz', 'gibraltar', 'suez', 'bab el mandeb',
   'red sea', 'black sea', 'baltic sea', 'eastern mediterranean', 'freedom of navigation',
   'navy', 'coast guard', 'escort', 'blockade', 'transshipment', 'ship-to-ship', 'boarding',
-  'offshore patrol', 'exercise at sea', 'naval exercise', 'maritime patrol'
+  'offshore patrol', 'exercise at sea', 'naval exercise', 'maritime patrol',
+  'merchant vessel', 'tanker', 'anti-ship', 'sea drone', 'vmf', 'russian navy',
+  'black sea fleet', 'pacific fleet', 'northern fleet', 'baltic fleet', 'houthis', 'houthi',
 ];
 
 const EVENT_TYPE_RULES = [
@@ -73,9 +75,21 @@ const MARITIME_KEYWORD_WEIGHTS = new Map([
   ['boarding', 8],
   ['naval exercise', 12],
   ['maritime patrol', 8],
+  ['merchant vessel', 8],
+  ['tanker', 8],
+  ['anti-ship', 10],
+  ['sea drone', 10],
+  ['vmf', 12],
+  ['russian navy', 12],
+  ['black sea fleet', 12],
+  ['pacific fleet', 10],
+  ['northern fleet', 10],
+  ['baltic fleet', 10],
+  ['houthis', 8],
+  ['houthi', 8],
 ]);
 
-const MIN_MARITIME_SCORE = 28;
+const MIN_MARITIME_SCORE = 22;
 const RECENCY_HALF_LIFE_HOURS = 36;
 
 function haversineKm(lat1, lon1, lat2, lon2) {
@@ -99,6 +113,8 @@ function normalizeText(event) {
     event.subType,
     event.subEventType,
     event.category,
+    event.osintDomain,
+    event.domain_bucket,
     event.country,
     event.domain,
     event.url,
@@ -123,13 +139,21 @@ function scoreMaritimeRelevance(event, text) {
   const subTypeBoost = /naval|maritime|blockade|exercise|deployment|intercept/i.test(`${event.subType || ''} ${event.subEventType || ''}`)
     ? 6
     : 0;
+  const backendBoost = event.osintDomain === 'maritime' || event.domain_bucket === 'maritime' || event.maritime_flag || event.maritime_eligible
+    ? 16
+    : 0;
+  const strategicZoneBoost = /red sea|hormuz|bab el mandeb|suez|taiwan strait|south china sea|black sea|baltic sea/i.test(text)
+    ? 8
+    : 0;
 
   return {
-    score: keywordScore + categoryBoost + actorBoost + subTypeBoost,
+    score: keywordScore + categoryBoost + actorBoost + subTypeBoost + backendBoost + strategicZoneBoost,
     keywordScore,
     categoryBoost,
     actorBoost,
     subTypeBoost,
+    backendBoost,
+    strategicZoneBoost,
     matches,
   };
 }
@@ -160,10 +184,14 @@ function isMaritimeEvent(event) {
   if (!event || typeof event.lat !== 'number' || typeof event.lon !== 'number') return false;
   const text = normalizeText(event);
   const relevance = scoreMaritimeRelevance(event, text);
-  if (relevance.score < MIN_MARITIME_SCORE) return false;
+  const ctx = buildContext(event);
+  if (relevance.score < MIN_MARITIME_SCORE) {
+    const backendConfirmed = event.osintDomain === 'maritime' || event.domain_bucket === 'maritime' || event.maritime_flag || event.maritime_eligible;
+    const zoneSignal = Boolean(ctx.nearestChokepoint || ctx.strategicZone || ctx.nearestSeaLane);
+    if (!(backendConfirmed && zoneSignal && relevance.score >= MIN_MARITIME_SCORE - 4)) return false;
+  }
   // Require at least one maritime keyword OR location in a sensitive zone
   if (relevance.keywordScore === 0) {
-    const ctx = buildContext(event);
     if (!ctx.sensitiveZone) return false;
   }
   return true;
@@ -316,6 +344,8 @@ function toMaritimeSignal(event) {
       actionVerbScore,
       recencyScore:        0,
       geoContextScore,
+      backendBoost:        maritime.backendBoost,
+      strategicZoneBoost:  maritime.strategicZoneBoost,
       corroborationScore:  0,
       contradictionPenalty,
       finalConfidence:     confidence,
