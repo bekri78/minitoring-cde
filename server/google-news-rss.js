@@ -313,8 +313,15 @@ const LOCATION_STOPWORDS = new Set([
 
 function detectDomainFromTitle(title) {
   const t = title.toLowerCase();
-  if (/satellite|rocket launch|space launch|orbit|space force|spacex/i.test(t))  return 'spatial';
+
+  // Missile FIRST — avoids "rocket launch" false positives for military rocket / Hezbollah / IDF
   if (/missile|ballistic|hypersonic|icbm|slbm|warhead/i.test(t))                return 'missile';
+  // Military rocket ≠ space: exclude "rocket launch" when context is clearly military strikes
+  if (/hezbollah|hamas|idf|israel.*rocket|rocket.*platform.*target|strikes.*rocket/i.test(t)) return 'military';
+  // Spatial: genuine space/satellite context
+  if (/satellite|space launch|orbit|space force|spacex|starlink|falcon 9|atlas v|vulcan|artemis|nasa.*launch|blue origin/i.test(t)) return 'spatial';
+  // "rocket launch" only if no military context words
+  if (/rocket launch/i.test(t) && !/strike|attack|target|military|bomb|shell|hezbollah|hamas|idf|israel/i.test(t)) return 'spatial';
   if (/naval|warship|carrier|submarine|fleet|destroyer|frigate|navy/i.test(t))   return 'naval';
   if (/fighter jet|airstrike|air force|drone strike|military aircraft|bomber|f-35|f-16|su-/i.test(t)) return 'aviation';
   return 'military';
