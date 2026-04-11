@@ -180,10 +180,11 @@ Rules: max 5 key_points, English only, factual and concise, no speculation.`;
         'Authorization': `Bearer ${GROQ_API_KEY}`,
       },
       body: JSON.stringify({
-        model:       GROQ_MODEL,
-        messages:    [{ role: 'user', content: prompt }],
-        temperature: 0,
-        max_tokens:  400,
+        model:           GROQ_MODEL,
+        messages:        [{ role: 'user', content: prompt }],
+        temperature:     0,
+        max_tokens:      400,
+        response_format: { type: 'json_object' },
       }),
       signal: AbortSignal.timeout(20000),
     });
@@ -193,7 +194,13 @@ Rules: max 5 key_points, English only, factual and concise, no speculation.`;
 
     const data = await resp.json();
     const text = data.choices?.[0]?.message?.content || '';
-    return parseSignalResponse(text);
+    try {
+      return parseSignalResponse(text);
+    } catch (parseErr) {
+      // Retry on bad JSON — model sometimes returns empty or truncated
+      lastErr = parseErr;
+      continue;
+    }
   }
   throw lastErr;
 }
