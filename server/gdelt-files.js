@@ -539,6 +539,8 @@ function titleFromUrl(url) {
         .replace(/\.[a-z0-9]{2,6}$/i, '')
         .replace(/[-_+%]+/g, ' ')
         .replace(/\s+/g, ' ')
+        // Strip trailing numeric article IDs (e.g. "karas ukrainoje 57 2660274" → "karas ukrainoje")
+        .replace(/(\s+\d+)+\s*$/, '')
         .trim();
       if (!raw || /^\d+$/.test(raw) || URL_NAV_SEGMENTS.has(raw.toLowerCase())) continue;
       // Reject hex hashes (MD5/SHA-like: 16-64 hex chars, no spaces)

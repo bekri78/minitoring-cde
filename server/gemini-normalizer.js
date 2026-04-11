@@ -55,8 +55,11 @@ function isLikelyRomanized(text) {
 }
 
 function isLikelyEnglish(text) {
-  // Common English function words/patterns — if found, assume English
-  return /\b(the|and|for|with|in|of|to|is|are|was|were|has|have|been|will|from|that|this|after|before|over|into|its|their|says|said|report|new|more|as|on|at|by|an|it|he|she|we|us)\b/i.test(String(text || ''));
+  // Function words
+  if (/\b(the|and|for|with|in|of|to|is|are|was|were|has|have|been|will|from|that|this|after|before|over|into|its|their|says|said|as|on|at|by|an|it|he|she|we|us|a|no|not|but|or|amid|against|between)\b/i.test(String(text || ''))) return true;
+  // Common English news content words (headlines often omit function words)
+  if (/\b(attack|strike|strikes|struck|killed|kills|forces|troops|army|navy|military|police|government|minister|president|official|war|conflict|crisis|sanctions|missile|missiles|drone|drones|fire|fires|fired|launch|launches|launched|deploy|deployed|arrest|arrested|protest|protests|explosion|bomb|bombing|dead|wounded|injured|civilian|civilians|report|reports|says|said|warns|warning|claims|confirms|threatens|threat|ceasefire|talks|deal|accord|agreement|offensive|operation|soldiers|rebels|militia|nuclear|ballistic|hypersonic|rocket|rockets|airstrike|airstrikes|naval|submarine|warship|frigate|fighter|bomber|satellite|spacecraft)\b/i.test(String(text || ''))) return true;
+  return false;
 }
 
 function needsMistral(event) {
@@ -70,8 +73,11 @@ function needsMistral(event) {
   if (/^[A-Z\s]+\s—\s/.test(title)) return true;
   // Slug-style URL fallback (e.g. "us-navy-strike-iran")
   if (/^[a-z0-9-]+(?:-[a-z0-9]+){3,}$/.test(title)) return true;
-  // Non-English Latin text: has non-ASCII Latin chars (accents, etc.) and not English
+  // Non-English Latin text with accented chars (French, Spanish, German, etc.)
   if (/[À-ÖØ-öø-ÿ]/.test(title) && !isLikelyEnglish(title)) return true;
+  // Non-English Latin without accents (Lithuanian, Indonesian, Swahili, etc.)
+  // Trigger if: has alphabetic words, not English, and at least 2 multi-char words
+  if (!isLikelyEnglish(title) && (title.match(/\b[a-z]{4,}\b/gi) || []).length >= 2) return true;
   return false;
 }
 
