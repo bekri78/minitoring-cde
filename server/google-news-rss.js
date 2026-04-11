@@ -19,12 +19,14 @@ const path = require('path');
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-// DeepSeek uses OpenAI-compatible API — drop-in replacement for gpt-4o at ~90% lower cost
+const OpenAI = require('openai');
+// DeepSeek uses OpenAI-compatible API via official SDK — drop-in replacement for gpt-4o
 const OPENAI_API_KEY = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.chatgpt;
 const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'deepseek-chat';
-const OPENAI_URL     = process.env.DEEPSEEK_API_KEY
-  ? 'https://api.deepseek.com/v1/chat/completions'
-  : 'https://api.openai.com/v1/chat/completions';
+const openaiClient   = OPENAI_API_KEY ? new OpenAI({
+  apiKey:  OPENAI_API_KEY,
+  baseURL: process.env.DEEPSEEK_API_KEY ? 'https://api.deepseek.com' : 'https://api.openai.com/v1',
+}) : null;
 
 const CACHE_DIR      = process.env.CACHE_DIR || '/data';
 const DISK_PATH      = path.join(CACHE_DIR, 'google-news-events.json');
@@ -585,24 +587,17 @@ Return JSON array: [{"index":0,"location":"...","confidence":80},...]
 ONLY the JSON array.`;
 
 async function analyzeDoubtsWithOpenAI(titles) {
-  if (!OPENAI_API_KEY) return null;
-  const resp = await fetch(OPENAI_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${OPENAI_API_KEY}` },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      messages: [
-        { role: 'system', content: AI_DOUBT_PROMPT },
-        { role: 'user',   content: titles.map((t, i) => `${i}. ${t}`).join('\n') },
-      ],
-      temperature: 0,
-      response_format: { type: 'json_object' },
-    }),
-    signal: AbortSignal.timeout(25000),
-  });
-  if (!resp.ok) throw new Error(`OpenAI HTTP ${resp.status}`);
-  const data = await resp.json();
-  const text = data.choices?.[0]?.message?.content || '';
+  if (!openaiClient) return null;
+  const completion = await openaiClient.chat.completions.create({
+    model: OPENAI_MODEL,
+    messages: [
+      { role: 'system', content: AI_DOUBT_PROMPT },
+      { role: 'user',   content: titles.map((t, i) => `${i}. ${t}`).join('\n') },
+    ],
+    temperature: 0,
+    response_format: { type: 'json_object' },
+  }, { timeout: 25000 });
+  const text = completion.choices?.[0]?.message?.content || '';
   return parseJsonArray(text);
 }
 

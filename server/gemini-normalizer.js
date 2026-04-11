@@ -1,5 +1,7 @@
 'use strict';
 
+const OpenAI = require('openai');
+
 const GEMINI_LIMIT   = Number(process.env.GEMINI_NORMALIZE_LIMIT || 80);
 const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
 const MISTRAL_MODEL   = process.env.MISTRAL_TRANSLATE_MODEL || 'mistral-small-latest';
@@ -11,23 +13,25 @@ const AI_FILTER_DELAY   = Number(process.env.AI_FILTER_DELAY || 1200); // ms bet
 const AI_FILTER_TIMEOUT_MS = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
 const AI_FILTER_MAX_RETRIES = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
 const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
-// DeepSeek uses OpenAI-compatible API — replaces gpt-4o at ~90% lower cost
+// DeepSeek uses OpenAI-compatible API via official OpenAI SDK
 const OPENAI_API_KEY = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || process.env.chatgpt;
 const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'deepseek-chat';
-const OPENAI_URL     = process.env.DEEPSEEK_API_KEY
-  ? 'https://api.deepseek.com/v1/chat/completions'
-  : 'https://api.openai.com/v1/chat/completions';
 const OPENAI_TRANSLATE_FALLBACK = process.env.OPENAI_TRANSLATE_FALLBACK === 'true';
 const AI_PRIMARY_PROVIDER = (process.env.GDELT_AI_PROVIDER || (OPENAI_API_KEY ? 'openai' : 'mistral')).toLowerCase();
 const AI_NORMALIZE_PROVIDER = (process.env.GDELT_NORMALIZE_PROVIDER || AI_PRIMARY_PROVIDER).toLowerCase();
 const AI_FILTER_ALWAYS_KEEP_SCORE = Number(process.env.AI_FILTER_ALWAYS_KEEP_SCORE || 88);
+
+// Build OpenAI-compatible client (DeepSeek or OpenAI)
+const openaiClient = OPENAI_API_KEY ? new OpenAI({
+  apiKey: OPENAI_API_KEY,
+  baseURL: process.env.DEEPSEEK_API_KEY ? 'https://api.deepseek.com' : 'https://api.openai.com/v1',
+}) : null;
 
 // Startup diagnostics
 console.log('[normalizer] DEEPSEEK_API_KEY set:', !!process.env.DEEPSEEK_API_KEY);
 console.log('[normalizer] OPENAI_API_KEY set:   ', !!process.env.OPENAI_API_KEY);
 console.log('[normalizer] MISTRAL_API_KEY set:  ', !!process.env.MISTRAL_API_KEY);
 console.log('[normalizer] AI_PRIMARY_PROVIDER:  ', AI_PRIMARY_PROVIDER);
-console.log('[normalizer] OPENAI_URL:           ', OPENAI_URL);
 console.log('[normalizer] OPENAI_MODEL:         ', OPENAI_MODEL);
 console.log('[normalizer] active key suffix:    ', OPENAI_API_KEY ? `****${OPENAI_API_KEY.slice(-4)}` : 'none');
 
@@ -64,43 +68,30 @@ function getRetryableStatus(status) {
 }
 
 async function requestJsonArrayFromOpenAI(messages, timeoutMs = 45000) {
-  if (!OPENAI_API_KEY) {
+  if (!openaiClient) {
     const err = new Error('OPENAI_API_KEY missing');
     err.status = 503;
     throw err;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  let resp;
+  let completion;
   try {
-    resp = await fetch(OPENAI_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: OPENAI_MODEL,
-        messages,
-        temperature: 0,
-        response_format: { type: 'json_object' },
-      }),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    const err = new Error(`OpenAI HTTP_${resp.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
-    err.status = resp.status;
+    completion = await openaiClient.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+    }, { timeout: timeoutMs });
+  } catch (e) {
+    // Normalize OpenAI SDK errors to match existing error handling
+    const status = e?.status || e?.response?.status || 500;
+    const body = e?.message || '';
+    const err = new Error(`OpenAI HTTP_${status} ${body.slice(0, 180)}`);
+    err.status = status;
     throw err;
   }
 
-  const data = await resp.json();
-  const text = parseChatTextContent(data.choices?.[0]?.message?.content);
+  const text = parseChatTextContent(completion.choices?.[0]?.message?.content);
   const parsed = extractJsonObject(text);
   if (Array.isArray(parsed)) return parsed;
   if (Array.isArray(parsed?.events)) return parsed.events;
@@ -259,66 +250,51 @@ function extractJsonObject(text) {
 }
 
 async function translateTitleWithOpenAI(event) {
-  if (!OPENAI_API_KEY) {
+  if (!openaiClient) {
     const err = new Error('OPENAI_API_KEY missing');
     err.status = 503;
     throw err;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
-  let resp;
+  let completion;
   try {
-    resp = await fetch(OPENAI_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: OPENAI_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content: 'Translate OSINT/geopolitical article titles into concise French. Return JSON only.',
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              title: event.title,
-              domain: event.domain || '',
-              country: event.country || '',
-              category: event.category || 'incident',
-              eventCode: event.eventCode || '',
-              rootCode: event.rootCode || '',
-              subEventType: event.subEventType || '',
-              output: {
-                fr: 'French title, <= 16 words',
-                en: 'English title, <= 16 words',
-                notes: 'brief operational summary in French, <= 22 words',
-                language: 'detected language',
-              },
-            }),
-          },
-        ],
-        temperature: 0,
-        response_format: { type: 'json_object' },
-      }),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    const err = new Error(`OpenAI HTTP_${resp.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
-    err.status = resp.status >= 500 ? 502 : 503;
+    completion = await openaiClient.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: 'Translate OSINT/geopolitical article titles into concise French. Return JSON only.',
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            title: event.title,
+            domain: event.domain || '',
+            country: event.country || '',
+            category: event.category || 'incident',
+            eventCode: event.eventCode || '',
+            rootCode: event.rootCode || '',
+            subEventType: event.subEventType || '',
+            output: {
+              fr: 'French title, <= 16 words',
+              en: 'English title, <= 16 words',
+              notes: 'brief operational summary in French, <= 22 words',
+              language: 'detected language',
+            },
+          }),
+        },
+      ],
+      temperature: 0,
+      response_format: { type: 'json_object' },
+    }, { timeout: 45000 });
+  } catch (e) {
+    const status = e?.status || e?.response?.status || 500;
+    const err = new Error(`OpenAI HTTP_${status} ${(e?.message || '').slice(0, 180)}`);
+    err.status = status >= 500 ? 502 : 503;
     throw err;
   }
 
-  const data = await resp.json();
-  const text = data.choices?.[0]?.message?.content || '';
+  const text = completion.choices?.[0]?.message?.content || '';
   const result = extractJsonObject(text) || {};
   const output = result.output && typeof result.output === 'object' ? result.output : {};
   const fr = result.fr || result.title_fr || result.french || result.translation_fr ||

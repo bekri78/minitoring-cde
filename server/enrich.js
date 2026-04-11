@@ -1,14 +1,20 @@
 'use strict';
 
 const crypto = require('crypto');
+const OpenAI = require('openai');
 
 const _USE_MISTRAL   = true;
-// DeepSeek uses OpenAI-compatible API — replaces mistral-medium at lower cost
+// DeepSeek uses OpenAI-compatible API via official SDK
 const ENRICH_API_KEY = process.env.DEEPSEEK_API_KEY || process.env.MISTRAL_API_KEY;
 const ENRICH_MODEL   = process.env.ENRICH_MODEL || (process.env.DEEPSEEK_API_KEY ? 'deepseek-chat' : 'mistral-medium-latest');
 const ENRICH_URL     = process.env.DEEPSEEK_API_KEY
   ? 'https://api.deepseek.com/v1/chat/completions'
   : 'https://api.mistral.ai/v1/chat/completions';
+
+const openaiClient = process.env.DEEPSEEK_API_KEY ? new OpenAI({
+  apiKey:  process.env.DEEPSEEK_API_KEY,
+  baseURL: 'https://api.deepseek.com',
+}) : null;
 
 // Compat interne
 const OPENAI_API_KEY = ENRICH_API_KEY;
@@ -234,6 +240,34 @@ ${events.map(event => JSON.stringify(compactEvent(event))).join('\n')}`;
 }
 
 async function classifyBatch(events, attempt = 0) {
+  // Use OpenAI SDK for DeepSeek (handles auth correctly), raw fetch for Mistral
+  if (openaiClient) {
+    try {
+      const completion = await openaiClient.chat.completions.create({
+        model: ENRICH_MODEL,
+        messages: [{ role: 'user', content: buildPrompt(events) }],
+        temperature: 0,
+        max_tokens: Math.max(2000, events.length * 150),
+        response_format: { type: 'json_object' },
+      }, { timeout: OPENAI_TIMEOUT_MS });
+      const text = completion.choices?.[0]?.message?.content || '';
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed.events)) return parsed.events;
+      if (Array.isArray(parsed.results)) return parsed.results;
+      return extractJsonArray(text);
+    } catch (e) {
+      if (e?.status === 429 && attempt < 2) {
+        const wait = (attempt + 1) * 8000;
+        console.warn(`[enrich] DeepSeek 429; retry in ${wait / 1000}s`);
+        await sleep(wait);
+        return classifyBatch(events, attempt + 1);
+      }
+      throw new Error(`OpenAI HTTP_${e?.status || 500} ${(e?.message || '').slice(0, 160)}`);
+    }
+  }
+
+  // Fallback: raw fetch for Mistral
   const resp = await fetch(ENRICH_URL, {
     method: 'POST',
     headers: {
@@ -242,19 +276,16 @@ async function classifyBatch(events, attempt = 0) {
     },
     body: JSON.stringify({
       model: ENRICH_MODEL,
-      messages: [
-        { role: 'user', content: buildPrompt(events) },
-      ],
+      messages: [{ role: 'user', content: buildPrompt(events) }],
       temperature: 0,
       max_tokens: Math.max(2000, events.length * 150),
-      ...(!_USE_MISTRAL ? { response_format: { type: 'json_object' } } : {}),
     }),
     signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
   });
 
   if (resp.status === 429 && attempt < 2) {
     const wait = (attempt + 1) * 8000;
-    console.warn(`[enrich] OpenAI 429; retry in ${wait / 1000}s`);
+    console.warn(`[enrich] Mistral 429; retry in ${wait / 1000}s`);
     await sleep(wait);
     return classifyBatch(events, attempt + 1);
   }
