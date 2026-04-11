@@ -774,14 +774,20 @@ export function WorldMap({
     filtered.forEach(ev => {
       if (!ev.lat || !ev.lon) return;
       const color  = ev.color || '#22d3ee';
-      const radius = ev.confidence >= 75 ? 8 : ev.confidence >= 50 ? 6 : 4;
+      const radius = ev.confidence >= 75 ? 9 : ev.confidence >= 50 ? 7 : 5;
 
-      const marker = L.circleMarker([ev.lat, ev.lon], {
+      // Jitter: disperser les marqueurs empilés sur le même point (centre pays)
+      const jitter = () => (Math.random() - 0.5) * 1.8;
+      const lat = ev.lat + jitter();
+      const lon = ev.lon + jitter();
+
+      const marker = L.circleMarker([lat, lon], {
         radius,
-        color,
-        weight:      1.5,
+        color:       '#ffffff',
+        weight:      2,
         fillColor:   color,
-        fillOpacity: ev.confidence >= 50 ? 0.7 : 0.4,
+        fillOpacity: 0.85,
+        pane:        'markerPane',     // above default overlayPane
       });
 
       const timestampMs = ev.date ? Date.parse(ev.date) : Number.NaN;
