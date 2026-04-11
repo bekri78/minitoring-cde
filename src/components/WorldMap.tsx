@@ -680,6 +680,8 @@ export function WorldMap({
     navalEvents.forEach(ev => {
       if (!ev.latitude || !ev.longitude) return;
       const style = NAVAL_STYLE[ev.type] || NAVAL_STYLE.maritime_activity;
+      const categoryColor = getCategoryColor(ev.category || 'incident');
+      const categoryLabel = getCategoryLabel(ev.category || 'incident');
       // Probable → rouge vif, possible → couleur du type, weak → atténué
       const color = ev.activityClass === 'probable_naval_activity'
         ? '#ff2244'
@@ -696,50 +698,44 @@ export function WorldMap({
         fillOpacity: ev.activityClass === 'weak_signal' ? 0.35 : 0.7,
       });
 
-      const title   = ev.titleFr || ev.title || '—';
-      const dateStr = ev.timestamp
-        ? new Date(ev.timestamp).toUTCString().replace(' GMT', ' UTC').slice(0, 22)
-        : '—';
+      const title   = ev.titleFr || ev.title || '-';
+      const timestampMs = ev.timestamp ? Date.parse(ev.timestamp) : Number.NaN;
+      const dateStr = Number.isFinite(timestampMs)
+        ? new Date(timestampMs).toUTCString().replace(' GMT', ' UTC').slice(0, 22)
+        : '-';
 
-      const tagsHtml = [ev.type, ...ev.tags].map(t =>
+      const tagsHtml = [style.label, ...ev.tags].map(t =>
         `<span style="padding:1px 6px;font-size:8px;background:${color}18;color:${color};border:1px solid ${color}44;">${escapeHtml(t.replace(/_/g, ' ').toUpperCase())}</span>`
       ).join(' ');
 
       const zoneInfo = [
         ev.context?.nearestBase       ? `Base: ${escapeHtml(ev.context.nearestBase.name)} (${ev.context.nearestBase.distanceKm}km)` : '',
-        ev.context?.nearestChokepoint ? `Détroit: ${escapeHtml(ev.context.nearestChokepoint.name)} (${ev.context.nearestChokepoint.distanceKm}km)` : '',
+        ev.context?.nearestChokepoint ? `Detroit: ${escapeHtml(ev.context.nearestChokepoint.name)} (${ev.context.nearestChokepoint.distanceKm}km)` : '',
         ev.context?.strategicZone     ? `Zone: ${escapeHtml(ev.context.strategicZone.name)} (${ev.context.strategicZone.distanceKm}km)` : '',
         ev.context?.nearestPort       ? `Port: ${escapeHtml(ev.context.nearestPort.name)} (${ev.context.nearestPort.distanceKm}km)` : '',
       ].filter(Boolean).join('<br>');
 
-      const scoreHtml = ev.scoreBreakdown
-        ? `<div style="margin-top:6px;font-size:8px;color:#4a6a7a;line-height:1.6;border-top:1px solid #1a2a3a;padding-top:6px;">
-             Base ${ev.scoreBreakdown.baseConfidence} + anomalies +${ev.scoreBreakdown.anomalyBonus} − âge ${ev.scoreBreakdown.recencyPenalty} = ${ev.scoreBreakdown.finalConfidence}
-           </div>`
-        : '';
-
       const anomalyBadge = ev.provenance?.anomalyCount
-        ? `<span style="font-size:8px;color:#ff8800;">⚓ ${ev.provenance.anomalyCount} anomalie(s) GFW</span>`
+        ? `<span style="font-size:8px;color:#ff8800;">GFW ${ev.provenance.anomalyCount} anomalie(s)</span>`
         : '';
 
-      const sourceUrl = ev.rawEvent?.url
-        ? `<a href="${escapeHtml(ev.rawEvent.url)}" target="_blank" style="font-size:8px;color:#4a9eff;">source</a>`
-        : '';
+      const titleHtml = ev.rawEvent?.url
+        ? `<a href="${escapeHtml(ev.rawEvent.url)}" target="_blank" rel="noopener" style="color:#e8f4ff;text-decoration:none;">${escapeHtml(title)}</a>`
+        : escapeHtml(title);
 
       marker.bindPopup(mono(`
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
           ${tagsHtml}
+          <span style="padding:1px 6px;font-size:8px;background:${categoryColor}22;color:${categoryColor};border:1px solid ${categoryColor}55;">${escapeHtml(categoryLabel)}</span>
           <span style="font-size:9px;color:#4a6a7a;margin-left:auto;">${ev.confidenceScore}%</span>
         </div>
-        <p style="color:#e8f4ff;margin:0 0 4px 0;font-size:12px;">${escapeHtml(title)}</p>
-        <p style="color:#4a6a7a;margin:0 0 8px 0;font-size:9px;">${escapeHtml(ev.country || '—')} · GDELT ${anomalyBadge ? '· ' + anomalyBadge : ''} ${sourceUrl}</p>
+        <p style="color:#e8f4ff;margin:0 0 4px 0;font-size:12px;">${titleHtml}</p>
+        <p style="color:#4a6a7a;margin:0 0 8px 0;font-size:9px;">${escapeHtml(ev.country || '-')} | GDELT ${anomalyBadge ? '| ' + anomalyBadge : ''}</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:9px;border-top:1px solid #1a2a3a;padding-top:8px;">
-          <div><span style="color:#4a6a7a;">CATÉGORIE</span><br><span style="color:#c8d8e8;">${escapeHtml(ev.category || '—')}</span></div>
-          <div><span style="color:#4a6a7a;">DATE</span><br><span style="color:#c8d8e8;">${dateStr}</span></div>
+          <div><span style="color:#4a6a7a;">TYPE</span><br><span style="color:#c8d8e8;">${escapeHtml(style.label)}</span></div>
+          <div><span style="color:#4a6a7a;">DATE</span><br><span style="color:#c8d8e8;">${escapeHtml(dateStr)}</span></div>
         </div>
         ${zoneInfo ? `<div style="margin-top:6px;font-size:9px;color:#6a8a9a;line-height:1.6;border-top:1px solid #1a2a3a;padding-top:6px;">${zoneInfo}</div>` : ''}
-        ${scoreHtml}
-        <div style="margin-top:6px;font-size:9px;color:#4a6a7a;">${ev.latitude.toFixed(3)}°, ${ev.longitude.toFixed(3)}°</div>
       `), { maxWidth: 360 });
 
       layer.addLayer(marker);
