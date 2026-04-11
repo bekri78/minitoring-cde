@@ -206,16 +206,15 @@ export function WorldMap({
     const spaceOsintLayer = L.layerGroup();
     const newsLayer       = (L as any).markerClusterGroup({
       maxClusterRadius: (zoom: number) => {
-        if (zoom <= 3) return 55;
-        if (zoom <= 5) return 20;
-        if (zoom <= 7) return 8;
-        return 2;  // disperse très tôt au zoom
+        if (zoom <= 3) return 60;
+        if (zoom <= 5) return 25;
+        if (zoom <= 6) return 10;
+        return 5;
       },
       showCoverageOnHover: false,
-      zoomToBoundsOnClick: false,  // pas de zoom au clic — dispersion au zoom uniquement
+      zoomToBoundsOnClick: true,
       spiderfyOnMaxZoom:   true,
-      disableClusteringAtZoom: 8,  // au-delà de zoom 8 → plus de cluster, tous visibles
-      spiderfyDistanceMultiplier: 3,
+      spiderfyDistanceMultiplier: 2,
       animate:             true,
       animateAddingMarkers: false,
       iconCreateFunction: (cluster: any) => {
