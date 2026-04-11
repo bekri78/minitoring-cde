@@ -8,8 +8,9 @@ const MISTRAL_API_KEY = process.env.MISTRAL_API_KEY;
 const MISTRAL_MODEL   = process.env.MISTRAL_TRANSLATE_MODEL || 'mistral-small-latest';
 const MISTRAL_URL     = 'https://api.mistral.ai/v1/chat/completions';
 const AI_FILTER_ENABLED = process.env.AI_FILTER_ENABLED !== 'false';
-const AI_FILTER_BATCH   = Number(process.env.AI_FILTER_BATCH || 30);
+const AI_FILTER_BATCH   = Number(process.env.AI_FILTER_BATCH || 20);
 const AI_FILTER_LIMIT   = Number(process.env.AI_FILTER_LIMIT || 1500);
+const AI_FILTER_DELAY   = Number(process.env.AI_FILTER_DELAY || 1200); // ms between batches
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
 const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || 'gpt-4o-mini';
 const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
@@ -481,57 +482,79 @@ async function filterEventsWithMistral(events) {
 
   for (let i = 0; i < candidates.length; i += AI_FILTER_BATCH) {
     const batch = candidates.slice(i, i + AI_FILTER_BATCH);
-    try {
-      const controller = new AbortController();
-      const timeoutHandle = setTimeout(() => controller.abort(), 30000);
-      let resp;
+    const batchNum = Math.floor(i / AI_FILTER_BATCH) + 1;
+    let success = false;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        resp = await fetch(MISTRAL_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${MISTRAL_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: MISTRAL_MODEL,
-            messages: [
-              { role: 'system', content: 'You are an OSINT analyst. Return ONLY a valid JSON array, no prose.' },
-              { role: 'user', content: buildFilterPrompt(batch) },
-            ],
-            temperature: 0,
-          }),
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeoutHandle);
-      }
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => controller.abort(), 35000);
+        let resp;
+        try {
+          resp = await fetch(MISTRAL_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${MISTRAL_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model: MISTRAL_MODEL,
+              messages: [
+                { role: 'system', content: 'You are an OSINT analyst. Return ONLY a valid JSON array, no prose.' },
+                { role: 'user', content: buildFilterPrompt(batch) },
+              ],
+              temperature: 0,
+            }),
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutHandle);
+        }
 
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => '');
-        throw new Error(`HTTP_${resp.status} ${body.slice(0, 120)}`);
-      }
+        if (resp.status === 503 || resp.status === 429) {
+          const body = await resp.text().catch(() => '');
+          if (attempt < 2) {
+            console.warn(`[ai-filter] batch ${batchNum} got ${resp.status}, retrying in 10s...`);
+            await sleep(10000);
+            continue;
+          }
+          throw new Error(`HTTP_${resp.status} ${body.slice(0, 120)}`);
+        }
+        if (!resp.ok) {
+          const body = await resp.text().catch(() => '');
+          throw new Error(`HTTP_${resp.status} ${body.slice(0, 120)}`);
+        }
 
-      const data = await resp.json();
-      const content = data.choices?.[0]?.message?.content;
-      const text = Array.isArray(content)
-        ? content.map(p => p?.text || p?.content || '').join('')
-        : String(content || '');
-      const results = extractJsonArray(text);
+        const data = await resp.json();
+        const content = data.choices?.[0]?.message?.content;
+        const text = Array.isArray(content)
+          ? content.map(p => p?.text || p?.content || '').join('')
+          : String(content || '');
+        const results = extractJsonArray(text);
 
-      let kept = 0;
-      for (const result of results) {
-        if (!result?.id) continue;
-        if (result.keep === false) discardedIds.add(String(result.id));
-        else kept++;
+        let kept = 0;
+        for (const result of results) {
+          if (!result?.id) continue;
+          if (result.keep === false) discardedIds.add(String(result.id));
+          else kept++;
+        }
+        aiProcessed += batch.length;
+        console.log(`[ai-filter] batch ${batchNum}: ${kept}/${batch.length} kept`);
+        success = true;
+        break;
+      } catch (err) {
+        if (attempt === 2) {
+          console.warn(`[ai-filter] batch ${batchNum} failed (fail-open):`, err.message);
+        }
       }
-      aiProcessed += batch.length;
-      console.log(`[ai-filter] batch ${Math.floor(i / AI_FILTER_BATCH) + 1}: ${kept}/${batch.length} kept`);
-    } catch (err) {
-      console.warn(`[ai-filter] batch ${Math.floor(i / AI_FILTER_BATCH) + 1} failed (fail-open):`, err.message);
-      // Fail-open: keep all events if Mistral is unreachable
     }
 
-    if (i + AI_FILTER_BATCH < candidates.length) await sleep(250);
+    if (!success) {
+      // fail-open: batch events counted as processed but not discarded
+      aiProcessed += batch.length;
+    }
+
+    if (i + AI_FILTER_BATCH < candidates.length) await sleep(AI_FILTER_DELAY);
   }
 
   const filtered = events.filter(e => !discardedIds.has(String(e.id)));
