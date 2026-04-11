@@ -353,8 +353,10 @@ function detectEventType(title, domain) {
   const t = title.toLowerCase();
   const types = {
     spatial:  [
-      [/launch/i, 'satellite_launch'], [/spy|reconnaissance/i, 'spy_satellite'],
-      [/debris|collision/i, 'space_incident'], [/reentry|re-entry/i, 'reentry_risk'],
+      [/satellite launch|rocket launch|space launch|orbital launch/i, 'satellite_launch'],
+      [/spy|reconnaissance|nro|classified satellite/i, 'spy_satellite'],
+      [/debris|collision|space.*incident/i, 'space_incident'], [/reentry|re-entry/i, 'reentry_risk'],
+      [/asat|anti.satellite|jamming|spoofing|space.*weapon/i, 'space_warfare'],
     ],
     missile: [
       [/test/i, 'missile_test'], [/ballistic/i, 'ballistic_missile'],
@@ -417,16 +419,20 @@ function computeConfidence(title, domain, feedDomain, location) {
   if (location)              score += 15;       // lieu identifié
   if (t.split(/\s+/).length <= 15) score += 5;  // titre court = info factuelle
 
-  // Mots d'action forts (événement en cours) → +12
-  if (/launch|test|strike|attack|deploy|exercise|fire|intercept|shoot|bomb|detonate|explosion|incident|breach|intrusion/i.test(t)) score += 12;
+  // Mots d'action forts (événement en cours) → +12  ("launch" exclu — traité par domaine)
+  if (/test|strike|attack|deploy|exercise|fire|intercept|shoot|bomb|detonate|explosion|incident|breach|intrusion/i.test(t)) score += 12;
 
   // ── Bonus militaire/stratégique par domaine ────────────────────────
   if (domain === 'spatial') {
+    // Vrai décollage spatial : rocket + satellite/orbit/space context → très pertinent
+    if (/rocket launch|satellite launch|space launch|orbital launch|missile launch|ballistic.*launch|launch.*satellite|launch.*rocket|launch.*orbit|liftoff.*rocket|rocket.*liftoff/i.test(t)) score += 25;
     // Pertinente : militaire, renseignement, guerre spatiale
     if (/military|spy|reconnaissance|asat|anti.satellite|jamming|spoofing|debris|weapon|classified|nro|intelligence|warning|defense|sensor|radar|tracking|destroyed|hit|strike/i.test(t)) score += 20;
+    // Non-spatial "launch" : produit, app, initiative, campagne → pénalité forte
+    if (/launch/i.test(t) && !/rocket|satellite|space|orbital|orbit|missile|capsule|payload|vehicle|booster|spacecraft|probe|liftoff|pad|silo|ICBM|SLBM|sounding/i.test(t)) score -= 40;
     // Pénalité forte : contenu civil/tourisme/science grand public
-    if (/how to (see|watch|view)|viewing guide|schedule|liftoff (time|tonight)|visible (from|in)|sonic boom|ticket|livestream|live stream|live coverage|photo.*launch|launch.*photo|watchers/i.test(t)) score -= 45;
-    // Pénalité modérée : science ordinaire sans enjeu militaire
+    if (/how to (see|watch|view)|viewing guide|liftoff (time|tonight)|visible (from|in)|sonic boom|ticket|livestream|live stream|live coverage|photo.*launch|launch.*photo|watching.*launch|launch.*watch/i.test(t)) score -= 45;
+    // Pénalité modérée : commercial SpaceX sans enjeu militaire
     if (/spacex|falcon 9|starlink/i.test(t) && !/military|nro|spy|classified|ussf|space force|dod|pentagon|missile|hypersonic/i.test(t)) score -= 20;
   }
 
@@ -442,6 +448,13 @@ function computeConfidence(title, domain, feedDomain, location) {
     if (/military|warship|navy|naval|destroyer|frigate|submarine|carrier|exercise|patrol|drill|blockade|incident|collision|intrusion|contested/i.test(t)) score += 20;
     // Pénalité forte : maritime civil
     if (/cruise ship|container ship|cargo ship|merchant|ferry|fishing|coast guard rescue|grounded|stuck|accident|pollution|piracy.*cargo|shipping lane.*trade/i.test(t)) score -= 50;
+  }
+
+  if (domain === 'missile') {
+    // Vrai tir/test missile → bonus fort
+    if (/launch|test|fire|intercept|detonate|explode|hit|struck|shoot down/i.test(t)) score += 15;
+    // "launch" non-missile (produit, app, initiative) → pénalité
+    if (/launch/i.test(t) && !/missile|rocket|ballistic|hypersonic|icbm|slbm|warhead|projectile|munition|weapon/i.test(t)) score -= 30;
   }
 
   if (domain === 'military') {
