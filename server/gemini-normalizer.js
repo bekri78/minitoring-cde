@@ -11,6 +11,9 @@ const AI_FILTER_ENABLED = process.env.AI_FILTER_ENABLED !== 'false';
 const AI_FILTER_BATCH   = Number(process.env.AI_FILTER_BATCH || 20);
 const AI_FILTER_LIMIT   = Number(process.env.AI_FILTER_LIMIT || 1500);
 const AI_FILTER_DELAY   = Number(process.env.AI_FILTER_DELAY || 1200); // ms between batches
+const AI_FILTER_TIMEOUT_MS = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
+const AI_FILTER_MAX_RETRIES = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
+const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.chatgpt;
 const OPENAI_MODEL   = process.env.OPENAI_TRANSLATE_MODEL || 'gpt-4o-mini';
 const OPENAI_URL     = 'https://api.openai.com/v1/chat/completions';
@@ -33,6 +36,10 @@ const ROMANIZED_HINTS = [
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getAiFilterRetryDelay(attempt) {
+  return AI_FILTER_RETRY_DELAY_MS * Math.max(1, attempt);
 }
 
 function normalizeText(value) {
@@ -485,10 +492,10 @@ async function filterEventsWithMistral(events) {
     const batchNum = Math.floor(i / AI_FILTER_BATCH) + 1;
     let success = false;
 
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= AI_FILTER_MAX_RETRIES; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutHandle = setTimeout(() => controller.abort(), 35000);
+        const timeoutHandle = setTimeout(() => controller.abort(), AI_FILTER_TIMEOUT_MS);
         let resp;
         try {
           resp = await fetch(MISTRAL_URL, {
@@ -513,9 +520,10 @@ async function filterEventsWithMistral(events) {
 
         if (resp.status === 503 || resp.status === 429) {
           const body = await resp.text().catch(() => '');
-          if (attempt < 2) {
-            console.warn(`[ai-filter] batch ${batchNum} got ${resp.status}, retrying in 10s...`);
-            await sleep(10000);
+          if (attempt < AI_FILTER_MAX_RETRIES) {
+            const retryDelay = getAiFilterRetryDelay(attempt);
+            console.warn(`[ai-filter] batch ${batchNum} got ${resp.status}, retrying in ${Math.round(retryDelay / 1000)}s...`);
+            await sleep(retryDelay);
             continue;
           }
           throw new Error(`HTTP_${resp.status} ${body.slice(0, 120)}`);
@@ -543,7 +551,13 @@ async function filterEventsWithMistral(events) {
         success = true;
         break;
       } catch (err) {
-        if (attempt === 2) {
+        if (err?.name === 'AbortError' && attempt < AI_FILTER_MAX_RETRIES) {
+          const retryDelay = getAiFilterRetryDelay(attempt);
+          console.warn(`[ai-filter] batch ${batchNum} timed out after ${Math.round(AI_FILTER_TIMEOUT_MS / 1000)}s, retrying in ${Math.round(retryDelay / 1000)}s...`);
+          await sleep(retryDelay);
+          continue;
+        }
+        if (attempt === AI_FILTER_MAX_RETRIES) {
           console.warn(`[ai-filter] batch ${batchNum} failed (fail-open):`, err.message);
         }
       }
