@@ -206,15 +206,16 @@ export function WorldMap({
     const spaceOsintLayer = L.layerGroup();
     const newsLayer       = (L as any).markerClusterGroup({
       maxClusterRadius: (zoom: number) => {
-        if (zoom <= 3) return 60;
-        if (zoom <= 5) return 25;
-        if (zoom <= 6) return 10;
-        return 5;
+        if (zoom <= 3) return 55;
+        if (zoom <= 5) return 20;
+        if (zoom <= 7) return 8;
+        return 2;  // disperse très tôt au zoom
       },
       showCoverageOnHover: false,
-      zoomToBoundsOnClick: true,
+      zoomToBoundsOnClick: false,  // pas de zoom au clic — dispersion au zoom uniquement
       spiderfyOnMaxZoom:   true,
-      spiderfyDistanceMultiplier: 2,
+      disableClusteringAtZoom: 8,  // au-delà de zoom 8 → plus de cluster, tous visibles
+      spiderfyDistanceMultiplier: 3,
       animate:             true,
       animateAddingMarkers: false,
       iconCreateFunction: (cluster: any) => {
@@ -785,7 +786,7 @@ export function WorldMap({
     const domainFilter: Record<string, string[]> = {
       air:   ['aviation'],
       sea:   ['naval'],
-      space: ['spatial', 'missile'],
+      space: ['spatial'],       // spatial uniquement — missile ≠ space
       osint: [],   // tout
       all:   [],   // tout
     };
@@ -800,7 +801,12 @@ export function WorldMap({
       const score  = ev.confidence || 50;
       const radius = Math.max(5, Math.min(12, 5 + score / 20));
 
-      const marker = L.circleMarker([ev.lat, ev.lon], {
+      // Micro-jitter pour disperser les coords identiques (centre pays)
+      const jitter = () => (Math.random() - 0.5) * 0.6;
+      const lat = ev.lat + jitter();
+      const lon = ev.lon + jitter();
+
+      const marker = L.circleMarker([lat, lon], {
         radius,
         color,
         fillColor:   color,
