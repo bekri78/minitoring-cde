@@ -39,7 +39,7 @@ const GEOCODE_DELAY  = 1100; // 1 req/s Nominatim
 // Flux globaux par type d'activité
 
 const RSS_FEEDS = [
-  // ── GLOBAL par domaine ──────────────────────────────────────────────
+  // ── GLOBAL par domaine (pas de hintLocation — mondial) ──────────────
   { domain: 'spatial',  label: 'Space & Satellites',
     query: '("satellite launch" OR "military satellite" OR "spy satellite" OR "rocket launch" OR "space launch")' },
   { domain: 'missile',  label: 'Missile Activity',
@@ -52,57 +52,57 @@ const RSS_FEEDS = [
     query: '("military escalation" OR "troop deployment" OR "border clashes" OR "armed conflict")' },
 
   // ── PUISSANCES MAJEURES ─────────────────────────────────────────────
-  { domain: 'military', label: 'China Military',
+  { domain: 'military', label: 'China Military', hintLocation: 'china',
     query: '(China OR Chinese) (military OR missile OR naval OR satellite OR "South China Sea" OR Taiwan)' },
-  { domain: 'military', label: 'Russia Military',
+  { domain: 'military', label: 'Russia Military', hintLocation: 'russia',
     query: '(Russia OR Russian) (military OR missile OR nuclear OR Arctic OR Ukraine OR "Black Sea")' },
-  { domain: 'military', label: 'USA Military',
+  { domain: 'military', label: 'USA Military', hintLocation: 'united states',
     query: '(Pentagon OR "US military" OR "US Navy" OR "US Air Force" OR CENTCOM OR INDOPACOM)' },
 
   // ── PROLIFÉRATION / MENACES NUCLÉAIRES ──────────────────────────────
-  { domain: 'missile',  label: 'North Korea',
+  { domain: 'missile',  label: 'North Korea', hintLocation: 'north korea',
     query: '("North Korea" OR DPRK OR Pyongyang) (missile OR nuclear OR launch OR test OR military)' },
-  { domain: 'military', label: 'Iran Military',
+  { domain: 'military', label: 'Iran Military', hintLocation: 'iran',
     query: '(Iran OR Iranian OR IRGC) (military OR nuclear OR missile OR naval OR drone OR Hormuz)' },
-  { domain: 'missile',  label: 'Pakistan Military',
+  { domain: 'missile',  label: 'Pakistan Military', hintLocation: 'pakistan',
     query: '(Pakistan OR Pakistani) (military OR nuclear OR missile OR "border clash" OR India)' },
 
   // ── ZONES DE CONFLIT ACTIF ──────────────────────────────────────────
-  { domain: 'military', label: 'Ukraine Conflict',
+  { domain: 'military', label: 'Ukraine Conflict', hintLocation: 'ukraine',
     query: '(Ukraine OR Ukrainian) (military OR frontline OR offensive OR drone OR missile OR Crimea)' },
-  { domain: 'military', label: 'Israel Conflict',
+  { domain: 'military', label: 'Israel Conflict', hintLocation: 'israel',
     query: '(Israel OR IDF OR Gaza OR Hezbollah OR Lebanon) (military OR strike OR airstrike OR operation)' },
-  { domain: 'military', label: 'Syria Conflict',
+  { domain: 'military', label: 'Syria Conflict', hintLocation: 'syria',
     query: '(Syria OR Syrian) (military OR airstrike OR Russia OR Turkey OR drone OR "Islamic State")' },
-  { domain: 'military', label: 'Yemen / Red Sea',
+  { domain: 'military', label: 'Yemen / Red Sea', hintLocation: 'yemen',
     query: '(Yemen OR Houthi OR "Red Sea") (military OR missile OR drone OR ship OR attack OR naval)' },
 
   // ── POINTS CHAUDS RÉGIONAUX ─────────────────────────────────────────
-  { domain: 'naval',    label: 'Taiwan Strait',
+  { domain: 'naval',    label: 'Taiwan Strait', hintLocation: 'taiwan strait',
     query: '("Taiwan Strait" OR "Taiwan military" OR "Chinese military" Taiwan) (exercise OR warship OR tension OR escalation)' },
-  { domain: 'military', label: 'India Military',
+  { domain: 'military', label: 'India Military', hintLocation: 'india',
     query: '(India OR Indian) (military OR missile OR naval OR border OR China OR Pakistan OR satellite)' },
-  { domain: 'missile',  label: 'South Korea Defense',
+  { domain: 'missile',  label: 'South Korea Defense', hintLocation: 'south korea',
     query: '("South Korea" OR Seoul) (military OR missile OR defense OR THAAD OR "North Korea")' },
-  { domain: 'military', label: 'Turkey Military',
+  { domain: 'military', label: 'Turkey Military', hintLocation: 'turkey',
     query: '(Turkey OR Turkish) (military OR drone OR Syria OR Mediterranean OR Libya OR NATO)' },
-  { domain: 'military', label: 'Japan Defense',
+  { domain: 'military', label: 'Japan Defense', hintLocation: 'japan',
     query: '(Japan OR Japanese) (military OR defense OR "East China Sea" OR missile OR Okinawa)' },
 
   // ── ZONES STRATÉGIQUES ──────────────────────────────────────────────
-  { domain: 'naval',    label: 'South China Sea',
+  { domain: 'naval',    label: 'South China Sea', hintLocation: 'south china sea',
     query: '("South China Sea") (military OR naval OR warship OR island OR tension OR patrol)' },
-  { domain: 'naval',    label: 'Arctic Military',
+  { domain: 'naval',    label: 'Arctic Military', hintLocation: 'arctic',
     query: '(Arctic) (military OR naval OR Russia OR submarine OR base OR patrol OR route)' },
-  { domain: 'naval',    label: 'Baltic Sea',
+  { domain: 'naval',    label: 'Baltic Sea', hintLocation: 'baltic sea',
     query: '("Baltic Sea" OR Baltic) (military OR NATO OR Russia OR submarine OR cable OR patrol)' },
 
   // ── AFRIQUE / SAHEL ─────────────────────────────────────────────────
-  { domain: 'military', label: 'Sudan Conflict',
+  { domain: 'military', label: 'Sudan Conflict', hintLocation: 'sudan',
     query: '(Sudan OR Sudanese OR Khartoum OR RSF OR Darfur) (military OR conflict OR war OR airstrike)' },
-  { domain: 'military', label: 'Libya Conflict',
+  { domain: 'military', label: 'Libya Conflict', hintLocation: 'libya',
     query: '(Libya OR Libyan OR Tripoli) (military OR militia OR drone OR Wagner OR Turkey)' },
-  { domain: 'military', label: 'Somalia / Horn',
+  { domain: 'military', label: 'Somalia / Horn', hintLocation: 'somalia',
     query: '(Somalia OR "al-Shabaab" OR "Horn of Africa") (military OR attack OR piracy OR US strike)' },
 ];
 
@@ -205,7 +205,7 @@ async function fetchRssFeed(feed) {
     const xml = await resp.text();
     const items = parseRssItems(xml);
     console.log(`[google-news] ${feed.label}: ${items.length} items`);
-    return items.map(item => ({ ...item, domain: feed.domain, feedLabel: feed.label }));
+    return items.map(item => ({ ...item, domain: feed.domain, feedLabel: feed.label, hintLocation: feed.hintLocation || '' }));
   } catch (err) {
     console.warn(`[google-news] fetch ${feed.label} failed:`, err.message);
     return [];
@@ -380,13 +380,13 @@ function detectLocationFromTitle(title) {
 }
 
 function computeConfidence(title, domain, feedDomain, location) {
-  let score = 40; // base
+  let score = 55; // base rehaussée — les feeds sont déjà ciblés sécurité/défense
 
-  // Le domaine du flux correspond au domaine détecté → +15
-  if (domain === feedDomain) score += 15;
+  // Le domaine du flux correspond au domaine détecté → +10
+  if (domain === feedDomain) score += 10;
 
-  // Lieu détecté → +20
-  if (location) score += 20;
+  // Lieu détecté → +15
+  if (location) score += 15;
 
   // Mots d'action forts → +10
   if (/launch|test|strike|attack|deploy|fire|intercept|shoot|bomb/i.test(title)) score += 10;
@@ -616,10 +616,12 @@ async function fetchGoogleNewsEvents() {
     // ── STEP 3 : Regex classification (0 token) ────────────────────────
     const classified = unique.map(item => {
       const domain    = detectDomainFromTitle(item.title) || item.domain;
-      const location  = detectLocationFromTitle(item.title);
+      // Location: d'abord regex sur le titre, sinon hintLocation du feed
+      const titleLocation = detectLocationFromTitle(item.title);
+      const location  = titleLocation || item.hintLocation || '';
       const eventType = detectEventType(item.title, domain);
       const confidence = computeConfidence(item.title, domain, item.domain, location);
-      return { ...item, domain, location, eventType, confidence, needsAI: false };
+      return { ...item, domain, location, eventType, confidence, needsAI: false, hasHintOnly: !titleLocation && !!item.hintLocation };
     });
 
     // ── STEP 4 : Identifier les doutes (→ seuls ceux-ci vont à l'IA) ──
@@ -627,9 +629,9 @@ async function fetchGoogleNewsEvents() {
     const doubtIndices = [];
     for (let i = 0; i < classified.length; i++) {
       const c = classified[i];
-      const hasDoubt = !c.location                // pas de lieu trouvé
-        || c.confidence < 50                      // confiance faible
-        || (c.domain === 'military' && c.domain === c.eventType); // trop générique
+      // Doute = pas de lieu du tout (même pas de hint) OU confiance < 40
+      const hasDoubt = (!c.location && !c.hasHintOnly)
+        || c.confidence < 40;
       if (hasDoubt) {
         doubts.push(c.title);
         doubtIndices.push(i);
@@ -639,8 +641,8 @@ async function fetchGoogleNewsEvents() {
 
     console.log(`[google-news] doubts needing AI: ${doubts.length} / ${classified.length} (${Math.round(100 * doubts.length / classified.length)}%)`);
 
-    // ── STEP 5 : AI uniquement sur les doutes ──────────────────────────
-    if (doubts.length > 0 && doubts.length <= 40) {
+    // ── STEP 5 : AI uniquement sur les doutes (batch max 100) ──────────
+    if (doubts.length > 0 && doubts.length <= 100) {
       const aiResults = await analyzeDoubts(doubts);
       if (aiResults) {
         for (const r of aiResults) {
@@ -658,7 +660,7 @@ async function fetchGoogleNewsEvents() {
         }
         console.log(`[google-news] AI enriched ${aiResults.length} doubtful articles`);
       }
-    } else if (doubts.length > 40) {
+    } else if (doubts.length > 100) {
       console.log(`[google-news] too many doubts (${doubts.length}), skipping AI to save tokens`);
     }
 
