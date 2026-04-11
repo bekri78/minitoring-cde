@@ -13,8 +13,8 @@ const AI_FILTER_DELAY   = Number(process.env.AI_FILTER_DELAY || 1200); // ms bet
 const AI_FILTER_TIMEOUT_MS = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
 const AI_FILTER_MAX_RETRIES = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
 const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const OPENAI_API_KEY   = process.env.OPENAI_API_KEY || process.env.chatgpt;
+const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim() || undefined;
+const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim() || undefined;
 const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'mistral')).toLowerCase();
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
 const OPENAI_TRANSLATE_FALLBACK = process.env.OPENAI_TRANSLATE_FALLBACK === 'true';
@@ -31,6 +31,8 @@ const openaiClient = LLM_PROVIDER === 'deepseek'
 // Startup diagnostics
 console.log('[normalizer] LLM_PROVIDER:         ', LLM_PROVIDER);
 console.log('[normalizer] DEEPSEEK_API_KEY set:', !!DEEPSEEK_API_KEY);
+console.log('[normalizer] DEEPSEEK_API_KEY len:', DEEPSEEK_API_KEY ? DEEPSEEK_API_KEY.length : 0, '(expected 35)');
+console.log('[normalizer] DEEPSEEK_API_KEY chars:', DEEPSEEK_API_KEY ? [...DEEPSEEK_API_KEY].map(c => c.charCodeAt(0)) : []);
 console.log('[normalizer] OPENAI_API_KEY set:   ', !!OPENAI_API_KEY);
 console.log('[normalizer] MISTRAL_API_KEY set:  ', !!process.env.MISTRAL_API_KEY);
 console.log('[normalizer] OPENAI_MODEL:         ', OPENAI_MODEL);

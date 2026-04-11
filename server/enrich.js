@@ -3,8 +3,8 @@
 const crypto = require('crypto');
 const OpenAI = require('openai');
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const OPENAI_API_KEY   = process.env.OPENAI_API_KEY;
+const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim() || undefined;
+const OPENAI_API_KEY   = (process.env.OPENAI_API_KEY || '').trim() || undefined;
 const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'mistral')).toLowerCase();
 const ENRICH_MODEL     = process.env.ENRICH_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-chat' : LLM_PROVIDER === 'openai' ? 'gpt-4o' : 'mistral-medium-latest');
 const ENRICH_URL       = LLM_PROVIDER === 'mistral' ? 'https://api.mistral.ai/v1/chat/completions' : null;

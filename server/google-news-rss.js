@@ -20,8 +20,8 @@ const path = require('path');
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const OpenAI = require('openai');
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const OPENAI_API_KEY   = process.env.OPENAI_API_KEY || process.env.chatgpt;
+const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim() || undefined;
+const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim() || undefined;
 const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'none')).toLowerCase();
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
 const openaiClient     = LLM_PROVIDER === 'deepseek'
