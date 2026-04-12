@@ -409,10 +409,24 @@ async function runFinetuneCollector() {
       `[finetune] ── Cycle terminé ── ` +
       `${processed} keep=true | ${discards} discards | ${errors} erreurs | ${reviewCount} needs_review`
     );
+    const approvedCount = countJsonlLines(APPROVED_FILE);
     console.log(
       `[finetune] Dataset : raw=${countJsonlLines(RAW_FILE)} ` +
-      `| approved=${countJsonlLines(APPROVED_FILE)}`
+      `| approved=${approvedCount}`
     );
+
+    // ── Auto-upload si seuil atteint ─────────────────────────────────────
+    try {
+      const { runFinetuneUpload, AUTO_THRESHOLD } = require('./finetune-uploader');
+      if (approvedCount >= AUTO_THRESHOLD) {
+        console.log(`[finetune] Seuil ${AUTO_THRESHOLD} atteint (${approvedCount}) — lancement upload automatique`);
+        runFinetuneUpload(approvedCount).catch(err =>
+          console.error('[finetune-upload] Erreur auto-upload:', err.message)
+        );
+      }
+    } catch (uploadErr) {
+      console.error('[finetune] Impossible de charger finetune-uploader:', uploadErr.message);
+    }
 
   } finally {
     _state.running = false;

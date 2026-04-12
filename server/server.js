@@ -19,6 +19,7 @@ const { refreshSignals, getSignalsCache, isStale }                   = require('
 const { normalizeTitleWithGemini }                                   = require('./gemini-normalizer');
 const { fetchSignalMarkers, getCache: getSignalMarkersCache }        = require('./signalMarkers');
 const { runFinetuneCollector, getDatasetStats, getReviewEntries, approveEntry, rejectEntry } = require('./finetune-collector');
+const { runFinetuneUpload, checkJobStatus, loadJobStatus, exportForMistral } = require('./finetune-uploader');
 const { fetchWorldEvents, getCache: getWorldEventsCache }            = require('./worldEvents');
 const { getMaritimeEvents, getMaritimeAnomalies, getNavalActivity }  = require('./maritime-osint');
 const { fetchMaritimeAnomalies }                                     = require('./maritime-anomalies');
@@ -755,6 +756,48 @@ app.get('/api/news/raw', (_req, res) => {
 app.get('/api/finetune/stats', (_req, res) => {
   try {
     res.json(getDatasetStats());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Statut du job de fine-tuning en cours
+app.get('/api/finetune/job', async (_req, res) => {
+  try {
+    const status = loadJobStatus();
+    if (!status) return res.json({ job: null, message: 'Aucun job lancé' });
+    // Rafraîchir le statut si job actif
+    if (['RUNNING', 'QUEUED'].includes(status.status)) {
+      const updated = await checkJobStatus(status.id);
+      return res.json({ job: updated });
+    }
+    res.json({ job: status });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Lancer manuellement le pipeline upload → fine-tune
+app.post('/api/finetune/upload', async (_req, res) => {
+  try {
+    const stats = getDatasetStats();
+    if (stats.total_approved === 0) {
+      return res.status(400).json({ error: 'Aucune entrée approuvée à exporter' });
+    }
+    res.json({ status: 'started', approved: stats.total_approved, message: 'Upload et création du job en cours' });
+    runFinetuneUpload(stats.total_approved).catch(err =>
+      console.error('[finetune-upload-manual]', err.message)
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Export seul (sans upload) — pour télécharger le fichier converti
+app.get('/api/finetune/export', (_req, res) => {
+  try {
+    const { count, filePath } = exportForMistral();
+    res.download(filePath, `finetune-mistral-export-${count}ex.jsonl`);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
