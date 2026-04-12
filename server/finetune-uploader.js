@@ -19,7 +19,7 @@ const path = require('path');
 
 // Répertoire persistant — utilise le volume Railway (/data) si disponible,
 // sinon fallback local pour le dev
-const DATA_DIR       = process.env.FINETUNE_DATA_DIR || process.env.CACHE_DIR || path.join(__dirname, 'data');
+const DATA_DIR       = process.env.FINETUNE_DATA_DIR || '/data';
 const APPROVED_FILE  = path.join(DATA_DIR, 'finetune-approved.jsonl');
 const EXPORT_FILE    = path.join(DATA_DIR, 'finetune-mistral-export.jsonl');
 const STATUS_FILE    = path.join(DATA_DIR, 'finetune-job-status.json');
