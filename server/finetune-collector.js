@@ -57,10 +57,14 @@ const APPROVED_FILE  = path.join(DATA_DIR, 'finetune-approved.jsonl');
 
 // ── État interne (stats en mémoire) ──────────────────────────────────────────
 const _state = {
-  lastRun:        null,
+  lastRun:          null,
   lastRunProcessed: 0,
-  running:        false,
+  running:          false,
 };
+
+// Seen store en mémoire — persiste entre les cycles dans la même instance
+// (le fichier sert uniquement de backup au démarrage)
+const _memSeen = { ids: new Set(), fingerprints: new Set() };
 
 // ── Utilitaires ───────────────────────────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -84,17 +88,26 @@ function semanticFingerprint(event) {
 
 // ── Persistance seen store ────────────────────────────────────────────────────
 function loadSeen() {
+  // Priorité : mémoire (toujours à jour pendant la session)
+  if (_memSeen.ids.size > 0) return _memSeen;
+  // Fallback : fichier au démarrage
   try {
-    if (!fs.existsSync(SEEN_FILE)) return { ids: [], fingerprints: [] };
-    return JSON.parse(fs.readFileSync(SEEN_FILE, 'utf8'));
-  } catch {
-    return { ids: [], fingerprints: [] };
-  }
+    if (!fs.existsSync(SEEN_FILE)) return _memSeen;
+    const raw = JSON.parse(fs.readFileSync(SEEN_FILE, 'utf8'));
+    for (const id of (raw.ids || []))          _memSeen.ids.add(id);
+    for (const fp of (raw.fingerprints || [])) _memSeen.fingerprints.add(fp);
+  } catch { /* ignore */ }
+  return _memSeen;
 }
 
-function saveSeen(store) {
+function saveSeen(ids, fingerprints) {
+  for (const id of ids)  _memSeen.ids.add(id);
+  for (const fp of fingerprints) _memSeen.fingerprints.add(fp);
   ensureDataDir();
-  fs.writeFileSync(SEEN_FILE, JSON.stringify(store), 'utf8');
+  fs.writeFileSync(SEEN_FILE, JSON.stringify({
+    ids:          [..._memSeen.ids],
+    fingerprints: [..._memSeen.fingerprints],
+  }), 'utf8');
 }
 
 // ── Écriture JSONL ────────────────────────────────────────────────────────────
@@ -185,7 +198,15 @@ async function callMistralAgent(event) {
   const match   = content.match(/\{[\s\S]*\}/);
   if (!match) throw new Error(`Réponse non-JSON Mistral: ${content.slice(0, 150)}`);
 
-  return JSON.parse(match[0]);
+  const parsed = JSON.parse(match[0]);
+
+  // Valider domain_primary — rejeter si hors liste (sera retraité au prochain cycle)
+  const VALID_DOMAINS = new Set(['air', 'land', 'maritime', 'space', 'cyber', 'strategic']);
+  if (!VALID_DOMAINS.has(parsed.domain_primary)) {
+    throw new Error(`domain_primary invalide: "${parsed.domain_primary}"`);
+  }
+
+  return parsed;
 }
 
 // ── STEP 6 — Flags qualité ────────────────────────────────────────────────────
@@ -359,7 +380,7 @@ async function runFinetuneCollector() {
     }
 
     // ── Sauvegarder le seen store ────────────────────────────────────────────
-    saveSeen({ ids: [...seenIds], fingerprints: [...seenFprints] });
+    saveSeen(seenIds, seenFprints);
     _state.lastRunProcessed = processed;
 
     console.log(
@@ -397,7 +418,7 @@ function getDatasetStats() {
     }
   }
 
-  const seen = loadSeen();
+  const seen = loadSeen(); // init _memSeen depuis fichier si besoin
 
   return {
     total_raw:        rawEntries.length,
@@ -405,8 +426,8 @@ function getDatasetStats() {
     total_needs_review: needsReview,
     domain_distribution: domainDist,
     review_flag_distribution: flagDist,
-    total_events_seen: seen.ids?.length   || 0,
-    total_fingerprints: seen.fingerprints?.length || 0,
+    total_events_seen:  _memSeen.ids.size,
+    total_fingerprints: _memSeen.fingerprints.size,
     last_run:           _state.lastRun,
     last_run_processed: _state.lastRunProcessed,
     pipeline_running:   _state.running,
