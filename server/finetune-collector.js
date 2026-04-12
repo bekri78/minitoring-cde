@@ -479,4 +479,89 @@ function getDatasetStats() {
   };
 }
 
-module.exports = { runFinetuneCollector, getDatasetStats };
+// ── Review manuel ───────────────────────────────────────────────────────────
+
+/**
+ * Retourne toutes les entrées needs_review avec leurs flags.
+ * Utilisé par GET /api/finetune/review
+ */
+function getReviewEntries() {
+  const entries = readAllJsonl(RAW_FILE);
+  return entries
+    .filter(e => e.meta?.needs_review === true)
+    .map(e => ({
+      event_id:     e.event_id,
+      title:        e.input?.title,
+      country:      e.input?.country,
+      countryCode:  e.input?.countryCode,
+      score:        e.input?.score,
+      category:     e.input?.category,
+      keep:         e.output?.keep,
+      domain:       e.output?.domain_primary,
+      op_relevance: e.output?.operational_relevance,
+      str_relevance: e.output?.strategic_relevance,
+      review_flags: e.meta?.review_flags || [],
+      collected_at: e.meta?.collected_at,
+    }));
+}
+
+/**
+ * Réécrit une ligne dans finetune-raw.jsonl par event_id.
+ * Retourne true si trouvé, false sinon.
+ */
+function patchRawEntry(eventId, patchFn) {
+  if (!fs.existsSync(RAW_FILE)) return false;
+  const lines = fs.readFileSync(RAW_FILE, 'utf8').split('
+').filter(l => l.trim());
+  let found = false;
+  const updated = lines.map(l => {
+    try {
+      const entry = JSON.parse(l);
+      if (entry.event_id === eventId) {
+        found = true;
+        return JSON.stringify(patchFn(entry));
+      }
+      return l;
+    } catch { return l; }
+  });
+  if (found) fs.writeFileSync(RAW_FILE, updated.join('
+') + '
+', 'utf8');
+  return found;
+}
+
+/**
+ * Approve manuel : supprime le flag needs_review, ajoute dans approved.
+ */
+function approveEntry(eventId) {
+  let approvedEntry = null;
+  const found = patchRawEntry(eventId, entry => {
+    entry.meta.needs_review   = false;
+    entry.meta.review_flags   = [];
+    entry.meta.label_origin   = 'human_approved';
+    entry.meta.reviewed_at    = new Date().toISOString();
+    approvedEntry = entry;
+    return entry;
+  });
+  if (!found) return { ok: false, error: 'event_id not found' };
+  if (approvedEntry) appendJsonl(APPROVED_FILE, approvedEntry);
+  return { ok: true, event_id: eventId, action: 'approved' };
+}
+
+/**
+ * Reject manuel : passe keep=false dans le raw (ne touche pas approved).
+ */
+function rejectEntry(eventId) {
+  const found = patchRawEntry(eventId, entry => {
+    entry.output.keep       = false;
+    entry.meta.needs_review = false;
+    entry.meta.review_flags = [];
+    entry.meta.label_origin = 'human_rejected';
+    entry.meta.reviewed_at  = new Date().toISOString();
+    return entry;
+  });
+  if (!found) return { ok: false, error: 'event_id not found' };
+  return { ok: true, event_id: eventId, action: 'rejected' };
+}
+
+module.exports = { runFinetuneCollector, getDatasetStats, getReviewEntries, approveEntry, rejectEntry };

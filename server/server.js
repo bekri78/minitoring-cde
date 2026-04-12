@@ -18,7 +18,7 @@ const { attachNearbyEvents }                                         = require('
 const { refreshSignals, getSignalsCache, isStale }                   = require('./signals');
 const { normalizeTitleWithGemini }                                   = require('./gemini-normalizer');
 const { fetchSignalMarkers, getCache: getSignalMarkersCache }        = require('./signalMarkers');
-const { runFinetuneCollector, getDatasetStats }                      = require('./finetune-collector');
+const { runFinetuneCollector, getDatasetStats, getReviewEntries, approveEntry, rejectEntry } = require('./finetune-collector');
 const { fetchWorldEvents, getCache: getWorldEventsCache }            = require('./worldEvents');
 const { getMaritimeEvents, getMaritimeAnomalies, getNavalActivity }  = require('./maritime-osint');
 const { fetchMaritimeAnomalies }                                     = require('./maritime-anomalies');
@@ -755,6 +755,34 @@ app.get('/api/news/raw', (_req, res) => {
 app.get('/api/finetune/stats', (_req, res) => {
   try {
     res.json(getDatasetStats());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Liste des entrées en attente de review
+app.get('/api/finetune/review', (_req, res) => {
+  try {
+    const entries = getReviewEntries();
+    res.json({ count: entries.length, entries });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Approuver une entrée
+app.post('/api/finetune/review/:id/approve', (req, res) => {
+  try {
+    res.json(approveEntry(req.params.id));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Rejeter une entrée
+app.post('/api/finetune/review/:id/reject', (req, res) => {
+  try {
+    res.json(rejectEntry(req.params.id));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
