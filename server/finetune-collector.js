@@ -57,9 +57,10 @@ const APPROVED_FILE  = path.join(DATA_DIR, 'finetune-approved.jsonl');
 
 // ── État interne (stats en mémoire) ──────────────────────────────────────────
 const _state = {
-  lastRun:          null,
-  lastRunProcessed: 0,
-  running:          false,
+  lastRun:           null,
+  lastRunProcessed:  0,
+  lastRunDiscards:   0,
+  running:           false,
 };
 
 // Seen store en mémoire — persiste entre les cycles dans la même instance
@@ -200,7 +201,10 @@ async function callMistralAgent(event) {
 
   const parsed = JSON.parse(match[0]);
 
-  // Valider domain_primary — rejeter si hors liste (sera retraité au prochain cycle)
+  // Si keep=false — réponse valide, pas besoin de valider les autres champs
+  if (parsed.keep === false) return parsed;
+
+  // Si keep=true — valider domain_primary obligatoire
   const VALID_DOMAINS = new Set(['air', 'land', 'maritime', 'space', 'cyber', 'strategic']);
   if (!VALID_DOMAINS.has(parsed.domain_primary)) {
     throw new Error(`domain_primary invalide: "${parsed.domain_primary}"`);
@@ -221,11 +225,12 @@ const DOMAIN_CATEGORY_MAP = {
 function computeQualityFlags(event, output) {
   const flags = [];
 
-  if (output.domain_primary === 'strategic')              flags.push('domain_strategic');
-  if ((output.operational_relevance || 0) > REVIEW_OP_THRESHOLD)  flags.push('high_operational');
-  if ((output.strategic_relevance   || 0) > REVIEW_STR_THRESHOLD) flags.push('high_strategic');
-  if (output.keep === false && (event.score || 0) > REVIEW_KEEP_FALSE_SCORE)
-    flags.push('keep_false_high_score');
+  // keep=false est un rejet valide — aucun flag de qualité nécessaire
+  if (output.keep === false) return { needs_review: false, review_flags: [] };
+
+  if (output.domain_primary === 'strategic')                        flags.push('domain_strategic');
+  if ((output.operational_relevance || 0) > REVIEW_OP_THRESHOLD)   flags.push('high_operational');
+  if ((output.strategic_relevance   || 0) > REVIEW_STR_THRESHOLD)  flags.push('high_strategic');
 
   // Mismatch catégorie event ↔ domaine AI
   const allowedDomains = DOMAIN_CATEGORY_MAP[event.category] || [];
@@ -279,11 +284,11 @@ function storeEntry(event, output) {
     },
   };
 
-  // RAW — toujours
+  // RAW — toujours (keep=true et keep=false)
   appendJsonl(RAW_FILE, entry);
 
-  // APPROVED — seulement si pas besoin de review
-  if (!needs_review) {
+  // APPROVED — seulement keep=true sans flag de review
+  if (output.keep !== false && !needs_review) {
     appendJsonl(APPROVED_FILE, entry);
   }
 
@@ -345,7 +350,7 @@ async function runFinetuneCollector() {
     }
 
     // ── STEP 4 — Batches Mistral ─────────────────────────────────────────────
-    let processed = 0, errors = 0, reviewCount = 0;
+    let processed = 0, discards = 0, errors = 0, reviewCount = 0;
 
     for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
       const batch = candidates.slice(i, i + BATCH_SIZE);
@@ -356,22 +361,27 @@ async function runFinetuneCollector() {
           const output = await callMistralAgent(event);
           const entry  = storeEntry(event, output);
 
-          // Marquer comme vus
+          // Toujours marquer comme vu (keep=true ou keep=false)
           seenIds.add(event.id);
           seenFprints.add(semanticFingerprint(event));
-          processed++;
 
-          if (entry.meta.needs_review) reviewCount++;
-
-          console.log(
-            `[finetune] ✓ ${event.id}` +
-            ` domain=${output.domain_primary}` +
-            ` keep=${output.keep}` +
-            ` op=${output.operational_relevance}` +
-            `${entry.meta.needs_review ? ' ⚑ review' : ''}`
-          );
+          if (output.keep === false) {
+            discards++;
+            console.log(`[finetune] ○ ${event.id} keep=false discard`);
+          } else {
+            processed++;
+            if (entry.meta.needs_review) reviewCount++;
+            console.log(
+              `[finetune] ✓ ${event.id}` +
+              ` domain=${output.domain_primary}` +
+              ` keep=true` +
+              ` op=${output.operational_relevance}` +
+              `${entry.meta.needs_review ? ' ⚑ review' : ''}`
+            );
+          }
         } catch (err) {
           errors++;
+          // Ne pas marquer comme vu — sera retenté au prochain cycle
           console.error(`[finetune] ✗ ${event.id}: ${err.message}`);
         }
 
@@ -382,10 +392,11 @@ async function runFinetuneCollector() {
     // ── Sauvegarder le seen store ────────────────────────────────────────────
     saveSeen(seenIds, seenFprints);
     _state.lastRunProcessed = processed;
+    _state.lastRunDiscards  = discards;
 
     console.log(
       `[finetune] ── Cycle terminé ── ` +
-      `${processed} ajoutés | ${errors} erreurs | ${reviewCount} needs_review`
+      `${processed} keep=true | ${discards} discards | ${errors} erreurs | ${reviewCount} needs_review`
     );
     console.log(
       `[finetune] Dataset : raw=${countJsonlLines(RAW_FILE)} ` +
@@ -405,7 +416,7 @@ function getDatasetStats() {
 
   // Distribution par domaine
   const domainDist = {};
-  for (const e of rawEntries) {
+  for (const e of rawEntries.filter(e => e.output?.keep !== false)) {
     const d = e.output?.domain_primary || 'unknown';
     domainDist[d] = (domainDist[d] || 0) + 1;
   }
@@ -418,19 +429,24 @@ function getDatasetStats() {
     }
   }
 
+  const totalDiscards = rawEntries.filter(e => e.output?.keep === false).length;
+
   const seen = loadSeen(); // init _memSeen depuis fichier si besoin
 
   return {
-    total_raw:        rawEntries.length,
-    total_approved:   approvedCount,
+    total_raw:          rawEntries.length,
+    total_keep_true:    rawEntries.length - totalDiscards,
+    total_discards:     totalDiscards,
+    total_approved:     approvedCount,
     total_needs_review: needsReview,
     domain_distribution: domainDist,
     review_flag_distribution: flagDist,
     total_events_seen:  _memSeen.ids.size,
     total_fingerprints: _memSeen.fingerprints.size,
-    last_run:           _state.lastRun,
-    last_run_processed: _state.lastRunProcessed,
-    pipeline_running:   _state.running,
+    last_run:              _state.lastRun,
+    last_run_processed:    _state.lastRunProcessed,
+    last_run_discards:     _state.lastRunDiscards,
+    pipeline_running:      _state.running,
     dataset_files: {
       raw:      RAW_FILE,
       approved: APPROVED_FILE,
