@@ -50,7 +50,9 @@ const REVIEW_STR_THRESHOLD = 95;
 const REVIEW_KEEP_FALSE_SCORE = 80;
 
 // ── Chemins ───────────────────────────────────────────────────────────────────
-const DATA_DIR       = path.join(__dirname, 'data');
+// Répertoire persistant — utilise le volume Railway (/data) si disponible,
+// sinon fallback local pour le dev
+const DATA_DIR       = process.env.FINETUNE_DATA_DIR || process.env.CACHE_DIR || path.join(__dirname, 'data');
 const SEEN_FILE      = path.join(DATA_DIR, 'finetune-seen.json');
 const RAW_FILE       = path.join(DATA_DIR, 'finetune-raw.jsonl');
 const APPROVED_FILE  = path.join(DATA_DIR, 'finetune-approved.jsonl');
