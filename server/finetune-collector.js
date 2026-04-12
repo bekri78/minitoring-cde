@@ -142,28 +142,21 @@ function passesFilter(event) {
 
 // ── STEP 4 — Appel agent Mistral ──────────────────────────────────────────────
 function buildPrompt(event) {
-  return `Classify this OSINT military/security event. Return ONLY a single valid JSON object, no explanation, no markdown.
-
-Event data:
-- Title: ${event.title}
-- Country: ${event.country || event.countryCode || 'unknown'}
-- Category: ${event.category}
-- Actor1: ${event.actor1 || 'unknown'}
-- Actor2: ${event.actor2 || 'none'}
-- Score: ${event.score}
-- Severity: ${event.severity || 'unknown'}
-- Region: ${event.region || 'unknown'}
-- Notes: ${event.notes || ''}
-- Event code: ${event.eventCode || ''} (root: ${event.rootCode || ''})
-
-Required JSON output:
-{
-  "keep": true or false,
-  "domain_primary": "air" | "land" | "maritime" | "space" | "cyber" | "strategic",
-  "event_type": "concise label (2-4 words)",
-  "operational_relevance": integer 0-100,
-  "strategic_relevance": integer 0-100
-}`;
+  // L'agent Mistral a déjà ses instructions système configurées sur la plateforme.
+  // On envoie uniquement les données brutes de l'événement en JSON.
+  return JSON.stringify({
+    title:      event.title,
+    country:    event.country || event.countryCode || 'unknown',
+    category:   event.category,
+    actor1:     event.actor1  || 'unknown',
+    actor2:     event.actor2  || 'none',
+    score:      event.score,
+    severity:   event.severity || 'unknown',
+    region:     event.region   || 'unknown',
+    notes:      event.notes    || '',
+    eventCode:  event.eventCode || '',
+    rootCode:   event.rootCode  || '',
+  });
 }
 
 async function callMistralAgent(event) {
