@@ -511,8 +511,7 @@ function getReviewEntries() {
  */
 function patchRawEntry(eventId, patchFn) {
   if (!fs.existsSync(RAW_FILE)) return false;
-  const lines = fs.readFileSync(RAW_FILE, 'utf8').split('
-').filter(l => l.trim());
+  const lines = fs.readFileSync(RAW_FILE, 'utf8').split('\n').filter(l => l.trim());
   let found = false;
   const updated = lines.map(l => {
     try {
