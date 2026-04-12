@@ -523,9 +523,7 @@ function patchRawEntry(eventId, patchFn) {
       return l;
     } catch { return l; }
   });
-  if (found) fs.writeFileSync(RAW_FILE, updated.join('
-') + '
-', 'utf8');
+  if (found) fs.writeFileSync(RAW_FILE, updated.join('\n') + '\n', 'utf8');
   return found;
 }
 
