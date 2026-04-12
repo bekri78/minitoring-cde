@@ -18,6 +18,7 @@ const { attachNearbyEvents }                                         = require('
 const { refreshSignals, getSignalsCache, isStale }                   = require('./signals');
 const { normalizeTitleWithGemini }                                   = require('./gemini-normalizer');
 const { fetchSignalMarkers, getCache: getSignalMarkersCache }        = require('./signalMarkers');
+const { runFinetuneCollector, getDatasetStats }                      = require('./finetune-collector');
 const { fetchWorldEvents, getCache: getWorldEventsCache }            = require('./worldEvents');
 const { getMaritimeEvents, getMaritimeAnomalies, getNavalActivity }  = require('./maritime-osint');
 const { fetchMaritimeAnomalies }                                     = require('./maritime-anomalies');
@@ -750,6 +751,25 @@ app.get('/api/news/raw', (_req, res) => {
   });
 });
 
+// ── Fine-tuning dataset monitoring ───────────────────────────────────────────
+app.get('/api/finetune/stats', (_req, res) => {
+  try {
+    res.json(getDatasetStats());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Déclenchement manuel — répond immédiatement, tourne en fond
+app.post('/api/finetune/run', (_req, res) => {
+  const stats = getDatasetStats();
+  if (stats.pipeline_running) {
+    return res.status(409).json({ status: 'already_running', message: 'Un cycle est déjà en cours' });
+  }
+  res.json({ status: 'started', message: 'Cycle de collecte lancé en arrière-plan' });
+  runFinetuneCollector().catch(err => console.error('[finetune-manual]', err.message));
+});
+
 app.get('/diag/ais', async (req, res) => {
   const WebSocket = require('ws');
   const key = (process.env.AISSTREAM_KEY || '').trim().replace(/^=+/, '');
@@ -875,6 +895,12 @@ cron.schedule('0 */3 * * *', () => {
   fetchGoogleNewsEvents().catch(err => console.error('[google-news-cron]', err.message));
 });
 
+// ── Cron 2h — Fine-tuning dataset collector ──────────────────────────────────
+// Toutes les 2h : 30 events max × 1.2s = ~36s/cycle, coût API minimal
+cron.schedule('0 */2 * * *', () => {
+  runFinetuneCollector().catch(err => console.error('[finetune-cron]', err.message));
+});
+
 // ── Démarrage ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`[server] listening on port ${PORT}`);
@@ -893,6 +919,10 @@ app.listen(PORT, () => {
   fetchMaritimeAnomalies().catch(err => console.error('[startup-maritime-anomalies]', err.message));
   refreshOpenSkyCache().catch(err => console.error('[startup-opensky]', err.message));
   fetchGoogleNewsEvents().catch(err => console.error('[startup-google-news]', err.message));
+  // Fine-tuning collector : premier run 5min après démarrage (laisser le pipeline se stabiliser)
+  setTimeout(() => {
+    runFinetuneCollector().catch(err => console.error('[startup-finetune]', err.message));
+  }, 5 * 60 * 1000);
 });
 
 

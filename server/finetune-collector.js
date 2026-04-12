@@ -1,0 +1,430 @@
+'use strict';
+
+/**
+ * finetune-collector.js
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Pipeline automatique de génération de dataset fine-tuning Mistral.
+ *
+ * Étapes :
+ *  1. Fetch  — GET /events (API interne)
+ *  2. Filter — score, catégorie, qualité du titre
+ *  3. Dedup  — event_id + fingerprint sémantique (hash)
+ *  4. Agent  — classification Mistral par batches de 20
+ *  5. Raw    — stockage dans data/finetune-raw.jsonl (tout)
+ *  6. Flags  — needs_review automatique selon critères qualité
+ *  7. Approved — data/finetune-approved.jsonl (filtrés)
+ *  8. Stats  — exposés via /api/finetune/stats
+ */
+
+const fs     = require('fs');
+const path   = require('path');
+const crypto = require('crypto');
+
+// ── Config ────────────────────────────────────────────────────────────────────
+const MISTRAL_API_KEY  = () => (process.env.MISTRAL_API_KEY || '').trim().replace(/^=+/, '');
+const MISTRAL_AGENT_ID = process.env.MISTRAL_AGENT_ID || 'ag_019d80e9997f70f9821291b4ac8dde18';
+const PROMPT_VERSION   = 'v1.0';
+const AGENT_VERSION    = 1;
+const INTERNAL_PORT    = process.env.PORT || 3000;
+const INTERNAL_URL     = process.env.RAILWAY_INTERNAL_URL || `http://localhost:${INTERNAL_PORT}`;
+
+// Filtres de qualité
+const MIN_SCORE           = 60;
+const MIN_TITLE_WORDS     = 6;
+const VALID_CATEGORIES    = new Set(['military', 'conflict', 'strategic', 'cyber', 'incident']);
+const BATCH_SIZE          = 20;
+const CALL_DELAY_MS       = 1200; // anti-rate-limit entre chaque appel
+const MAX_PER_RUN         = 60;   // 60 events max / cycle (≈ 72s)
+
+// Patterns de titres "fallback" à rejeter
+const FALLBACK_PATTERNS = [
+  /^fight\s*[—–-]\s*(army|navy|military|police)/i,
+  /^(army|navy|military|police)\s*[—–-]/i,
+  /^(incident|protest|demonstration)\s*[—–-]/i,
+  /^\w+\s*—\s*\w+\s*—\s*[\w\s,]+$/i, // "Act — ACTOR — Place, Country"
+];
+
+// Seuils pour needs_review
+const REVIEW_OP_THRESHOLD  = 85;
+const REVIEW_STR_THRESHOLD = 85;
+const REVIEW_KEEP_FALSE_SCORE = 80;
+
+// ── Chemins ───────────────────────────────────────────────────────────────────
+const DATA_DIR       = path.join(__dirname, 'data');
+const SEEN_FILE      = path.join(DATA_DIR, 'finetune-seen.json');
+const RAW_FILE       = path.join(DATA_DIR, 'finetune-raw.jsonl');
+const APPROVED_FILE  = path.join(DATA_DIR, 'finetune-approved.jsonl');
+
+// ── État interne (stats en mémoire) ──────────────────────────────────────────
+const _state = {
+  lastRun:        null,
+  lastRunProcessed: 0,
+  running:        false,
+};
+
+// ── Utilitaires ───────────────────────────────────────────────────────────────
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function ensureDataDir() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+/**
+ * Fingerprint sémantique : hash(titre_normalisé + countryCode + category)
+ * Permet de détecter les événements identiques rephrased.
+ */
+function semanticFingerprint(event) {
+  const raw = [
+    (event.title || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim(),
+    (event.countryCode || '').toUpperCase(),
+    (event.category || '').toLowerCase(),
+  ].join('|');
+  return crypto.createHash('sha1').update(raw).digest('hex');
+}
+
+// ── Persistance seen store ────────────────────────────────────────────────────
+function loadSeen() {
+  try {
+    if (!fs.existsSync(SEEN_FILE)) return { ids: [], fingerprints: [] };
+    return JSON.parse(fs.readFileSync(SEEN_FILE, 'utf8'));
+  } catch {
+    return { ids: [], fingerprints: [] };
+  }
+}
+
+function saveSeen(store) {
+  ensureDataDir();
+  fs.writeFileSync(SEEN_FILE, JSON.stringify(store), 'utf8');
+}
+
+// ── Écriture JSONL ────────────────────────────────────────────────────────────
+function appendJsonl(filePath, obj) {
+  ensureDataDir();
+  fs.appendFileSync(filePath, JSON.stringify(obj) + '\n', 'utf8');
+}
+
+function countJsonlLines(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return 0;
+    return fs.readFileSync(filePath, 'utf8').split('\n').filter(l => l.trim()).length;
+  } catch { return 0; }
+}
+
+function readAllJsonl(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return [];
+    return fs.readFileSync(filePath, 'utf8')
+      .split('\n')
+      .filter(l => l.trim())
+      .map(l => { try { return JSON.parse(l); } catch { return null; } })
+      .filter(Boolean);
+  } catch { return []; }
+}
+
+// ── STEP 2 — Filtre qualité ───────────────────────────────────────────────────
+function isFallbackTitle(title) {
+  return FALLBACK_PATTERNS.some(p => p.test(title));
+}
+
+function passesFilter(event) {
+  if ((event.score || 0) < MIN_SCORE)          return false;
+  if (!VALID_CATEGORIES.has(event.category))   return false;
+
+  const words = (event.title || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length < MIN_TITLE_WORDS)          return false;
+  if (isFallbackTitle(event.title || ''))      return false;
+
+  // Titre = copie du nativeTitle sans enrichissement → qualité insuffisante
+  if (event.title === event.nativeTitle && event.language !== 'english') return false;
+
+  return true;
+}
+
+// ── STEP 4 — Appel agent Mistral ──────────────────────────────────────────────
+function buildPrompt(event) {
+  return `Classify this OSINT military/security event. Return ONLY a single valid JSON object, no explanation, no markdown.
+
+Event data:
+- Title: ${event.title}
+- Country: ${event.country || event.countryCode || 'unknown'}
+- Category: ${event.category}
+- Actor1: ${event.actor1 || 'unknown'}
+- Actor2: ${event.actor2 || 'none'}
+- Score: ${event.score}
+- Severity: ${event.severity || 'unknown'}
+- Region: ${event.region || 'unknown'}
+- Notes: ${event.notes || ''}
+- Event code: ${event.eventCode || ''} (root: ${event.rootCode || ''})
+
+Required JSON output:
+{
+  "keep": true or false,
+  "domain_primary": "air" | "land" | "maritime" | "space" | "cyber" | "strategic",
+  "event_type": "concise label (2-4 words)",
+  "operational_relevance": integer 0-100,
+  "strategic_relevance": integer 0-100
+}`;
+}
+
+async function callMistralAgent(event) {
+  const key = MISTRAL_API_KEY();
+  if (!key) throw new Error('MISTRAL_API_KEY non définie');
+
+  const res = await fetch('https://api.mistral.ai/v1/agents/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      agent_id:    MISTRAL_AGENT_ID,
+      messages:    [{ role: 'user', content: buildPrompt(event) }],
+      temperature: 0.1,
+      max_tokens:  256,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Mistral HTTP ${res.status}: ${err.slice(0, 200)}`);
+  }
+
+  const data    = await res.json();
+  const content = data.choices?.[0]?.message?.content || '';
+  const match   = content.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error(`Réponse non-JSON Mistral: ${content.slice(0, 150)}`);
+
+  return JSON.parse(match[0]);
+}
+
+// ── STEP 6 — Flags qualité ────────────────────────────────────────────────────
+const DOMAIN_CATEGORY_MAP = {
+  military:  ['air', 'land', 'maritime', 'space', 'strategic'],
+  conflict:  ['land', 'air', 'maritime', 'strategic'],
+  strategic: ['strategic', 'cyber', 'land'],
+  cyber:     ['cyber', 'strategic'],
+  incident:  ['land', 'maritime', 'air'],
+};
+
+function computeQualityFlags(event, output) {
+  const flags = [];
+
+  if (output.domain_primary === 'strategic')              flags.push('domain_strategic');
+  if ((output.operational_relevance || 0) > REVIEW_OP_THRESHOLD)  flags.push('high_operational');
+  if ((output.strategic_relevance   || 0) > REVIEW_STR_THRESHOLD) flags.push('high_strategic');
+  if (output.keep === false && (event.score || 0) > REVIEW_KEEP_FALSE_SCORE)
+    flags.push('keep_false_high_score');
+
+  // Mismatch catégorie event ↔ domaine AI
+  const allowedDomains = DOMAIN_CATEGORY_MAP[event.category] || [];
+  if (allowedDomains.length > 0 && !allowedDomains.includes(output.domain_primary))
+    flags.push('domain_mismatch');
+
+  const needs_review = flags.length > 0;
+  return { needs_review, review_flags: flags };
+}
+
+// ── STEP 5+6+7 — Stocker une paire ───────────────────────────────────────────
+function storeEntry(event, output) {
+  const { needs_review, review_flags } = computeQualityFlags(event, output);
+
+  const entry = {
+    event_id: event.id,
+    input: {
+      title:       event.title,
+      originalTitle: event.originalTitle || null,
+      countryCode: event.countryCode,
+      country:     event.country || null,
+      lat:         event.lat,
+      lon:         event.lon,
+      score:       event.score,
+      category:    event.category,
+      severity:    event.severity    || null,
+      region:      event.region      || null,
+      actor1:      event.actor1      || null,
+      actor2:      event.actor2      || null,
+      rootCode:    event.rootCode    || null,
+      eventCode:   event.eventCode   || null,
+      is_strategic: event.is_strategic || 0,
+      notes:       event.notes       || null,
+      language:    event.language    || null,
+    },
+    output: {
+      keep:                  output.keep,
+      domain_primary:        output.domain_primary,
+      event_type:            output.event_type,
+      operational_relevance: output.operational_relevance,
+      strategic_relevance:   output.strategic_relevance,
+    },
+    meta: {
+      agent_id:       MISTRAL_AGENT_ID,
+      agent_version:  AGENT_VERSION,
+      prompt_version: PROMPT_VERSION,
+      collected_at:   new Date().toISOString(),
+      label_origin:   'agent_auto',
+      needs_review,
+      review_flags,
+    },
+  };
+
+  // RAW — toujours
+  appendJsonl(RAW_FILE, entry);
+
+  // APPROVED — seulement si pas besoin de review
+  if (!needs_review) {
+    appendJsonl(APPROVED_FILE, entry);
+  }
+
+  return entry;
+}
+
+// ── Pipeline principal ────────────────────────────────────────────────────────
+async function runFinetuneCollector() {
+  if (_state.running) {
+    console.log('[finetune] cycle déjà en cours — skip');
+    return;
+  }
+
+  const key = MISTRAL_API_KEY();
+  if (!key) {
+    console.warn('[finetune] MISTRAL_API_KEY non définie — pipeline désactivé');
+    return;
+  }
+
+  _state.running = true;
+  _state.lastRun = new Date().toISOString();
+  console.log('[finetune] ── Démarrage du cycle ──');
+
+  try {
+    // ── STEP 1 — Fetch events ────────────────────────────────────────────────
+    let events = [];
+    try {
+      const res  = await fetch(`${INTERNAL_URL}/events`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = await res.json();
+      events     = body.events || body || [];
+    } catch (err) {
+      console.error('[finetune] Erreur /events:', err.message);
+      return;
+    }
+    console.log(`[finetune] ${events.length} événements reçus`);
+
+    // ── STEP 2 — Filtre qualité ──────────────────────────────────────────────
+    const filtered = events.filter(passesFilter);
+    console.log(`[finetune] ${filtered.length} après filtre qualité`);
+
+    // ── STEP 3 — Déduplication ───────────────────────────────────────────────
+    const seen        = loadSeen();
+    const seenIds     = new Set(seen.ids);
+    const seenFprints = new Set(seen.fingerprints);
+
+    const candidates = filtered.filter(e => {
+      if (seenIds.has(e.id))                        return false;
+      if (seenFprints.has(semanticFingerprint(e)))  return false;
+      return true;
+    }).slice(0, MAX_PER_RUN);
+
+    console.log(`[finetune] ${candidates.length} candidats nouveaux (max ${MAX_PER_RUN}/cycle)`);
+
+    if (candidates.length === 0) {
+      console.log('[finetune] Aucun événement à labéliser');
+      _state.lastRunProcessed = 0;
+      return;
+    }
+
+    // ── STEP 4 — Batches Mistral ─────────────────────────────────────────────
+    let processed = 0, errors = 0, reviewCount = 0;
+
+    for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
+      const batch = candidates.slice(i, i + BATCH_SIZE);
+      console.log(`[finetune] Batch ${Math.floor(i / BATCH_SIZE) + 1} — ${batch.length} events`);
+
+      for (const event of batch) {
+        try {
+          const output = await callMistralAgent(event);
+          const entry  = storeEntry(event, output);
+
+          // Marquer comme vus
+          seenIds.add(event.id);
+          seenFprints.add(semanticFingerprint(event));
+          processed++;
+
+          if (entry.meta.needs_review) reviewCount++;
+
+          console.log(
+            `[finetune] ✓ ${event.id}` +
+            ` domain=${output.domain_primary}` +
+            ` keep=${output.keep}` +
+            ` op=${output.operational_relevance}` +
+            `${entry.meta.needs_review ? ' ⚑ review' : ''}`
+          );
+        } catch (err) {
+          errors++;
+          console.error(`[finetune] ✗ ${event.id}: ${err.message}`);
+        }
+
+        await sleep(CALL_DELAY_MS);
+      }
+    }
+
+    // ── Sauvegarder le seen store ────────────────────────────────────────────
+    saveSeen({ ids: [...seenIds], fingerprints: [...seenFprints] });
+    _state.lastRunProcessed = processed;
+
+    console.log(
+      `[finetune] ── Cycle terminé ── ` +
+      `${processed} ajoutés | ${errors} erreurs | ${reviewCount} needs_review`
+    );
+    console.log(
+      `[finetune] Dataset : raw=${countJsonlLines(RAW_FILE)} ` +
+      `| approved=${countJsonlLines(APPROVED_FILE)}`
+    );
+
+  } finally {
+    _state.running = false;
+  }
+}
+
+// ── STEP 8 — Stats pour monitoring ───────────────────────────────────────────
+function getDatasetStats() {
+  const rawEntries      = readAllJsonl(RAW_FILE);
+  const approvedCount   = countJsonlLines(APPROVED_FILE);
+  const needsReview     = rawEntries.filter(e => e.meta?.needs_review).length;
+
+  // Distribution par domaine
+  const domainDist = {};
+  for (const e of rawEntries) {
+    const d = e.output?.domain_primary || 'unknown';
+    domainDist[d] = (domainDist[d] || 0) + 1;
+  }
+
+  // Distribution des review_flags
+  const flagDist = {};
+  for (const e of rawEntries.filter(e => e.meta?.needs_review)) {
+    for (const f of (e.meta.review_flags || [])) {
+      flagDist[f] = (flagDist[f] || 0) + 1;
+    }
+  }
+
+  const seen = loadSeen();
+
+  return {
+    total_raw:        rawEntries.length,
+    total_approved:   approvedCount,
+    total_needs_review: needsReview,
+    domain_distribution: domainDist,
+    review_flag_distribution: flagDist,
+    total_events_seen: seen.ids?.length   || 0,
+    total_fingerprints: seen.fingerprints?.length || 0,
+    last_run:           _state.lastRun,
+    last_run_processed: _state.lastRunProcessed,
+    pipeline_running:   _state.running,
+    dataset_files: {
+      raw:      RAW_FILE,
+      approved: APPROVED_FILE,
+      seen:     SEEN_FILE,
+    },
+  };
+}
+
+module.exports = { runFinetuneCollector, getDatasetStats };
