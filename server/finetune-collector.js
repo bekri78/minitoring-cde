@@ -177,10 +177,8 @@ async function callMistralAgent(event) {
       'Authorization': `Bearer ${key}`,
     },
     body: JSON.stringify({
-      agent_id:    MISTRAL_AGENT_ID,
-      messages:    [{ role: 'user', content: buildPrompt(event) }],
-      temperature: 0.1,
-      max_tokens:  256,
+      agent_id: MISTRAL_AGENT_ID,
+      messages: [{ role: 'user', content: buildPrompt(event) }],
     }),
   });
 
