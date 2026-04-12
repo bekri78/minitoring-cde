@@ -292,9 +292,23 @@ export function WorldMap({
     spaceOsintLayerRef.current?.clearLayers();
 
     const geoJSON = buildGeoJSON(events) as GeoJSON.FeatureCollection;
+    // Jitter : décale légèrement les points qui partagent les mêmes coordonnées exactes
+    const coordCount = new Map<string, number>();
+    const jitterLat = (lat: number, lon: number): [number, number] => {
+      const key = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+      const n = coordCount.get(key) || 0;
+      coordCount.set(key, n + 1);
+      if (n === 0) return [lat, lon];
+      // Spirale : décalage ~0.015° (~1.5km) par doublon
+      const angle = (n * 137.5 * Math.PI) / 180; // angle doré pour distribution uniforme
+      const r = 0.015 * Math.ceil(n / 6);
+      return [lat + r * Math.cos(angle), lon + r * Math.sin(angle)];
+    };
+
     (geoJSON.features || []).forEach(f => {
       const p = (f as GeoJSON.Feature<GeoJSON.Point>).properties || {};
       const [lon, lat] = (f as GeoJSON.Feature<GeoJSON.Point>).geometry.coordinates;
+      const [jLat, jLon] = jitterLat(lat, lon);
       const catColor  = p.categoryColor || getCategoryColor(p.category || 'incident');
       const tone      = Number(p.tone);
       const score     = Number(p.score || 0);
@@ -307,7 +321,7 @@ export function WorldMap({
                       : osintD === 'spatial'  ? '#b580ff'
                       : catColor;
 
-      const marker = L.circleMarker([lat, lon], {
+      const marker = L.circleMarker([jLat, jLon], {
         radius,
         color:       dotColor,
         fillColor:   dotColor,
@@ -804,16 +818,24 @@ export function WorldMap({
       ? newsEvents.filter(ev => allowed.includes(ev.domain))
       : newsEvents;
 
+    const newsCoordCount = new Map<string, number>();
+    const newsJitter = (lat: number, lon: number): [number, number] => {
+      const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
+      const n = newsCoordCount.get(key) || 0;
+      newsCoordCount.set(key, n + 1);
+      if (n === 0) return [lat, lon];
+      const angle = (n * 137.5 * Math.PI) / 180;
+      const r = 0.018 * Math.ceil(n / 6);
+      return [lat + r * Math.cos(angle), lon + r * Math.sin(angle)];
+    };
+
     filtered.forEach(ev => {
       if (!ev.lat || !ev.lon) return;
       const color  = ev.color || '#22d3ee';
       const score  = ev.confidence || 50;
       const radius = Math.max(5, Math.min(12, 5 + score / 20));
 
-      // Micro-jitter pour disperser les coords identiques (centre pays)
-      const jitter = () => (Math.random() - 0.5) * 0.6;
-      const lat = ev.lat + jitter();
-      const lon = ev.lon + jitter();
+      const [lat, lon] = newsJitter(ev.lat, ev.lon);
 
       const marker = L.circleMarker([lat, lon], {
         radius,
