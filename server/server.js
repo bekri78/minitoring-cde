@@ -966,9 +966,9 @@ cron.schedule('0 */3 * * *', () => {
   fetchGoogleNewsEvents().catch(err => console.error('[google-news-cron]', err.message));
 });
 
-// ── Cron 2h — Fine-tuning dataset collector ──────────────────────────────────
-// Toutes les 2h : 30 events max × 1.2s = ~36s/cycle, coût API minimal
-cron.schedule('0 */2 * * *', () => {
+// ── Cron 30min — Fine-tuning dataset collector ─────────────────────────────
+// Toutes les 30min : 150 events max × 1.2s = ~3min/cycle
+cron.schedule('*/30 * * * *', () => {
   runFinetuneCollector().catch(err => console.error('[finetune-cron]', err.message));
 });
 

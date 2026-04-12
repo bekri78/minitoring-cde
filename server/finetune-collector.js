@@ -34,7 +34,7 @@ const MIN_TITLE_WORDS     = 6;
 const VALID_CATEGORIES    = new Set(['military', 'conflict', 'strategic', 'cyber', 'incident']);
 const BATCH_SIZE          = 20;
 const CALL_DELAY_MS       = 1200; // anti-rate-limit entre chaque appel
-const MAX_PER_RUN         = 60;   // 60 events max / cycle (≈ 72s)
+const MAX_PER_RUN         = 150;  // 150 events max / cycle (≈ 3min)
 
 // Patterns de titres "fallback" à rejeter
 const FALLBACK_PATTERNS = [
@@ -44,9 +44,9 @@ const FALLBACK_PATTERNS = [
   /^\w+\s*—\s*\w+\s*—\s*[\w\s,]+$/i, // "Act — ACTOR — Place, Country"
 ];
 
-// Seuils pour needs_review
-const REVIEW_OP_THRESHOLD  = 85;
-const REVIEW_STR_THRESHOLD = 85;
+// Seuils pour needs_review (relevé pour minimiser les reviews manuelles)
+const REVIEW_OP_THRESHOLD  = 95;
+const REVIEW_STR_THRESHOLD = 95;
 const REVIEW_KEEP_FALSE_SCORE = 80;
 
 // ── Chemins ───────────────────────────────────────────────────────────────────
