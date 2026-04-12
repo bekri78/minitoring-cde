@@ -36,6 +36,7 @@ const CACHE_TTL_MS   = 3 * 60 * 60 * 1000; // 3h
 const MAX_EVENTS     = 500;
 const DEDUP_HOURS    = 72;
 const DEDUP_GEO_KM   = 100;
+const MAX_ITEM_AGE_HOURS = Number(process.env.GNEWS_MAX_AGE_HOURS || 48);
 
 const NOMINATIM_URL  = 'https://nominatim.openstreetmap.org/search';
 const GEOCODE_DELAY  = 1100; // 1 req/s Nominatim
@@ -666,8 +667,25 @@ async function fetchGoogleNewsEvents() {
       return;
     }
 
+    // ── STEP 2b : Filtre par âge — rejette les articles trop anciens ────
+    const ageCutoff = Date.now() - MAX_ITEM_AGE_HOURS * 3600 * 1000;
+    const fresh = unique.filter(item => {
+      if (!item.pubDate) return true; // pas de date → on garde
+      const t = Date.parse(item.pubDate);
+      return !t || t >= ageCutoff;
+    });
+    if (fresh.length < unique.length) {
+      console.log(`[google-news] age filter: ${unique.length - fresh.length} items dropped (>${MAX_ITEM_AGE_HOURS}h old), ${fresh.length} kept`);
+    }
+    if (!fresh.length) {
+      cache.lastUpdate = new Date().toISOString();
+      saveToDisk();
+      isFetching = false;
+      return;
+    }
+
     // ── STEP 3 : Regex classification (0 token) ────────────────────────
-    const classified = unique.map(item => {
+    const classified = fresh.map(item => {
       const domain    = detectDomainFromTitle(item.title) || item.domain;
       // Location: d'abord regex sur le titre, sinon hintLocation du feed
       const titleLocation = detectLocationFromTitle(item.title);
