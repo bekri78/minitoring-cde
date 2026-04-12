@@ -313,13 +313,24 @@ async function runFinetuneCollector() {
   console.log('[finetune] ── Démarrage du cycle ──');
 
   try {
-    // ── STEP 1 — Fetch events ────────────────────────────────────────────────
+    // ── STEP 1 — Fetch events (avec attente si cache en cours de refresh) ────
     let events = [];
     try {
-      const res  = await fetch(`${INTERNAL_URL}/events`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = await res.json();
-      events     = body.events || body || [];
+      let body, attempts = 0;
+      while (attempts < 5) {
+        const res = await fetch(`${INTERNAL_URL}/events`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        body = await res.json();
+        if (body.status !== 'refreshing') break;
+        attempts++;
+        console.log(`[finetune] /events en cours de refresh — attente 30s (tentative ${attempts}/5)`);
+        await sleep(30000);
+      }
+      if (body.status === 'refreshing') {
+        console.warn('[finetune] /events toujours en refresh après 5 tentatives — cycle annulé');
+        return;
+      }
+      events = body.events || body || [];
     } catch (err) {
       console.error('[finetune] Erreur /events:', err.message);
       return;
@@ -410,48 +421,61 @@ async function runFinetuneCollector() {
 
 // ── STEP 8 — Stats pour monitoring ───────────────────────────────────────────
 function getDatasetStats() {
-  const rawEntries      = readAllJsonl(RAW_FILE);
-  const approvedCount   = countJsonlLines(APPROVED_FILE);
-  const needsReview     = rawEntries.filter(e => e.meta?.needs_review).length;
+  // ── Comptage par lignes (robuste, pas de dépendance au parsing JSON) ────
+  const rawCount      = countJsonlLines(RAW_FILE);
+  const approvedCount = countJsonlLines(APPROVED_FILE);
 
-  // Distribution par domaine
+  // ── Distributions et flags — lecture JSON optionnelle (best-effort) ────
+  let needsReview  = 0;
+  let totalDiscards = 0;
   const domainDist = {};
-  for (const e of rawEntries.filter(e => e.output?.keep !== false)) {
-    const d = e.output?.domain_primary || 'unknown';
-    domainDist[d] = (domainDist[d] || 0) + 1;
-  }
+  const flagDist   = {};
 
-  // Distribution des review_flags
-  const flagDist = {};
-  for (const e of rawEntries.filter(e => e.meta?.needs_review)) {
-    for (const f of (e.meta.review_flags || [])) {
-      flagDist[f] = (flagDist[f] || 0) + 1;
+  try {
+    const rawEntries = readAllJsonl(RAW_FILE);
+    needsReview   = rawEntries.filter(e => e.meta?.needs_review).length;
+    totalDiscards = rawEntries.filter(e => e.output?.keep === false).length;
+
+    for (const e of rawEntries.filter(e => e.output?.keep !== false)) {
+      const d = e.output?.domain_primary || 'unknown';
+      domainDist[d] = (domainDist[d] || 0) + 1;
     }
-  }
+    for (const e of rawEntries.filter(e => e.meta?.needs_review)) {
+      for (const f of (e.meta.review_flags || [])) {
+        flagDist[f] = (flagDist[f] || 0) + 1;
+      }
+    }
+  } catch { /* si le fichier est illisible, on garde les zéros */ }
 
-  const totalDiscards = rawEntries.filter(e => e.output?.keep === false).length;
-
-  const seen = loadSeen(); // init _memSeen depuis fichier si besoin
+  loadSeen(); // synchronise _memSeen depuis le fichier si besoin
 
   return {
-    total_raw:          rawEntries.length,
-    total_keep_true:    rawEntries.length - totalDiscards,
+    // ── Comptages principaux (ligne par ligne, fiable) ──────────────────
+    total_raw:          rawCount,
+    total_keep_true:    rawCount - totalDiscards,
     total_discards:     totalDiscards,
     total_approved:     approvedCount,
     total_needs_review: needsReview,
-    domain_distribution: domainDist,
+
+    // ── Distributions ────────────────────────────────────────────────────
+    domain_distribution:     domainDist,
     review_flag_distribution: flagDist,
+
+    // ── État pipeline ────────────────────────────────────────────────────
     total_events_seen:  _memSeen.ids.size,
     total_fingerprints: _memSeen.fingerprints.size,
-    last_run:              _state.lastRun,
-    last_run_processed:    _state.lastRunProcessed,
-    last_run_discards:     _state.lastRunDiscards,
-    pipeline_running:      _state.running,
-    dataset_files: {
-      raw:      RAW_FILE,
-      approved: APPROVED_FILE,
-      seen:     SEEN_FILE,
-    },
+    last_run:           _state.lastRun,
+    last_run_processed: _state.lastRunProcessed,
+    last_run_discards:  _state.lastRunDiscards,
+    pipeline_running:   _state.running,
+
+    // ── Debug chemins (pour vérifier que le bon répertoire est utilisé) ──
+    raw_file_path:      RAW_FILE,
+    approved_file_path: APPROVED_FILE,
+    seen_file_path:     SEEN_FILE,
+    raw_file_exists:      fs.existsSync(RAW_FILE),
+    approved_file_exists: fs.existsSync(APPROVED_FILE),
+    seen_file_exists:     fs.existsSync(SEEN_FILE),
   };
 }
 
