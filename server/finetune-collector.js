@@ -29,12 +29,12 @@ const INTERNAL_PORT    = process.env.PORT || 3000;
 const INTERNAL_URL     = process.env.RAILWAY_INTERNAL_URL || `http://localhost:${INTERNAL_PORT}`;
 
 // Filtres de qualité
-const MIN_SCORE           = 60;
+const MIN_SCORE           = 50;
 const MIN_TITLE_WORDS     = 6;
 const VALID_CATEGORIES    = new Set(['military', 'conflict', 'strategic', 'cyber', 'incident']);
 const BATCH_SIZE          = 20;
-const CALL_DELAY_MS       = 1200; // anti-rate-limit entre chaque appel
-const MAX_PER_RUN         = 150;  // 150 events max / cycle (≈ 3min)
+const CALL_DELAY_MS       = 500;  // anti-rate-limit entre chaque appel
+const MAX_PER_RUN         = 300;  // 300 events max / cycle (≈ 2.5min)
 
 // Patterns de titres "fallback" à rejeter
 const FALLBACK_PATTERNS = [
