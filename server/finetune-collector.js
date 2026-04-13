@@ -375,7 +375,7 @@ function storeEntry(event, output) {
 }
 
 // ── Pipeline principal ────────────────────────────────────────────────────────
-async function runFinetuneCollector() {
+async function runFinetuneCollector(directEvents = null) {
   if (_state.running) {
     console.log('[finetune] cycle déjà en cours — skip');
     return;
@@ -392,29 +392,34 @@ async function runFinetuneCollector() {
   console.log(`[finetune] cycle start — labeler: ${LABELER} model: ${LABELER === 'claude' ? CLAUDE_MODEL : MISTRAL_AGENT_ID}`);
 
   try {
-    // ── STEP 1 — Fetch events (avec attente si cache en cours de refresh) ────
+    // ── STEP 1 — Events (directs si fournis, sinon fetch /events) ───────────
     let events = [];
-    try {
-      let body, attempts = 0;
-      while (attempts < 5) {
-        const res = await fetch(`${INTERNAL_URL}/events`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        body = await res.json();
-        if (body.status !== 'refreshing') break;
-        attempts++;
-        console.log(`[finetune] /events en cours de refresh — attente 30s (tentative ${attempts}/5)`);
-        await sleep(30000);
-      }
-      if (body.status === 'refreshing') {
-        console.warn('[finetune] /events toujours en refresh après 5 tentatives — cycle annulé');
+    if (directEvents) {
+      events = directEvents;
+      console.log(`[finetune] ${events.length} événements reçus (direct)`);
+    } else {
+      try {
+        let body, attempts = 0;
+        while (attempts < 5) {
+          const res = await fetch(`${INTERNAL_URL}/events`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          body = await res.json();
+          if (body.status !== 'refreshing') break;
+          attempts++;
+          console.log(`[finetune] /events en cours de refresh — attente 30s (tentative ${attempts}/5)`);
+          await sleep(30000);
+        }
+        if (body.status === 'refreshing') {
+          console.warn('[finetune] /events toujours en refresh après 5 tentatives — cycle annulé');
+          return;
+        }
+        events = body.events || body || [];
+      } catch (err) {
+        console.error('[finetune] Erreur /events:', err.message);
         return;
       }
-      events = body.events || body || [];
-    } catch (err) {
-      console.error('[finetune] Erreur /events:', err.message);
-      return;
+      console.log(`[finetune] ${events.length} événements reçus`);
     }
-    console.log(`[finetune] ${events.length} événements reçus`);
 
     // ── STEP 2 — Filtre qualité ──────────────────────────────────────────────
     const filtered = events.filter(passesFilter);

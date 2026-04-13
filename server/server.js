@@ -132,10 +132,8 @@ async function refresh(force = false) {
     console.log(`[refresh] done — ${events.length} events`);
     // Lancer la synthèse Groq en arrière-plan (pas besoin d'attendre)
     refreshSignals(events).catch(err => console.error('[signals]', err.message));
-    // Lancer le collector finetune juste après chaque refresh GDELT (nouveaux events dispo)
-    setTimeout(() => {
-      runFinetuneCollector().catch(err => console.error('[finetune-post-refresh]', err.message));
-    }, 5000);
+    // Lancer le collector finetune avec les events frais (évite le problème de status 'refreshing')
+    runFinetuneCollector(events).catch(err => console.error('[finetune-post-refresh]', err.message));
   } catch (err) {
     cache.status = 'error';
     console.error('[refresh] failed:', err.message);
