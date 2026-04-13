@@ -616,11 +616,22 @@ function parseJsonArray(text) {
   return null;
 }
 
-async function analyzeDoubts(titles) {
+function isRetryableNetworkError(err) {
+  const msg = err?.message || '';
+  return msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('ECONNREFUSED') || msg.includes('socket hang up');
+}
+
+async function analyzeDoubts(titles, attempt = 0) {
   try {
     const r = await analyzeDoubtsWithOpenAI(titles);
     if (r?.length) return r;
   } catch (err) {
+    if (isRetryableNetworkError(err) && attempt < 2) {
+      const delay = (attempt + 1) * 5000;
+      console.warn(`[google-news] OpenAI doubt-analysis network error, retry in ${delay / 1000}s: ${err.message.slice(0, 80)}`);
+      await new Promise(r => setTimeout(r, delay));
+      return analyzeDoubts(titles, attempt + 1);
+    }
     console.warn('[google-news] OpenAI doubt-analysis failed:', err.message);
   }
   return null;
