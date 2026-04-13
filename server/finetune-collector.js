@@ -67,21 +67,34 @@ const _state = {
 
 // Seen store en mémoire — persiste entre les cycles dans la même instance
 // ids expire après 24h (pour retraiter les nouveaux events GDELT du lendemain)
-// fingerprints sont permanents (dedup sémantique, évite les vrais doublons)
-const ID_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-const _memSeen = { ids: new Set(), idTimestamps: new Map(), fingerprints: new Set() };
+// fingerprints expirent après 14j — évite les doublons stricts mais ne bloque pas indéfiniment
+const ID_TTL_MS = 24 * 60 * 60 * 1000;       // 24h
+const FP_TTL_MS = 14 * 24 * 60 * 60 * 1000;  // 14 jours
+const _memSeen = { ids: new Set(), idTimestamps: new Map(), fpTimestamps: new Map() };
 
-function expireSeenIds() {
-  const cutoff = Date.now() - ID_TTL_MS;
-  let expired = 0;
+// Fingerprints déjà présents dans approved.jsonl — évite les doublons de training
+const _approvedFps = new Set();
+let   _approvedFpsLoaded = false;
+
+function expireSeen() {
+  const idCutoff = Date.now() - ID_TTL_MS;
+  const fpCutoff = Date.now() - FP_TTL_MS;
+  let expiredIds = 0, expiredFps = 0;
   for (const [id, ts] of _memSeen.idTimestamps) {
-    if (ts < cutoff) {
+    if (ts < idCutoff) {
       _memSeen.ids.delete(id);
       _memSeen.idTimestamps.delete(id);
-      expired++;
+      expiredIds++;
     }
   }
-  if (expired > 0) console.log(`[finetune] seen store: ${expired} event_ids expirés (>24h)`);
+  for (const [fp, ts] of _memSeen.fpTimestamps) {
+    if (ts < fpCutoff) {
+      _memSeen.fpTimestamps.delete(fp);
+      expiredFps++;
+    }
+  }
+  if (expiredIds > 0 || expiredFps > 0)
+    console.log(`[finetune] seen store: ${expiredIds} ids, ${expiredFps} fingerprints expirés`);
 }
 
 // ── Utilitaires ───────────────────────────────────────────────────────────────
@@ -122,7 +135,14 @@ function loadSeen() {
         _memSeen.idTimestamps.set(entry.id, entry.ts || Date.now());
       }
     }
-    for (const fp of (raw.fingerprints || [])) _memSeen.fingerprints.add(fp);
+    for (const entry of (raw.fingerprints || [])) {
+      if (typeof entry === 'string') {
+        // Ancien format sans ts → ts=0 pour qu'ils expirent immédiatement
+        _memSeen.fpTimestamps.set(entry, 0);
+      } else if (entry?.fp) {
+        _memSeen.fpTimestamps.set(entry.fp, entry.ts || 0);
+      }
+    }
   } catch { /* ignore */ }
   return _memSeen;
 }
@@ -133,12 +153,26 @@ function saveSeen(ids, fingerprints) {
     _memSeen.ids.add(id);
     _memSeen.idTimestamps.set(id, now);
   }
-  for (const fp of fingerprints) _memSeen.fingerprints.add(fp);
+  for (const fp of fingerprints) _memSeen.fpTimestamps.set(fp, now);
   ensureDataDir();
   fs.writeFileSync(SEEN_FILE, JSON.stringify({
     ids:          [..._memSeen.idTimestamps].map(([id, ts]) => ({ id, ts })),
-    fingerprints: [..._memSeen.fingerprints],
+    fingerprints: [..._memSeen.fpTimestamps].map(([fp, ts]) => ({ fp, ts })),
   }), 'utf8');
+}
+
+// Charge les fingerprints déjà approved (une seule fois au démarrage)
+function loadApprovedFps() {
+  if (_approvedFpsLoaded) return;
+  _approvedFpsLoaded = true;
+  try {
+    const entries = readAllJsonl(APPROVED_FILE);
+    for (const e of entries) {
+      if (e.input) _approvedFps.add(semanticFingerprint(e.input));
+    }
+    if (_approvedFps.size > 0)
+      console.log(`[finetune] ${_approvedFps.size} fingerprints approved chargés (anti-doublon)`);
+  } catch { /* ignore */ }
 }
 
 // ── Écriture JSONL ────────────────────────────────────────────────────────────
@@ -317,9 +351,15 @@ function storeEntry(event, output) {
   // RAW — toujours (keep=true et keep=false)
   appendJsonl(RAW_FILE, entry);
 
-  // APPROVED — seulement keep=true sans flag de review
+  // APPROVED — seulement keep=true sans flag de review ET pas déjà dans approved
   if (output.keep !== false && !needs_review) {
-    appendJsonl(APPROVED_FILE, entry);
+    const fp = semanticFingerprint(event);
+    if (!_approvedFps.has(fp)) {
+      appendJsonl(APPROVED_FILE, entry);
+      _approvedFps.add(fp);
+    } else {
+      console.log(`[finetune] ~${event.id} skip approved (fingerprint déjà présent)`);
+    }
   }
 
   return entry;
@@ -340,6 +380,7 @@ async function runFinetuneCollector() {
 
   _state.running = true;
   _state.lastRun = new Date().toISOString();
+  loadApprovedFps(); // charge les fps approved au premier cycle
   console.log('[finetune] ── Démarrage du cycle ──');
 
   try {
@@ -373,13 +414,12 @@ async function runFinetuneCollector() {
 
     // ── STEP 3 — Déduplication ───────────────────────────────────────────────
     const seen        = loadSeen();
-    expireSeenIds(); // purge event_ids > 24h → retraite les nouveaux GDELT
+    expireSeen(); // purge event_ids > 24h et fingerprints > 14j
     const seenIds     = new Set(seen.ids);
-    const seenFprints = new Set(seen.fingerprints);
 
     const candidates = filtered.filter(e => {
-      if (seenIds.has(e.id))                        return false;
-      if (seenFprints.has(semanticFingerprint(e)))  return false;
+      if (seenIds.has(e.id))                                  return false;
+      if (_memSeen.fpTimestamps.has(semanticFingerprint(e)))  return false;
       return true;
     }).slice(0, MAX_PER_RUN);
 
@@ -405,7 +445,6 @@ async function runFinetuneCollector() {
 
           // Toujours marquer comme vu (keep=true ou keep=false)
           seenIds.add(event.id);
-          seenFprints.add(semanticFingerprint(event));
 
           if (output.keep === false) {
             discards++;
@@ -432,7 +471,7 @@ async function runFinetuneCollector() {
     }
 
     // ── Sauvegarder le seen store ────────────────────────────────────────────
-    saveSeen(seenIds, seenFprints);
+    saveSeen(seenIds, candidates.map(e => semanticFingerprint(e)));
     _state.lastRunProcessed = processed;
     _state.lastRunDiscards  = discards;
 
@@ -508,7 +547,7 @@ function getDatasetStats() {
 
     // ── État pipeline ────────────────────────────────────────────────────
     total_events_seen:  _memSeen.ids.size,
-    total_fingerprints: _memSeen.fingerprints.size,
+    total_fingerprints: _memSeen.fpTimestamps.size,
     last_run:           _state.lastRun,
     last_run_processed: _state.lastRunProcessed,
     last_run_discards:  _state.lastRunDiscards,
@@ -586,7 +625,10 @@ function approveEntry(eventId) {
     return entry;
   });
   if (!found) return { ok: false, error: 'event_id not found' };
-  if (approvedEntry) appendJsonl(APPROVED_FILE, approvedEntry);
+  if (approvedEntry) {
+    appendJsonl(APPROVED_FILE, approvedEntry);
+    if (approvedEntry.input) _approvedFps.add(semanticFingerprint(approvedEntry.input));
+  }
   return { ok: true, event_id: eventId, action: 'approved' };
 }
 
