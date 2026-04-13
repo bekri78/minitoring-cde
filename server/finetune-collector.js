@@ -248,6 +248,7 @@ async function callClaudeLabeler(event) {
       system:     SYSTEM_PROMPT,
       messages:   [{ role: 'user', content: buildPrompt(event) }],
     }),
+    signal: AbortSignal.timeout(30000),
   });
 
   if (!res.ok) {
