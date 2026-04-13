@@ -389,7 +389,7 @@ async function runFinetuneCollector() {
 
   _state.running = true;
   _state.lastRun = new Date().toISOString();
-  console.log('[finetune] ── Démarrage du cycle ──');
+  console.log(`[finetune] cycle start — labeler: ${LABELER} model: ${LABELER === 'claude' ? CLAUDE_MODEL : MISTRAL_AGENT_ID}`);
 
   try {
     // ── STEP 1 — Fetch events (avec attente si cache en cours de refresh) ────
@@ -556,6 +556,8 @@ function getDatasetStats() {
     review_flag_distribution: flagDist,
 
     // ── État pipeline ────────────────────────────────────────────────────
+    labeler:            LABELER,
+    labeler_model:      LABELER === 'claude' ? CLAUDE_MODEL : `agent:${MISTRAL_AGENT_ID}`,
     total_events_seen:  _memSeen.ids.size,
     total_fingerprints: _memSeen.fingerprints.size,
     last_run:           _state.lastRun,
