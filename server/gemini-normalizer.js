@@ -71,6 +71,11 @@ function getRetryableStatus(status) {
   return status === 429 || status === 503;
 }
 
+function isRetryableNetworkError(err) {
+  const msg = err?.message || '';
+  return msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('ECONNREFUSED') || msg.includes('socket hang up');
+}
+
 async function requestJsonArrayFromOpenAI(messages, timeoutMs = 45000) {
   if (!openaiClient) {
     const err = new Error('OPENAI_API_KEY missing');
@@ -602,6 +607,12 @@ async function filterEventsWithMistral(events) {
         if (err?.name === 'AbortError' && attempt < AI_FILTER_MAX_RETRIES) {
           const retryDelay = getAiFilterRetryDelay(attempt);
           console.warn(`[ai-filter] batch ${batchNum} timed out after ${Math.round(AI_FILTER_TIMEOUT_MS / 1000)}s, retrying in ${Math.round(retryDelay / 1000)}s...`);
+          await sleep(retryDelay);
+          continue;
+        }
+        if (isRetryableNetworkError(err) && attempt < AI_FILTER_MAX_RETRIES) {
+          const retryDelay = getAiFilterRetryDelay(attempt);
+          console.warn(`[ai-filter] batch ${batchNum} network error (${err.message.slice(0, 60)}), retrying in ${Math.round(retryDelay / 1000)}s...`);
           await sleep(retryDelay);
           continue;
         }

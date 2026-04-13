@@ -23,18 +23,22 @@ const crypto = require('crypto');
 // ── Config ────────────────────────────────────────────────────────────────────
 const MISTRAL_API_KEY  = () => (process.env.MISTRAL_API_KEY || '').trim().replace(/^=+/, '');
 const MISTRAL_AGENT_ID = process.env.MISTRAL_AGENT_ID || 'ag_019d80e9997f70f9821291b4ac8dde18';
-const PROMPT_VERSION   = 'v1.0';
-const AGENT_VERSION    = 1;
+const CLAUDE_API_KEY   = () => (process.env.CLAUDE_API_KEY || '').trim().replace(/^=+/, '');
+const CLAUDE_MODEL     = process.env.CLAUDE_LABELER_MODEL || 'claude-sonnet-4-6';
+// LABELER: 'claude' | 'mistral' (défaut mistral si CLAUDE_API_KEY absente)
+const LABELER          = process.env.FINETUNE_LABELER || (process.env.CLAUDE_API_KEY ? 'claude' : 'mistral');
+const PROMPT_VERSION   = 'v2.0';
+const AGENT_VERSION    = 2;
 const INTERNAL_PORT    = process.env.PORT || 3000;
 const INTERNAL_URL     = process.env.RAILWAY_INTERNAL_URL || `http://localhost:${INTERNAL_PORT}`;
 
 // Filtres de qualité
-const MIN_SCORE           = 60;
+const MIN_SCORE           = 50;
 const MIN_TITLE_WORDS     = 6;
 const VALID_CATEGORIES    = new Set(['military', 'conflict', 'strategic', 'cyber', 'incident']);
 const BATCH_SIZE          = 20;
-const CALL_DELAY_MS       = 1200; // anti-rate-limit entre chaque appel
-const MAX_PER_RUN         = 150;  // 150 events max / cycle (≈ 3min)
+const CALL_DELAY_MS       = 500;  // anti-rate-limit entre chaque appel
+const MAX_PER_RUN         = 300;  // 300 events max / cycle (≈ 2.5min)
 
 // Patterns de titres "fallback" à rejeter
 const FALLBACK_PATTERNS = [
@@ -218,10 +222,22 @@ function passesFilter(event) {
   return true;
 }
 
-// ── STEP 4 — Appel agent Mistral ──────────────────────────────────────────────
+// ── STEP 4 — Labélisation (Claude ou Mistral agent) ──────────────────────────
+
+const SYSTEM_PROMPT = `You are a military and geopolitical OSINT classifier.
+Given a raw event (JSON), you must return a JSON object with:
+- keep (boolean): true if the event is relevant for OSINT monitoring, false otherwise
+- domain_primary (string): one of air, land, maritime, space, cyber, strategic
+- event_type (string): short label (e.g. "artillery_strike", "naval_maneuver", "ballistic_missile_test")
+- operational_relevance (integer 0-100): tactical/operational significance
+- strategic_relevance (integer 0-100): strategic/geopolitical significance
+
+Reject: sports, entertainment, business/finance, medical, court proceedings, opinion pieces, civilian accidents.
+Keep: armed conflict, military operations, terrorism, cyberattacks, coups, sanctions with security impact, strategic crises.
+
+Return only a valid JSON object. No explanation, no markdown.`;
+
 function buildPrompt(event) {
-  // L'agent Mistral a déjà ses instructions système configurées sur la plateforme.
-  // On envoie uniquement les données brutes de l'événement en JSON.
   return JSON.stringify({
     title:      event.title,
     country:    event.country || event.countryCode || 'unknown',
@@ -235,6 +251,48 @@ function buildPrompt(event) {
     eventCode:  event.eventCode || '',
     rootCode:   event.rootCode  || '',
   });
+}
+
+function parseAndValidate(content, source) {
+  const match = content.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error(`Réponse non-JSON ${source}: ${content.slice(0, 150)}`);
+  const parsed = JSON.parse(match[0]);
+  if (parsed.keep === false) return parsed;
+  const VALID_DOMAINS = new Set(['air', 'land', 'maritime', 'space', 'cyber', 'strategic']);
+  if (!VALID_DOMAINS.has(parsed.domain_primary)) {
+    throw new Error(`domain_primary invalide: "${parsed.domain_primary}"`);
+  }
+  return parsed;
+}
+
+async function callClaudeLabeler(event) {
+  const key = CLAUDE_API_KEY();
+  if (!key) throw new Error('CLAUDE_API_KEY non définie');
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type':      'application/json',
+      'x-api-key':         key,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model:      CLAUDE_MODEL,
+      max_tokens: 256,
+      system:     SYSTEM_PROMPT,
+      messages:   [{ role: 'user', content: buildPrompt(event) }],
+    }),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Claude HTTP ${res.status}: ${err.slice(0, 200)}`);
+  }
+
+  const data    = await res.json();
+  const content = data.content?.[0]?.text || '';
+  return parseAndValidate(content, 'Claude');
 }
 
 async function callMistralAgent(event) {
@@ -260,21 +318,12 @@ async function callMistralAgent(event) {
 
   const data    = await res.json();
   const content = data.choices?.[0]?.message?.content || '';
-  const match   = content.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error(`Réponse non-JSON Mistral: ${content.slice(0, 150)}`);
+  return parseAndValidate(content, 'Mistral');
+}
 
-  const parsed = JSON.parse(match[0]);
-
-  // Si keep=false — réponse valide, pas besoin de valider les autres champs
-  if (parsed.keep === false) return parsed;
-
-  // Si keep=true — valider domain_primary obligatoire
-  const VALID_DOMAINS = new Set(['air', 'land', 'maritime', 'space', 'cyber', 'strategic']);
-  if (!VALID_DOMAINS.has(parsed.domain_primary)) {
-    throw new Error(`domain_primary invalide: "${parsed.domain_primary}"`);
-  }
-
-  return parsed;
+function callLabeler(event) {
+  if (LABELER === 'claude') return callClaudeLabeler(event);
+  return callMistralAgent(event);
 }
 
 // ── STEP 6 — Flags qualité ────────────────────────────────────────────────────
@@ -338,7 +387,8 @@ function storeEntry(event, output) {
       strategic_relevance:   output.strategic_relevance,
     },
     meta: {
-      agent_id:       MISTRAL_AGENT_ID,
+      labeler:        LABELER,
+      agent_id:       LABELER === 'mistral' ? MISTRAL_AGENT_ID : CLAUDE_MODEL,
       agent_version:  AGENT_VERSION,
       prompt_version: PROMPT_VERSION,
       collected_at:   new Date().toISOString(),
@@ -366,7 +416,7 @@ function storeEntry(event, output) {
 }
 
 // ── Pipeline principal ────────────────────────────────────────────────────────
-async function runFinetuneCollector() {
+async function runFinetuneCollector(directEvents = null) {
   if (_state.running) {
     console.log('[finetune] cycle déjà en cours — skip');
     return;
@@ -380,33 +430,42 @@ async function runFinetuneCollector() {
 
   _state.running = true;
   _state.lastRun = new Date().toISOString();
+<<<<<<< HEAD
   loadApprovedFps(); // charge les fps approved au premier cycle
   console.log('[finetune] ── Démarrage du cycle ──');
+=======
+  console.log(`[finetune] cycle start — labeler: ${LABELER} model: ${LABELER === 'claude' ? CLAUDE_MODEL : MISTRAL_AGENT_ID}`);
+>>>>>>> 1aa867e2021e9bfcdfd7b0c6ede71aaeeb7b966b
 
   try {
-    // ── STEP 1 — Fetch events (avec attente si cache en cours de refresh) ────
+    // ── STEP 1 — Events (directs si fournis, sinon fetch /events) ───────────
     let events = [];
-    try {
-      let body, attempts = 0;
-      while (attempts < 5) {
-        const res = await fetch(`${INTERNAL_URL}/events`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        body = await res.json();
-        if (body.status !== 'refreshing') break;
-        attempts++;
-        console.log(`[finetune] /events en cours de refresh — attente 30s (tentative ${attempts}/5)`);
-        await sleep(30000);
-      }
-      if (body.status === 'refreshing') {
-        console.warn('[finetune] /events toujours en refresh après 5 tentatives — cycle annulé');
+    if (directEvents) {
+      events = directEvents;
+      console.log(`[finetune] ${events.length} événements reçus (direct)`);
+    } else {
+      try {
+        let body, attempts = 0;
+        while (attempts < 5) {
+          const res = await fetch(`${INTERNAL_URL}/events`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          body = await res.json();
+          if (body.status !== 'refreshing') break;
+          attempts++;
+          console.log(`[finetune] /events en cours de refresh — attente 30s (tentative ${attempts}/5)`);
+          await sleep(30000);
+        }
+        if (body.status === 'refreshing') {
+          console.warn('[finetune] /events toujours en refresh après 5 tentatives — cycle annulé');
+          return;
+        }
+        events = body.events || body || [];
+      } catch (err) {
+        console.error('[finetune] Erreur /events:', err.message);
         return;
       }
-      events = body.events || body || [];
-    } catch (err) {
-      console.error('[finetune] Erreur /events:', err.message);
-      return;
+      console.log(`[finetune] ${events.length} événements reçus`);
     }
-    console.log(`[finetune] ${events.length} événements reçus`);
 
     // ── STEP 2 — Filtre qualité ──────────────────────────────────────────────
     const filtered = events.filter(passesFilter);
@@ -440,7 +499,7 @@ async function runFinetuneCollector() {
 
       for (const event of batch) {
         try {
-          const output = await callMistralAgent(event);
+          const output = await callLabeler(event);
           const entry  = storeEntry(event, output);
 
           // Toujours marquer comme vu (keep=true ou keep=false)
@@ -546,6 +605,8 @@ function getDatasetStats() {
     review_flag_distribution: flagDist,
 
     // ── État pipeline ────────────────────────────────────────────────────
+    labeler:            LABELER,
+    labeler_model:      LABELER === 'claude' ? CLAUDE_MODEL : `agent:${MISTRAL_AGENT_ID}`,
     total_events_seen:  _memSeen.ids.size,
     total_fingerprints: _memSeen.fpTimestamps.size,
     last_run:           _state.lastRun,
