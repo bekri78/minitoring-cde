@@ -430,12 +430,8 @@ async function runFinetuneCollector(directEvents = null) {
 
   _state.running = true;
   _state.lastRun = new Date().toISOString();
-<<<<<<< HEAD
   loadApprovedFps(); // charge les fps approved au premier cycle
-  console.log('[finetune] ── Démarrage du cycle ──');
-=======
   console.log(`[finetune] cycle start — labeler: ${LABELER} model: ${LABELER === 'claude' ? CLAUDE_MODEL : MISTRAL_AGENT_ID}`);
->>>>>>> 1aa867e2021e9bfcdfd7b0c6ede71aaeeb7b966b
 
   try {
     // ── STEP 1 — Events (directs si fournis, sinon fetch /events) ───────────
