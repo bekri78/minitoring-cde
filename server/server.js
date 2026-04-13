@@ -80,7 +80,7 @@ async function enrichEvents(events) {
 
 
 // Refresh events feed
-const REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1h
+const REFRESH_INTERVAL_MS = 25 * 60 * 1000; // 25min (cron toutes les 30min)
 
 async function refresh(force = false) {
   if (isRefreshing) {
@@ -132,6 +132,10 @@ async function refresh(force = false) {
     console.log(`[refresh] done — ${events.length} events`);
     // Lancer la synthèse Groq en arrière-plan (pas besoin d'attendre)
     refreshSignals(events).catch(err => console.error('[signals]', err.message));
+    // Lancer le collector finetune juste après chaque refresh GDELT (nouveaux events dispo)
+    setTimeout(() => {
+      runFinetuneCollector().catch(err => console.error('[finetune-post-refresh]', err.message));
+    }, 5000);
   } catch (err) {
     cache.status = 'error';
     console.error('[refresh] failed:', err.message);
@@ -902,8 +906,8 @@ app.post('/refresh', (req, res) => {
   refresh(true).catch(err => console.error('[manual-refresh] failed:', err.message));
 });
 
-// ── Cron 1h — GDELT ───────────────────────────────────────────────────────
-cron.schedule('0 * * * *', () => {
+// ── Cron 30min — GDELT + finetune (finetune se déclenche après le refresh) ───────────
+cron.schedule('*/30 * * * *', () => {
   console.log('[cron] triggered');
   refresh();
 });
@@ -964,12 +968,6 @@ cron.schedule('*/15 * * * *', () => {
 // ── Cron 3h — Google News RSS (journalistic detection) ─────────────────────────
 cron.schedule('0 */3 * * *', () => {
   fetchGoogleNewsEvents().catch(err => console.error('[google-news-cron]', err.message));
-});
-
-// ── Cron 30min — Fine-tuning dataset collector ─────────────────────────────
-// Toutes les 30min : 150 events max × 1.2s = ~3min/cycle
-cron.schedule('*/30 * * * *', () => {
-  runFinetuneCollector().catch(err => console.error('[finetune-cron]', err.message));
 });
 
 // ── Démarrage ─────────────────────────────────────────────────────────────
