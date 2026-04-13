@@ -66,8 +66,23 @@ const _state = {
 };
 
 // Seen store en mémoire — persiste entre les cycles dans la même instance
-// (le fichier sert uniquement de backup au démarrage)
-const _memSeen = { ids: new Set(), fingerprints: new Set() };
+// ids expire après 24h (pour retraiter les nouveaux events GDELT du lendemain)
+// fingerprints sont permanents (dedup sémantique, évite les vrais doublons)
+const ID_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+const _memSeen = { ids: new Set(), idTimestamps: new Map(), fingerprints: new Set() };
+
+function expireSeenIds() {
+  const cutoff = Date.now() - ID_TTL_MS;
+  let expired = 0;
+  for (const [id, ts] of _memSeen.idTimestamps) {
+    if (ts < cutoff) {
+      _memSeen.ids.delete(id);
+      _memSeen.idTimestamps.delete(id);
+      expired++;
+    }
+  }
+  if (expired > 0) console.log(`[finetune] seen store: ${expired} event_ids expirés (>24h)`);
+}
 
 // ── Utilitaires ───────────────────────────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -97,18 +112,31 @@ function loadSeen() {
   try {
     if (!fs.existsSync(SEEN_FILE)) return _memSeen;
     const raw = JSON.parse(fs.readFileSync(SEEN_FILE, 'utf8'));
-    for (const id of (raw.ids || []))          _memSeen.ids.add(id);
+    // ids peuvent être: [{id, ts}, ...] (nouveau format) ou ["id", ...] (ancien)
+    for (const entry of (raw.ids || [])) {
+      if (typeof entry === 'string') {
+        _memSeen.ids.add(entry);
+        _memSeen.idTimestamps.set(entry, Date.now()); // pas de ts → now
+      } else if (entry?.id) {
+        _memSeen.ids.add(entry.id);
+        _memSeen.idTimestamps.set(entry.id, entry.ts || Date.now());
+      }
+    }
     for (const fp of (raw.fingerprints || [])) _memSeen.fingerprints.add(fp);
   } catch { /* ignore */ }
   return _memSeen;
 }
 
 function saveSeen(ids, fingerprints) {
-  for (const id of ids)  _memSeen.ids.add(id);
+  const now = Date.now();
+  for (const id of ids) {
+    _memSeen.ids.add(id);
+    _memSeen.idTimestamps.set(id, now);
+  }
   for (const fp of fingerprints) _memSeen.fingerprints.add(fp);
   ensureDataDir();
   fs.writeFileSync(SEEN_FILE, JSON.stringify({
-    ids:          [..._memSeen.ids],
+    ids:          [..._memSeen.idTimestamps].map(([id, ts]) => ({ id, ts })),
     fingerprints: [..._memSeen.fingerprints],
   }), 'utf8');
 }
@@ -345,6 +373,7 @@ async function runFinetuneCollector() {
 
     // ── STEP 3 — Déduplication ───────────────────────────────────────────────
     const seen        = loadSeen();
+    expireSeenIds(); // purge event_ids > 24h → retraite les nouveaux GDELT
     const seenIds     = new Set(seen.ids);
     const seenFprints = new Set(seen.fingerprints);
 
