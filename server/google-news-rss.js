@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /**
  * google-news-rss.js — Google News RSS multi-domain OSINT feed
@@ -571,6 +571,75 @@ function isDuplicate(newEvent, existingEvents) {
   return false;
 }
 
+// AI dedup zone grise (meme evenement, formulations differentes)
+
+const AI_DEDUP_PROMPT = `You are an OSINT news deduplication expert.
+Given pairs of headlines, decide if each pair covers the SAME real-world event.
+Same event = same incident/operation/announcement, even if worded differently or from different sources.
+Different event = different incident, different day, different location, or only thematically similar.
+Return ONLY a JSON array: [{"pair":0,"same":true},{"pair":1,"same":false},...]`;
+
+const DEDUP_GRAY_MIN      = 0.25;
+const DEDUP_GRAY_MAX      = 0.55;
+const DEDUP_AI_MAX_PAIRS  = 30;
+const DEDUP_TIME_WINDOW_H = 24;
+
+function findGrayZonePairs(items) {
+  const pairs = [];
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      const sim = titleSimilarity(items[i].title, items[j].title);
+      if (sim < DEDUP_GRAY_MIN || sim >= DEDUP_GRAY_MAX) continue;
+      const ti = Date.parse(items[i].pubDate) || Date.now();
+      const tj = Date.parse(items[j].pubDate) || Date.now();
+      if (Math.abs(ti - tj) > DEDUP_TIME_WINDOW_H * 3600 * 1000) continue;
+      pairs.push({ i, j, sim });
+    }
+  }
+  return pairs;
+}
+
+async function detectDuplicatePairsWithAI(items, pairs) {
+  if (!openaiClient || !pairs.length) return new Set();
+  const duplicateIndices = new Set();
+  for (let b = 0; b < pairs.length; b += DEDUP_AI_MAX_PAIRS) {
+    const batch = pairs.slice(b, b + DEDUP_AI_MAX_PAIRS);
+    const prompt = batch.map((p, idx) =>
+      'Pair ' + idx + ':\n  A: "' + items[p.i].title + '"\n  B: "' + items[p.j].title + '"'
+    ).join('\n\n');
+    try {
+      const completion = await openaiClient.chat.completions.create({
+        model:    OPENAI_MODEL,
+        messages: [
+          { role: 'system', content: AI_DEDUP_PROMPT },
+          { role: 'user',   content: prompt },
+        ],
+        temperature:     0,
+        response_format: { type: 'json_object' },
+      }, { timeout: 30000 });
+      const text    = completion.choices?.[0]?.message?.content || '';
+      const results = parseJsonArray(text);
+      if (!results) continue;
+      for (const r of results) {
+        if (!r.same) continue;
+        const pair = batch[r.pair];
+        if (!pair) continue;
+        const ti      = Date.parse(items[pair.i].pubDate) || 0;
+        const tj      = Date.parse(items[pair.j].pubDate) || 0;
+        const discard = ti >= tj ? pair.j : pair.i;
+        duplicateIndices.add(discard);
+      }
+    } catch (err) {
+      if (isRetryableNetworkError(err)) {
+        console.warn('[google-news] AI dedup network error: ' + err.message.slice(0, 80));
+      } else {
+        console.warn('[google-news] AI dedup failed: ' + err.message.slice(0, 80));
+      }
+    }
+  }
+  return duplicateIndices;
+}
+
 // ── Domain config ─────────────────────────────────────────────────────────────
 
 const DOMAIN_CONFIG = {
@@ -695,8 +764,22 @@ async function fetchGoogleNewsEvents() {
       return;
     }
 
+    // ── STEP 2c : AI dedup zone grise ──────────────────────────────────
+    let deduped = fresh;
+    if (openaiClient) {
+      const grayPairs = findGrayZonePairs(fresh);
+      if (grayPairs.length > 0) {
+        console.log(`[google-news] AI dedup: ${grayPairs.length} gray-zone pairs to check`);
+        const dupIndices = await detectDuplicatePairsWithAI(fresh, grayPairs);
+        if (dupIndices.size > 0) {
+          deduped = fresh.filter((_, idx) => !dupIndices.has(idx));
+          console.log(`[google-news] AI dedup: removed ${dupIndices.size} duplicates → ${deduped.length} kept`);
+        }
+      }
+    }
+
     // ── STEP 3 : Regex classification (0 token) ────────────────────────
-    const classified = fresh.map(item => {
+    const classified = deduped.map(item => {
       const domain    = detectDomainFromTitle(item.title) || item.domain;
       // Location: d'abord regex sur le titre, sinon hintLocation du feed
       const titleLocation = detectLocationFromTitle(item.title);
