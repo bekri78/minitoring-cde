@@ -806,17 +806,22 @@ export function WorldMap({
     layer.clearLayers();
 
     // Filtrer par domainView pour n'afficher que les articles du domaine sélectionné
-    const domainFilter: Record<string, string[]> = {
+    const domainInclude: Record<string, string[]> = {
       air:   ['aviation'],
       sea:   ['naval'],
-      space: ['spatial'],       // spatial uniquement — missile ≠ space
-      osint: [],   // tout
+      space: ['spatial'],
       all:   [],   // tout
     };
-    const allowed = domainFilter[domainView] || [];
-    const filtered = allowed.length > 0
-      ? newsEvents.filter(ev => allowed.includes(ev.domain))
-      : newsEvents;
+    const domainExclude: Record<string, string[]> = {
+      osint: ['spatial', 'naval', 'aviation'], // OSINT = tout sauf flux spécialisés
+    };
+    const include = domainInclude[domainView];
+    const exclude = domainExclude[domainView];
+    const filtered = include
+      ? newsEvents.filter(ev => include.includes(ev.domain))
+      : exclude
+        ? newsEvents.filter(ev => !exclude.includes(ev.domain))
+        : newsEvents;
 
     const newsCoordCount = new Map<string, number>();
     const newsJitter = (lat: number, lon: number): [number, number] => {
