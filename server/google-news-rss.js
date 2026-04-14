@@ -259,73 +259,85 @@ async function resolveGoogleLink(googleUrl) {
 
 // ── REGEX classification (gratuit, 0 token) ───────────────────────────────────
 
-// Dictionnaire pays → coordonnées center (fallback si Nominatim échoue)
-const KNOWN_LOCATIONS = new Map([
-  // Pays principaux
-  ['china',            { lat: 35.86, lon: 104.20 }],
-  ['beijing',          { lat: 39.90, lon: 116.40 }],
-  ['jiuquan',          { lat: 39.74, lon: 98.49  }],
-  ['xichang',          { lat: 27.90, lon: 102.26 }],
-  ['wenchang',         { lat: 19.61, lon: 110.95 }],
-  ['russia',           { lat: 61.52, lon: 105.32 }],
-  ['moscow',           { lat: 55.76, lon: 37.62  }],
-  ['plesetsk',         { lat: 62.93, lon: 40.58  }],
-  ['vostochny',        { lat: 51.88, lon: 128.33 }],
-  ['united states',    { lat: 38.90, lon: -77.04 }],
-  ['washington',       { lat: 38.90, lon: -77.04 }],
-  ['pentagon',         { lat: 38.87, lon: -77.06 }],
-  ['cape canaveral',   { lat: 28.39, lon: -80.60 }],
-  ['vandenberg',       { lat: 34.74, lon: -120.57 }],
-  // Prolifération
-  ['north korea',      { lat: 39.04, lon: 125.76 }],
-  ['pyongyang',        { lat: 39.04, lon: 125.76 }],
-  ['iran',             { lat: 32.43, lon: 53.69  }],
-  ['tehran',           { lat: 35.69, lon: 51.39  }],
-  ['pakistan',          { lat: 30.38, lon: 69.35  }],
-  ['islamabad',        { lat: 33.69, lon: 73.04  }],
-  // Conflits actifs
-  ['ukraine',          { lat: 48.38, lon: 31.17  }],
-  ['kyiv',             { lat: 50.45, lon: 30.52  }],
-  ['crimea',           { lat: 44.95, lon: 34.10  }],
-  ['israel',           { lat: 31.05, lon: 34.85  }],
-  ['gaza',             { lat: 31.35, lon: 34.31  }],
-  ['tel aviv',         { lat: 32.09, lon: 34.78  }],
-  ['lebanon',          { lat: 33.85, lon: 35.86  }],
-  ['syria',            { lat: 34.80, lon: 38.99  }],
-  ['damascus',         { lat: 33.51, lon: 36.29  }],
-  ['yemen',            { lat: 15.55, lon: 48.52  }],
-  ['sanaa',            { lat: 15.37, lon: 44.21  }],
-  // Points chauds
-  ['taiwan',           { lat: 23.70, lon: 120.96 }],
-  ['taiwan strait',    { lat: 24.50, lon: 119.50 }],
-  ['india',            { lat: 20.59, lon: 78.96  }],
-  ['new delhi',        { lat: 28.61, lon: 77.21  }],
-  ['south korea',      { lat: 35.91, lon: 127.77 }],
-  ['seoul',            { lat: 37.57, lon: 126.98 }],
-  ['turkey',           { lat: 38.96, lon: 35.24  }],
-  ['ankara',           { lat: 39.93, lon: 32.85  }],
-  ['japan',            { lat: 36.20, lon: 138.25 }],
-  ['tokyo',            { lat: 35.68, lon: 139.69 }],
-  ['okinawa',          { lat: 26.34, lon: 127.80 }],
-  // Zones stratégiques
-  ['south china sea',  { lat: 12.00, lon: 114.00 }],
-  ['red sea',          { lat: 20.00, lon: 38.50  }],
-  ['strait of hormuz', { lat: 26.56, lon: 56.25  }],
-  ['hormuz',           { lat: 26.56, lon: 56.25  }],
-  ['arctic',           { lat: 71.00, lon: 25.00  }],
-  ['baltic sea',       { lat: 58.00, lon: 20.00  }],
-  ['black sea',        { lat: 43.00, lon: 34.00  }],
-  ['east china sea',   { lat: 30.00, lon: 125.00 }],
-  ['persian gulf',     { lat: 26.00, lon: 52.00  }],
-  ['mediterranean',    { lat: 35.00, lon: 18.00  }],
-  // Afrique
-  ['sudan',            { lat: 12.86, lon: 30.22  }],
-  ['khartoum',         { lat: 15.50, lon: 32.56  }],
-  ['libya',            { lat: 26.34, lon: 17.23  }],
-  ['tripoli',          { lat: 32.90, lon: 13.18  }],
-  ['somalia',          { lat: 5.15,  lon: 46.20  }],
-  ['mogadishu',        { lat: 2.05,  lon: 45.32  }],
+// Zones stratégiques non-urbaines (mers, détroits, régions — absentes de all-the-cities)
+const STRATEGIC_ZONES = new Map([
+  ['south china sea',       { lat: 12.00, lon: 114.00 }],
+  ['red sea',               { lat: 20.00, lon: 38.50  }],
+  ['strait of hormuz',      { lat: 26.56, lon: 56.25  }],
+  ['strait of taiwan',      { lat: 24.50, lon: 119.50 }],
+  ['taiwan strait',         { lat: 24.50, lon: 119.50 }],
+  ['hormuz',                { lat: 26.56, lon: 56.25  }],
+  ['arctic',                { lat: 71.00, lon: 25.00  }],
+  ['baltic sea',            { lat: 58.00, lon: 20.00  }],
+  ['black sea',             { lat: 43.00, lon: 34.00  }],
+  ['east china sea',        { lat: 30.00, lon: 125.00 }],
+  ['persian gulf',          { lat: 26.00, lon: 52.00  }],
+  ['mediterranean',         { lat: 35.00, lon: 18.00  }],
+  ['mediterranean sea',     { lat: 35.00, lon: 18.00  }],
+  ['gulf of aden',          { lat: 12.00, lon: 46.00  }],
+  ['gulf of oman',          { lat: 22.00, lon: 59.00  }],
+  ['arabian sea',           { lat: 15.00, lon: 65.00  }],
+  ['north sea',             { lat: 56.00, lon: 3.00   }],
+  ['bering strait',         { lat: 65.60, lon: -168.00}],
+  ['cape canaveral',        { lat: 28.39, lon: -80.60 }],
+  ['vandenberg',            { lat: 34.74, lon: -120.57}],
+  ['vandenberg sfb',        { lat: 34.74, lon: -120.57}],
+  ['pentagon',              { lat: 38.87, lon: -77.06 }],
+  ['plesetsk',              { lat: 62.93, lon: 40.58  }],
+  ['vostochny',             { lat: 51.88, lon: 128.33 }],
+  ['baikonur',              { lat: 45.96, lon: 63.31  }],
+  ['jiuquan',               { lat: 39.74, lon: 98.49  }],
+  ['xichang',               { lat: 27.90, lon: 102.26 }],
+  ['wenchang',              { lat: 19.61, lon: 110.95 }],
+  ['crimea',                { lat: 44.95, lon: 34.10  }],
+  ['donbas',                { lat: 48.20, lon: 38.00  }],
+  ['donbass',               { lat: 48.20, lon: 38.00  }],
+  ['north korea',           { lat: 39.04, lon: 125.76 }],
+  ['south korea',           { lat: 35.91, lon: 127.77 }],
+  ['united states',         { lat: 38.90, lon: -77.04 }],
+  ['taiwan',                { lat: 23.70, lon: 120.96 }],
 ]);
+
+// ── Index mondial de villes (all-the-cities, 135k entrées) ───────────────────
+// Construit au premier accès — instantané, 0 appel HTTP, 0 token IA
+let _cityIndex = null;
+
+function getCityIndex() {
+  if (_cityIndex) return _cityIndex;
+  _cityIndex = new Map();
+  try {
+    const cities = require('all-the-cities');
+    // Trier par population décroissante pour que les villes importantes
+    // gagnent en cas de conflit de noms (ex: "Springfield" → USA, pop max)
+    cities.sort((a, b) => (b.population || 0) - (a.population || 0));
+    for (const c of cities) {
+      const key = c.name.toLowerCase();
+      if (!_cityIndex.has(key)) {
+        _cityIndex.set(key, {
+          lat: c.loc.coordinates[1],
+          lon: c.loc.coordinates[0],
+        });
+      }
+      // Indexer aussi l'altName si présent
+      if (c.altName) {
+        const altKey = c.altName.toLowerCase();
+        if (!_cityIndex.has(altKey)) {
+          _cityIndex.set(altKey, {
+            lat: c.loc.coordinates[1],
+            lon: c.loc.coordinates[0],
+          });
+        }
+      }
+    }
+    console.log(`[google-news] city index: ${_cityIndex.size} entrées chargées`);
+  } catch (e) {
+    console.warn('[google-news] all-the-cities non disponible:', e.message);
+  }
+  return _cityIndex;
+}
+
+// Suffixes administratifs à supprimer pour normaliser "Sumy Region" → "Sumy"
+const ADMIN_SUFFIXES = /\s+(region|oblast|province|district|county|prefecture|governorate|wilaya|state|raion|republic|area|zone|department|municipality)\s*$/i;
 
 // Mots à exclure des candidats lieux
 const LOCATION_STOPWORDS = new Set([
@@ -392,13 +404,14 @@ function detectEventType(title, domain) {
 function detectLocationFromTitle(title) {
   const t = title;
 
-  // 1. Matcher les lieux connus directement dans le titre
-  for (const [name] of KNOWN_LOCATIONS) {
+  // 1. Zones stratégiques multi-mots (priorité : "South China Sea" avant "China")
+  for (const [name] of STRATEGIC_ZONES) {
     const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
     if (re.test(t)) return name;
   }
 
-  // 2. Patterns syntaxiques : "in/from/near/over LIEU"
+  // 2. Patterns syntaxiques : extraire candidats lieux depuis le titre
+  const candidates = [];
   const patterns = [
     /\b(?:in|from|near|over|off|at|around)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})/g,
     /\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)\s+(?:launches?|tests?|fires?|deploys?|strikes?|attacks?)/g,
@@ -409,11 +422,18 @@ function detectLocationFromTitle(title) {
     while ((m = re.exec(t)) !== null) {
       const loc = m[1].replace(/'s$/i, '').trim();
       if (loc.length >= 3 && !LOCATION_STOPWORDS.has(loc.toLowerCase())) {
-        return loc;
+        candidates.push(loc);
       }
     }
   }
-  return '';
+
+  // 3. Valider chaque candidat contre l'index mondial
+  for (const loc of candidates) {
+    if (lookupKnown(loc)) return loc;
+  }
+
+  // 4. Retourner le premier candidat non validé (sera géocodé par Nominatim)
+  return candidates[0] || '';
 }
 
 function computeConfidence(title, domain, feedDomain, location) {
@@ -493,22 +513,37 @@ const geocodeCache = new Map();
 
 function lookupKnown(location) {
   if (!location) return null;
-  const key = location.toLowerCase().trim();
-  return KNOWN_LOCATIONS.get(key) || null;
+  let key = location.toLowerCase().trim();
+
+  // 1. Zones stratégiques (mers, détroits, bases — priorité absolue)
+  if (STRATEGIC_ZONES.has(key)) return STRATEGIC_ZONES.get(key);
+
+  // 2. Index mondial all-the-cities
+  const idx = getCityIndex();
+  if (idx.has(key)) return idx.get(key);
+
+  // 3. Suppression des suffixes administratifs : "Sumy Region" → "Sumy"
+  const stripped = key.replace(ADMIN_SUFFIXES, '').trim();
+  if (stripped !== key) {
+    if (STRATEGIC_ZONES.has(stripped)) return STRATEGIC_ZONES.get(stripped);
+    if (idx.has(stripped)) return idx.get(stripped);
+  }
+
+  return null;
 }
 
 async function geocodeLocation(location) {
   if (!location) return null;
   const key = location.toLowerCase().trim();
 
-  // 1. Dictionnaire interne (instantané)
-  const known = KNOWN_LOCATIONS.get(key);
+  // 1. Lookup local (zones + 135k villes) — instantané
+  const known = lookupKnown(location);
   if (known) return known;
 
-  // 2. Cache mémoire
+  // 2. Cache mémoire Nominatim
   if (geocodeCache.has(key)) return geocodeCache.get(key);
 
-  // 3. Nominatim
+  // 3. Nominatim — dernier recours (zones inconnues, bases, régions exotiques)
   try {
     const url = `${NOMINATIM_URL}?q=${encodeURIComponent(location)}&format=json&limit=1`;
     const resp = await fetch(url, {
