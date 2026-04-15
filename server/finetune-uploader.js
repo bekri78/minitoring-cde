@@ -27,7 +27,7 @@ const STATUS_FILE    = path.join(DATA_DIR, 'finetune-job-status.json');
 const MISTRAL_API_KEY = () => (process.env.MISTRAL_API_KEY || '').trim().replace(/^=+/, '');
 
 // Modèle de base à fine-tuner (mistral-small = rapport qualité/coût optimal)
-const BASE_MODEL = process.env.FINETUNE_BASE_MODEL || 'open-mistral-7b';
+const BASE_MODEL = process.env.FINETUNE_BASE_MODEL || 'mistral-small-latest';
 const AUTO_THRESHOLD = parseInt(process.env.FINETUNE_AUTO_THRESHOLD || '200', 10);
 
 // Prompt système reproduit pour le fine-tuning (doit correspondre à celui de l'agent)
@@ -163,7 +163,6 @@ async function createFinetuneJob(fileId, approvedCount) {
     },
     body: JSON.stringify({
       model:           BASE_MODEL,
-      job_type:        'FT',
       training_files:  [{ file_id: fileId, weight: 1 }],
       hyperparameters: {
         training_steps:  null,   // auto (Mistral calcule selon la taille du dataset)
