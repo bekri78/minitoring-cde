@@ -2,58 +2,51 @@
 
 const OpenAI = require('openai');
 
+// ── Configuration ─────────────────────────────────────────────────────────────
 const GEMINI_LIMIT   = Number(process.env.GEMINI_NORMALIZE_LIMIT || 80);
 const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
-const MISTRAL_MODEL   = process.env.MISTRAL_TRANSLATE_MODEL || 'mistral-small-latest';
-const MISTRAL_URL     = 'https://api.mistral.ai/v1/chat/completions';
-const AI_FILTER_ENABLED = process.env.AI_FILTER_ENABLED !== 'false';
-const AI_FILTER_BATCH   = Number(process.env.AI_FILTER_BATCH || 20);
-const AI_FILTER_LIMIT   = Number(process.env.AI_FILTER_LIMIT || 1500);
-const AI_FILTER_DELAY   = Number(process.env.AI_FILTER_DELAY || 1200); // ms between batches
-const AI_FILTER_TIMEOUT_MS = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
-const AI_FILTER_MAX_RETRIES = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
-const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
-const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
+
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
-const MISTRAL_API_KEY  = (process.env.MISTRAL_API_KEY || '').trim().replace(/^=+/, '') || undefined;
-const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'mistral')).toLowerCase();
-const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
-const OPENAI_TRANSLATE_FALLBACK = process.env.OPENAI_TRANSLATE_FALLBACK === 'true';
-const AI_PRIMARY_PROVIDER = (process.env.GDELT_AI_PROVIDER || (LLM_PROVIDER !== 'mistral' ? 'openai' : 'mistral')).toLowerCase();
-const AI_NORMALIZE_PROVIDER = (process.env.GDELT_NORMALIZE_PROVIDER || AI_PRIMARY_PROVIDER).toLowerCase();
+const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const FINETUNE_MODEL   = process.env.FINETUNE_MODEL || null; // ft:gpt-4o-mini-...:osint-classifier
+
+const GROQ_API_KEY  = (process.env.groq || process.env.GROQ_API_KEY || '').trim();
+const GROQ_URL      = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL    = process.env.GROQ_NORMALIZE_MODEL || 'llama-3.1-8b-instant';
+
+const AI_FILTER_ENABLED        = process.env.AI_FILTER_ENABLED !== 'false';
+const AI_FILTER_BATCH          = Number(process.env.AI_FILTER_BATCH || 20);
+const AI_FILTER_LIMIT          = Number(process.env.AI_FILTER_LIMIT || 1500);
+const AI_FILTER_DELAY          = Number(process.env.AI_FILTER_DELAY || 1200);
+const AI_FILTER_TIMEOUT_MS     = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
+const AI_FILTER_MAX_RETRIES    = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
+const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
 const AI_FILTER_ALWAYS_KEEP_SCORE = Number(process.env.AI_FILTER_ALWAYS_KEEP_SCORE || 88);
 
-const openaiClient = LLM_PROVIDER === 'deepseek'
-  ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' })
-  : LLM_PROVIDER === 'openai'
+const openaiClient = OPENAI_API_KEY
   ? new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1' })
   : null;
 
 // Startup diagnostics
-console.log('[normalizer] LLM_PROVIDER:         ', LLM_PROVIDER);
-console.log('[normalizer] DEEPSEEK_API_KEY set:', !!DEEPSEEK_API_KEY);
-console.log('[normalizer] DEEPSEEK_API_KEY len:', DEEPSEEK_API_KEY ? DEEPSEEK_API_KEY.length : 0, '(expected 35)');
-console.log('[normalizer] DEEPSEEK_API_KEY chars:', DEEPSEEK_API_KEY ? [...DEEPSEEK_API_KEY].map(c => c.charCodeAt(0)) : []);
-console.log('[normalizer] OPENAI_API_KEY set:   ', !!OPENAI_API_KEY);
-console.log('[normalizer] MISTRAL_API_KEY set:  ', !!MISTRAL_API_KEY);
-console.log('[normalizer] OPENAI_MODEL:         ', OPENAI_MODEL);
-console.log('[normalizer] active key suffix:    ', (DEEPSEEK_API_KEY || OPENAI_API_KEY || '') ? `****${(DEEPSEEK_API_KEY || OPENAI_API_KEY).slice(-4)}` : 'none');
+console.log('[normalizer] OPENAI_API_KEY set:  ', !!OPENAI_API_KEY);
+console.log('[normalizer] GROQ_API_KEY set:    ', !!GROQ_API_KEY);
+console.log('[normalizer] OPENAI_MODEL:        ', OPENAI_MODEL);
+console.log('[normalizer] FINETUNE_MODEL:      ', FINETUNE_MODEL || '(none)');
 
+// ── Constants ─────────────────────────────────────────────────────────────────
 const VALID_CATEGORIES = new Set([
   'terrorism', 'military', 'conflict', 'protest',
   'cyber', 'strategic', 'crisis', 'incident', 'discard',
 ]);
 
 const ROMANIZED_HINTS = [
-  // Greeklish / romanized Greek.
   'kai', 'toy', 'tou', 'tis', 'horis', 'xoris', 'anoigma', 'ormoyz', 'ormouz',
   'sygkroysi', 'sigkrousi', 'diplomatiki', 'lysi', 'ellada', 'vretania',
-  // Arabizi / romanized Arabic common OSINT forms.
   'houthis', 'ansarallah', 'hezbollah', 'al quds', 'shahed',
-  // Russian/Ukrainian transliteration fragments often seen in slugs.
   'rossiya', 'ukraina', 'voenn', 'raket', 'udar', 'oboron',
 ];
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -74,50 +67,6 @@ function getRetryableStatus(status) {
 function isRetryableNetworkError(err) {
   const msg = err?.message || '';
   return msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('ECONNREFUSED') || msg.includes('socket hang up');
-}
-
-async function requestJsonArrayFromOpenAI(messages, timeoutMs = 45000) {
-  if (!openaiClient) {
-    const err = new Error('OPENAI_API_KEY missing');
-    err.status = 503;
-    throw err;
-  }
-
-  let completion;
-  try {
-    completion = await openaiClient.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-    }, { timeout: timeoutMs });
-  } catch (e) {
-    // Normalize OpenAI SDK errors to match existing error handling
-    const status = e?.status || e?.response?.status || 500;
-    const body = e?.message || '';
-    const err = new Error(`OpenAI HTTP_${status} ${body.slice(0, 180)}`);
-    err.status = status;
-    throw err;
-  }
-
-  const text = parseChatTextContent(completion.choices?.[0]?.message?.content);
-  const parsed = extractJsonObject(text);
-  if (Array.isArray(parsed)) return parsed;
-  if (Array.isArray(parsed?.events)) return parsed.events;
-  if (Array.isArray(parsed?.results)) return parsed.results;
-  return extractJsonArray(text);
-}
-
-function shouldBypassAiFilter(event) {
-  if (!event) return false;
-  if (event.osintDomain) return true;
-  if (event.domain_bucket === 'spatial' && event.spatial_anchor_flag) return true;
-  if (event.domain_bucket === 'aviation' && event.aviation_anchor_flag) return true;
-  if (event.domain_bucket === 'maritime' && event.maritime_anchor_flag) return true;
-  if (event.is_strategic && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 8) return true;
-  if (Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 18) return true;
-  if (['terrorism', 'cyber'].includes(String(event.category || ''))) return true;
-  return false;
 }
 
 function normalizeText(value) {
@@ -141,9 +90,7 @@ function isLikelyRomanized(text) {
 }
 
 function isLikelyEnglish(text) {
-  // Function words
   if (/\b(the|and|for|with|in|of|to|is|are|was|were|has|have|been|will|from|that|this|after|before|over|into|its|their|says|said|as|on|at|by|an|it|he|she|we|us|a|no|not|but|or|amid|against|between)\b/i.test(String(text || ''))) return true;
-  // Common English news content words (headlines often omit function words)
   if (/\b(attack|strike|strikes|struck|killed|kills|forces|troops|army|navy|military|police|government|minister|president|official|war|conflict|crisis|sanctions|missile|missiles|drone|drones|fire|fires|fired|launch|launches|launched|deploy|deployed|arrest|arrested|protest|protests|explosion|bomb|bombing|dead|wounded|injured|civilian|civilians|report|reports|says|said|warns|warning|claims|confirms|threatens|threat|ceasefire|talks|deal|accord|agreement|offensive|operation|soldiers|rebels|militia|nuclear|ballistic|hypersonic|rocket|rockets|airstrike|airstrikes|naval|submarine|warship|frigate|fighter|bomber|satellite|spacecraft)\b/i.test(String(text || ''))) return true;
   return false;
 }
@@ -151,18 +98,11 @@ function isLikelyEnglish(text) {
 function needsMistral(event) {
   const title = event?.title || '';
   if (!title || title.length < 8) return false;
-  // Always translate non-Latin scripts (Arabic, Cyrillic, Chinese, Korean, Japanese, etc.)
   if (hasNonLatin(title)) return true;
-  // Transliterated/romanized non-English (greeklish, arabizi, Russian slug)
   if (isLikelyRomanized(title)) return true;
-  // Fallback titles generated by the pipeline (e.g. "FIGHT — IRAN — Tehran")
   if (/^[A-Z\s]+\s—\s/.test(title)) return true;
-  // Slug-style URL fallback (e.g. "us-navy-strike-iran")
   if (/^[a-z0-9-]+(?:-[a-z0-9]+){3,}$/.test(title)) return true;
-  // Non-English Latin text with accented chars (French, Spanish, German, etc.)
   if (/[À-ÖØ-öø-ÿ]/.test(title) && !isLikelyEnglish(title)) return true;
-  // Non-English Latin without accents (Lithuanian, Indonesian, Swahili, etc.)
-  // Trigger if: has alphabetic words, not English, and at least 2 multi-char words
   if (!isLikelyEnglish(title) && (title.match(/\b[a-z]{4,}\b/gi) || []).length >= 2) return true;
   return false;
 }
@@ -170,17 +110,63 @@ function needsMistral(event) {
 function extractJsonArray(text) {
   const raw = String(text || '').trim();
   if (!raw) return [];
-
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (_) {}
-
   const match = raw.match(/\[[\s\S]*\]/);
   if (!match) return [];
   return JSON.parse(match[0]);
 }
 
+function extractJsonObject(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch (_) {}
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  return JSON.parse(match[0]);
+}
+
+function shouldBypassAiFilter(event) {
+  if (!event) return false;
+  if (event.osintDomain) return true;
+  if (event.domain_bucket === 'spatial' && event.spatial_anchor_flag) return true;
+  if (event.domain_bucket === 'aviation' && event.aviation_anchor_flag) return true;
+  if (event.domain_bucket === 'maritime' && event.maritime_anchor_flag) return true;
+  if (event.is_strategic && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 8) return true;
+  if (Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 18) return true;
+  if (['terrorism', 'cyber'].includes(String(event.category || ''))) return true;
+  return false;
+}
+
+function mergeResult(event, result) {
+  if (!result || result.keep === false || result.category === 'discard') return null;
+  const category = VALID_CATEGORIES.has(result.category) ? result.category : event.category;
+  const relevance = Math.max(0, Math.min(100, Number(result.relevance || event.relevance || 0)));
+  const countryCode = typeof result.countryCode === 'string' && result.countryCode.length === 2
+    ? result.countryCode.toUpperCase()
+    : event.countryCode;
+  return {
+    ...event,
+    originalTitle: event.originalTitle || event.title,
+    title: result.fr || event.title,
+    headline: result.en || event.headline || null,
+    notes: result.notes || event.notes || null,
+    category,
+    relevance,
+    countryCode,
+    language: result.language || event.language || null,
+    isRomanized: Boolean(result.is_romanized),
+    nativeTitle: result.native_text || event.nativeTitle || null,
+    score: Number(event.score || 0) + Math.round(relevance / 5),
+  };
+}
+
+// ── Prompts ───────────────────────────────────────────────────────────────────
 function buildPrompt(events) {
   return `Normalize and translate OSINT event titles for a geopolitical monitoring dashboard.
 
@@ -219,250 +205,6 @@ ${events.map(e => JSON.stringify({
   })).join('\n')}`;
 }
 
-function mergeResult(event, result) {
-  if (!result || result.keep === false || result.category === 'discard') return null;
-  const category = VALID_CATEGORIES.has(result.category) ? result.category : event.category;
-  const relevance = Math.max(0, Math.min(100, Number(result.relevance || event.relevance || 0)));
-
-  const countryCode = typeof result.countryCode === 'string' && result.countryCode.length === 2
-    ? result.countryCode.toUpperCase()
-    : event.countryCode;
-
-  return {
-    ...event,
-    originalTitle: event.originalTitle || event.title,
-    title: result.fr || event.title,
-    headline: result.en || event.headline || null,
-    notes: result.notes || event.notes || null,
-    category,
-    relevance,
-    countryCode,
-    language: result.language || event.language || null,
-    isRomanized: Boolean(result.is_romanized),
-    nativeTitle: result.native_text || event.nativeTitle || null,
-    score: Number(event.score || 0) + Math.round(relevance / 5),
-  };
-}
-
-function extractJsonObject(text) {
-  const raw = String(text || '').trim();
-  if (!raw) return null;
-
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
-  } catch (_) {}
-
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  return JSON.parse(match[0]);
-}
-
-async function translateTitleWithOpenAI(event) {
-  if (!openaiClient) {
-    const err = new Error('OPENAI_API_KEY missing');
-    err.status = 503;
-    throw err;
-  }
-
-  let completion;
-  try {
-    completion = await openaiClient.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [
-        {
-          role: 'system',
-          content: 'Translate OSINT/geopolitical article titles into concise French. Return JSON only.',
-        },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            title: event.title,
-            domain: event.domain || '',
-            country: event.country || '',
-            category: event.category || 'incident',
-            eventCode: event.eventCode || '',
-            rootCode: event.rootCode || '',
-            subEventType: event.subEventType || '',
-            output: {
-              fr: 'French title, <= 16 words',
-              en: 'English title, <= 16 words',
-              notes: 'brief operational summary in French, <= 22 words',
-              language: 'detected language',
-            },
-          }),
-        },
-      ],
-      temperature: 0,
-      response_format: { type: 'json_object' },
-    }, { timeout: 45000 });
-  } catch (e) {
-    const status = e?.status || e?.response?.status || 500;
-    const err = new Error(`OpenAI HTTP_${status} ${(e?.message || '').slice(0, 180)}`);
-    err.status = status >= 500 ? 502 : 503;
-    throw err;
-  }
-
-  const text = completion.choices?.[0]?.message?.content || '';
-  const result = extractJsonObject(text) || {};
-  const output = result.output && typeof result.output === 'object' ? result.output : {};
-  const fr = result.fr || result.title_fr || result.french || result.translation_fr ||
-    result.translation || output.fr || output.title_fr || output.french || output.translation;
-  const en = result.en || result.headline || result.english || output.en || output.headline || output.english;
-  const notes = result.notes || result.summary || output.notes || output.summary;
-  const language = result.language || result.detected_language || output.language || output.detected_language;
-  return {
-    id: event.id,
-    keep: true,
-    originalTitle: event.title,
-    title: fr || event.title,
-    fr: fr || event.title,
-    headline: en || null,
-    notes: notes || null,
-    category: VALID_CATEGORIES.has(event.category) ? event.category : 'incident',
-    relevance: Number(event.relevance || 0),
-    language: language || null,
-    isRomanized: false,
-    nativeTitle: null,
-    provider: 'openai',
-  };
-}
-
-async function translateTitleWithMistral(event) {
-  if (!MISTRAL_API_KEY) {
-    const err = new Error('MISTRAL_API_KEY missing');
-    err.status = 503;
-    throw err;
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
-  let resp;
-  try {
-    resp = await fetch(MISTRAL_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MISTRAL_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: MISTRAL_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content: 'Translate OSINT/geopolitical article titles into concise French. Return only a valid JSON object.',
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              title: event.title,
-              domain: event.domain || '',
-              country: event.country || '',
-              category: event.category || 'incident',
-              eventCode: event.eventCode || '',
-              rootCode: event.rootCode || '',
-              subEventType: event.subEventType || '',
-              response_format: {
-                fr: 'French title, <= 16 words',
-                en: 'English title, <= 16 words',
-                notes: 'brief operational summary in French, <= 22 words',
-                language: 'detected source language code or name',
-              },
-            }),
-          },
-        ],
-        temperature: 0,
-        response_format: { type: 'json_object' },
-      }),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    const err = new Error(`Mistral HTTP_${resp.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
-    err.status = resp.status >= 500 ? 502 : 503;
-    throw err;
-  }
-
-  const data = await resp.json();
-  const content = data.choices?.[0]?.message?.content;
-  const text = Array.isArray(content)
-    ? content.map(part => part?.text || part?.content || '').join('\n')
-    : String(content || '');
-  const result = extractJsonObject(text) || {};
-  const output = result.output && typeof result.output === 'object' ? result.output : {};
-  const fr = result.fr || result.title_fr || result.french || result.translation_fr ||
-    result.translation || output.fr || output.title_fr || output.french || output.translation;
-  const en = result.en || result.headline || result.english || output.en || output.headline || output.english;
-  const notes = result.notes || result.summary || output.notes || output.summary;
-  const language = result.language || result.detected_language || output.language || output.detected_language;
-
-  return {
-    id: event.id,
-    keep: true,
-    originalTitle: event.title,
-    title: fr || event.title,
-    fr: fr || event.title,
-    headline: en || null,
-    notes: notes || null,
-    category: VALID_CATEGORIES.has(event.category) ? event.category : 'incident',
-    relevance: Number(event.relevance || 0),
-    language: language || null,
-    isRomanized: false,
-    nativeTitle: null,
-    provider: 'mistral',
-  };
-}
-
-async function normalizeBatchWithMistral(events) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
-  let resp;
-  try {
-    resp = await fetch(MISTRAL_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MISTRAL_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: MISTRAL_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an OSINT geopolitical analyst. Return ONLY a valid JSON array, no prose.',
-          },
-          {
-            role: 'user',
-            content: buildPrompt(events),
-          },
-        ],
-        temperature: 0,
-      }),
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    const err = new Error(`Mistral HTTP_${resp.status}${body ? ` ${body.slice(0, 180)}` : ''}`);
-    err.status = resp.status >= 500 ? 502 : 503;
-    throw err;
-  }
-
-  const data = await resp.json();
-  const content = data.choices?.[0]?.message?.content;
-  const text = Array.isArray(content)
-    ? content.map(part => part?.text || part?.content || '').join('\n')
-    : String(content || '');
-  return extractJsonArray(text);
-}
-
 function buildFilterPrompt(events) {
   const lines = events.map(e => JSON.stringify({
     id: e.id,
@@ -492,7 +234,7 @@ DISCARD if the event is about:
 - Viral or human-interest stories (even if they mention NASA, military, police)
 - Business, finance, stock markets, earnings, IPO, real estate
 - Local crime, road accidents, natural disasters unrelated to conflict
-- Domestic murder, homicide, family crime, police blotter, cartel-free local crime, civil court/criminal case with no military/security implication
+- Domestic murder, homicide, family crime, police blotter
 - Elections, parliament, diplomacy with no security dimension
 - Humanitarian aid, health, education with no conflict context
 
@@ -503,24 +245,158 @@ Events:
 ${lines}`;
 }
 
+// ── OpenAI ────────────────────────────────────────────────────────────────────
+async function requestJsonArrayFromOpenAI(messages, model, timeoutMs = 45000) {
+  if (!openaiClient) {
+    const err = new Error('OPENAI_API_KEY missing');
+    err.status = 503;
+    throw err;
+  }
+  let completion;
+  try {
+    completion = await openaiClient.chat.completions.create({
+      model: model || OPENAI_MODEL,
+      messages,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+    }, { timeout: timeoutMs });
+  } catch (e) {
+    const status = e?.status || e?.response?.status || 500;
+    const err = new Error(`OpenAI HTTP_${status} ${(e?.message || '').slice(0, 180)}`);
+    err.status = status;
+    throw err;
+  }
+  const text = parseChatTextContent(completion.choices?.[0]?.message?.content);
+  const parsed = extractJsonObject(text);
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed?.events)) return parsed.events;
+  if (Array.isArray(parsed?.results)) return parsed.results;
+  return extractJsonArray(text);
+}
+
+async function translateTitleWithOpenAI(event) {
+  if (!openaiClient) {
+    const err = new Error('OPENAI_API_KEY missing');
+    err.status = 503;
+    throw err;
+  }
+  let completion;
+  try {
+    completion = await openaiClient.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [
+        { role: 'system', content: 'Translate OSINT/geopolitical article titles into concise French. Return JSON only.' },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            title: event.title,
+            domain: event.domain || '',
+            country: event.country || '',
+            category: event.category || 'incident',
+            eventCode: event.eventCode || '',
+            rootCode: event.rootCode || '',
+            output: { fr: 'French title <= 16 words', en: 'English title <= 16 words', notes: 'French summary <= 22 words', language: 'detected language' },
+          }),
+        },
+      ],
+      temperature: 0,
+      response_format: { type: 'json_object' },
+    }, { timeout: 45000 });
+  } catch (e) {
+    const status = e?.status || e?.response?.status || 500;
+    const err = new Error(`OpenAI HTTP_${status} ${(e?.message || '').slice(0, 180)}`);
+    err.status = status >= 500 ? 502 : 503;
+    throw err;
+  }
+  const text = completion.choices?.[0]?.message?.content || '';
+  const result = extractJsonObject(text) || {};
+  const output = result.output && typeof result.output === 'object' ? result.output : {};
+  const fr = result.fr || result.title_fr || result.french || result.translation || output.fr || output.french || output.translation;
+  const en = result.en || result.headline || result.english || output.en || output.headline;
+  const notes = result.notes || result.summary || output.notes || output.summary;
+  const language = result.language || result.detected_language || output.language;
+  return {
+    id: event.id, keep: true,
+    originalTitle: event.title, title: fr || event.title,
+    fr: fr || event.title, headline: en || null, notes: notes || null,
+    category: VALID_CATEGORIES.has(event.category) ? event.category : 'incident',
+    relevance: Number(event.relevance || 0),
+    language: language || null, isRomanized: false, nativeTitle: null,
+    provider: 'openai',
+  };
+}
+
+// ── Groq (traduction / normalisation — gratuit) ───────────────────────────────
+async function callGroq(messages, timeoutMs = 30000) {
+  const resp = await fetch(GROQ_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+    body: JSON.stringify({ model: GROQ_MODEL, messages, temperature: 0, max_tokens: 2048, response_format: { type: 'json_object' } }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    const err = new Error(`Groq HTTP_${resp.status} ${body.slice(0, 120)}`);
+    err.status = resp.status;
+    throw err;
+  }
+  const data = await resp.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+async function normalizeBatchWithGroq(events) {
+  const text = await callGroq([
+    { role: 'system', content: 'You are an OSINT geopolitical analyst. Return ONLY a valid JSON object with an "events" array.' },
+    { role: 'user', content: buildPrompt(events) },
+  ]);
+  const parsed = extractJsonObject(text);
+  if (Array.isArray(parsed?.events)) return parsed.events;
+  return extractJsonArray(text);
+}
+
+async function translateTitleWithGroq(event) {
+  const text = await callGroq([
+    { role: 'system', content: 'Translate OSINT/geopolitical article titles into concise French. Return JSON only.' },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        title: event.title,
+        country: event.country || '',
+        category: event.category || 'incident',
+        output: { fr: 'French title <= 16 words', en: 'English title <= 16 words', notes: 'French summary <= 22 words', language: 'detected language' },
+      }),
+    },
+  ]);
+  const result = extractJsonObject(text) || {};
+  const output = result.output && typeof result.output === 'object' ? result.output : {};
+  const fr = result.fr || result.title_fr || result.french || result.translation || output.fr || output.french || output.translation;
+  const en = result.en || result.headline || result.english || output.en || output.headline;
+  const notes = result.notes || result.summary || output.notes || output.summary;
+  const language = result.language || result.detected_language || output.language;
+  return {
+    id: event.id, keep: true,
+    originalTitle: event.title, title: fr || event.title,
+    fr: fr || event.title, headline: en || null, notes: notes || null,
+    category: VALID_CATEGORIES.has(event.category) ? event.category : 'incident',
+    relevance: Number(event.relevance || 0),
+    language: language || null, isRomanized: false, nativeTitle: null,
+    provider: 'groq',
+  };
+}
+
+// ── Filtre IA (OpenAI gpt-4o-mini, batch) ─────────────────────────────────────
 async function filterEventsWithMistral(events) {
   if (!AI_FILTER_ENABLED) {
     console.log('[ai-filter] disabled via AI_FILTER_ENABLED=false');
     return events;
   }
-  if (AI_PRIMARY_PROVIDER === 'openai' && !OPENAI_API_KEY) {
+  if (!OPENAI_API_KEY) {
     console.log('[ai-filter] skipped: OPENAI_API_KEY missing');
     return events;
   }
-  if (AI_PRIMARY_PROVIDER === 'mistral' && !MISTRAL_API_KEY) {
-    console.log('[ai-filter] skipped: MISTRAL_API_KEY missing');
-    return events;
-  }
 
-  const guaranteedIds = new Set(events.filter(shouldBypassAiFilter).map(event => String(event.id)));
-  const candidates = events
-    .filter(event => !guaranteedIds.has(String(event.id)))
-    .slice(0, AI_FILTER_LIMIT);
+  const guaranteedIds = new Set(events.filter(shouldBypassAiFilter).map(e => String(e.id)));
+  const candidates = events.filter(e => !guaranteedIds.has(String(e.id))).slice(0, AI_FILTER_LIMIT);
   const discardedIds = new Set();
   let aiProcessed = 0;
 
@@ -529,6 +405,8 @@ async function filterEventsWithMistral(events) {
     return events;
   }
 
+  const filterModel = FINETUNE_MODEL || OPENAI_MODEL;
+
   for (let i = 0; i < candidates.length; i += AI_FILTER_BATCH) {
     const batch = candidates.slice(i, i + AI_FILTER_BATCH);
     const batchNum = Math.floor(i / AI_FILTER_BATCH) + 1;
@@ -536,56 +414,10 @@ async function filterEventsWithMistral(events) {
 
     for (let attempt = 1; attempt <= AI_FILTER_MAX_RETRIES; attempt++) {
       try {
-        let results;
-        if (AI_PRIMARY_PROVIDER === 'openai') {
-          results = await requestJsonArrayFromOpenAI([
-            { role: 'system', content: 'You are an OSINT analyst. Return JSON only.' },
-            { role: 'user', content: `Return a JSON object with an "events" array.\n${buildFilterPrompt(batch)}` },
-          ], AI_FILTER_TIMEOUT_MS);
-        } else {
-          const controller = new AbortController();
-          const timeoutHandle = setTimeout(() => controller.abort(), AI_FILTER_TIMEOUT_MS);
-          let resp;
-          try {
-            resp = await fetch(MISTRAL_URL, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${MISTRAL_API_KEY}`,
-              },
-              body: JSON.stringify({
-                model: MISTRAL_MODEL,
-                messages: [
-                  { role: 'system', content: 'You are an OSINT analyst. Return ONLY a valid JSON array, no prose.' },
-                  { role: 'user', content: buildFilterPrompt(batch) },
-                ],
-                temperature: 0,
-              }),
-              signal: controller.signal,
-            });
-          } finally {
-            clearTimeout(timeoutHandle);
-          }
-
-          if (getRetryableStatus(resp.status)) {
-            const body = await resp.text().catch(() => '');
-            if (attempt < AI_FILTER_MAX_RETRIES) {
-              const retryDelay = getAiFilterRetryDelay(attempt);
-              console.warn(`[ai-filter] batch ${batchNum} got ${resp.status}, retrying in ${Math.round(retryDelay / 1000)}s...`);
-              await sleep(retryDelay);
-              continue;
-            }
-            throw new Error(`HTTP_${resp.status} ${body.slice(0, 120)}`);
-          }
-          if (!resp.ok) {
-            const body = await resp.text().catch(() => '');
-            throw new Error(`HTTP_${resp.status} ${body.slice(0, 120)}`);
-          }
-
-          const data = await resp.json();
-          const text = parseChatTextContent(data.choices?.[0]?.message?.content);
-          results = extractJsonArray(text);
-        }
+        const results = await requestJsonArrayFromOpenAI([
+          { role: 'system', content: 'You are an OSINT analyst. Return JSON only.' },
+          { role: 'user', content: `Return a JSON object with an "events" array.\n${buildFilterPrompt(batch)}` },
+        ], filterModel, AI_FILTER_TIMEOUT_MS);
 
         let kept = 0;
         for (const result of results) {
@@ -598,21 +430,9 @@ async function filterEventsWithMistral(events) {
         success = true;
         break;
       } catch (err) {
-        if (getRetryableStatus(err?.status) && attempt < AI_FILTER_MAX_RETRIES) {
+        if ((getRetryableStatus(err?.status) || isRetryableNetworkError(err)) && attempt < AI_FILTER_MAX_RETRIES) {
           const retryDelay = getAiFilterRetryDelay(attempt);
-          console.warn(`[ai-filter] batch ${batchNum} got ${err.status}, retrying in ${Math.round(retryDelay / 1000)}s...`);
-          await sleep(retryDelay);
-          continue;
-        }
-        if (err?.name === 'AbortError' && attempt < AI_FILTER_MAX_RETRIES) {
-          const retryDelay = getAiFilterRetryDelay(attempt);
-          console.warn(`[ai-filter] batch ${batchNum} timed out after ${Math.round(AI_FILTER_TIMEOUT_MS / 1000)}s, retrying in ${Math.round(retryDelay / 1000)}s...`);
-          await sleep(retryDelay);
-          continue;
-        }
-        if (isRetryableNetworkError(err) && attempt < AI_FILTER_MAX_RETRIES) {
-          const retryDelay = getAiFilterRetryDelay(attempt);
-          console.warn(`[ai-filter] batch ${batchNum} network error (${err.message.slice(0, 60)}), retrying in ${Math.round(retryDelay / 1000)}s...`);
+          console.warn(`[ai-filter] batch ${batchNum} error (${err.message.slice(0, 60)}), retrying in ${Math.round(retryDelay / 1000)}s...`);
           await sleep(retryDelay);
           continue;
         }
@@ -622,32 +442,25 @@ async function filterEventsWithMistral(events) {
       }
     }
 
-    if (!success) {
-      // fail-open: batch events counted as processed but not discarded
-      aiProcessed += batch.length;
-    }
-
+    if (!success) aiProcessed += batch.length;
     if (i + AI_FILTER_BATCH < candidates.length) await sleep(AI_FILTER_DELAY);
   }
 
   const filtered = events.filter(e => guaranteedIds.has(String(e.id)) || !discardedIds.has(String(e.id)));
-  console.log(`[ai-filter] done: ${discardedIds.size} discarded, ${filtered.length}/${events.length} kept (${aiProcessed} AI-checked, ${guaranteedIds.size} bypassed)`);
+  console.log(`[ai-filter] done: ${discardedIds.size} discarded, ${filtered.length}/${events.length} kept (${aiProcessed} AI-checked, ${guaranteedIds.size} bypassed) [model: ${filterModel}]`);
   return filtered;
 }
 
+// ── Normalisation / Traduction (Groq gratuit, fallback OpenAI) ────────────────
 async function normalizeEventsWithMistral(events) {
-  if (AI_NORMALIZE_PROVIDER === 'openai' && !OPENAI_API_KEY) {
-    console.log('[normalize] skipped: OPENAI_API_KEY missing');
-    return events;
-  }
-  if (AI_NORMALIZE_PROVIDER === 'mistral' && !MISTRAL_API_KEY) {
-    console.log('[mistral] skipped: MISTRAL_API_KEY missing');
+  if (!GROQ_API_KEY && !OPENAI_API_KEY) {
+    console.log('[normalize] skipped: no API key available');
     return events;
   }
 
   const candidates = events.filter(needsMistral).slice(0, GEMINI_LIMIT);
   if (!candidates.length) {
-    console.log('[mistral] skipped: no ambiguous titles');
+    console.log('[normalize] skipped: no ambiguous titles');
     return events;
   }
 
@@ -658,31 +471,44 @@ async function normalizeEventsWithMistral(events) {
   for (let i = 0; i < candidates.length; i += GEMINI_BATCH) {
     const batch = candidates.slice(i, i + GEMINI_BATCH);
     try {
-      const results = AI_NORMALIZE_PROVIDER === 'openai'
-        ? await requestJsonArrayFromOpenAI([
-          {
-            role: 'system',
-            content: 'You are an OSINT geopolitical analyst. Return JSON only.',
-          },
-          {
-            role: 'user',
-            content: `Return a JSON object with an "events" array.\n${buildPrompt(batch)}`,
-          },
-        ])
-        : await normalizeBatchWithMistral(batch);
+      let results;
+      if (GROQ_API_KEY) {
+        results = await normalizeBatchWithGroq(batch);
+      } else {
+        results = await requestJsonArrayFromOpenAI([
+          { role: 'system', content: 'You are an OSINT geopolitical analyst. Return JSON only.' },
+          { role: 'user', content: `Return a JSON object with an "events" array.\n${buildPrompt(batch)}` },
+        ], OPENAI_MODEL);
+      }
       for (const result of results) {
         const original = batch.find(e => e.id === result.id);
         if (!original) continue;
         const merged = mergeResult(original, result);
         if (merged) byId.set(original.id, merged);
-        else {
-          rejectedIds.add(original.id);
-          rejected++;
+        else { rejectedIds.add(original.id); rejected++; }
+      }
+      const provider = GROQ_API_KEY ? 'groq' : 'openai';
+      console.log(`[normalize:${provider}] batch ${Math.floor(i / GEMINI_BATCH) + 1}: ${results.length}/${batch.length}`);
+    } catch (err) {
+      console.warn('[normalize] batch failed:', err.message);
+      // Fallback OpenAI si Groq échoue
+      if (GROQ_API_KEY && OPENAI_API_KEY) {
+        try {
+          const results = await requestJsonArrayFromOpenAI([
+            { role: 'system', content: 'You are an OSINT geopolitical analyst. Return JSON only.' },
+            { role: 'user', content: `Return a JSON object with an "events" array.\n${buildPrompt(batch)}` },
+          ], OPENAI_MODEL);
+          for (const result of results) {
+            const original = batch.find(e => e.id === result.id);
+            if (!original) continue;
+            const merged = mergeResult(original, result);
+            if (merged) byId.set(original.id, merged);
+            else { rejectedIds.add(original.id); rejected++; }
+          }
+        } catch (fallbackErr) {
+          console.warn('[normalize] OpenAI fallback also failed:', fallbackErr.message);
         }
       }
-      console.log(`[normalize:${AI_NORMALIZE_PROVIDER}] batch ${Math.floor(i / GEMINI_BATCH) + 1}: ${results.length}/${batch.length}`);
-    } catch (err) {
-      console.warn(`[normalize:${AI_NORMALIZE_PROVIDER}] batch failed:`, err.message);
     }
 
     if (i + GEMINI_BATCH < candidates.length) await sleep(350);
@@ -692,10 +518,12 @@ async function normalizeEventsWithMistral(events) {
     .map(event => byId.get(event.id) || event)
     .filter(event => !rejectedIds.has(event.id));
 
-  console.log(`[normalize:${AI_NORMALIZE_PROVIDER}] done: ${byId.size} normalized, ${rejected} rejected, ${candidates.length} checked`);
+  const provider = GROQ_API_KEY ? 'groq' : 'openai';
+  console.log(`[normalize:${provider}] done: ${byId.size} normalized, ${rejected} rejected, ${candidates.length} checked`);
   return normalized;
 }
 
+// ── Traduction unitaire (Groq, fallback OpenAI) ───────────────────────────────
 async function normalizeTitleWithGemini(event) {
   const title = String(event?.title || '').trim();
   if (!title) {
@@ -703,17 +531,20 @@ async function normalizeTitleWithGemini(event) {
     err.status = 400;
     throw err;
   }
-
   const id = event?.id || `title_${Date.now()}`;
   const baseEvent = { ...event, id, title, category: event?.category || 'incident' };
 
-  if (MISTRAL_API_KEY) {
-    return translateTitleWithMistral(baseEvent);
+  if (GROQ_API_KEY) {
+    try {
+      return await translateTitleWithGroq(baseEvent);
+    } catch (err) {
+      console.warn('[normalize] Groq title translation failed, trying OpenAI:', err.message);
+    }
   }
   if (OPENAI_API_KEY) {
     return translateTitleWithOpenAI(baseEvent);
   }
-  const err = new Error('MISTRAL_API_KEY or OPENAI_API_KEY missing');
+  const err = new Error('GROQ_API_KEY or OPENAI_API_KEY missing');
   err.status = 503;
   throw err;
 }
