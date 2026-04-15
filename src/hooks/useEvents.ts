@@ -25,7 +25,7 @@ export function useEvents() {
   return useQuery({
     queryKey: ['events'],
     queryFn: async (): Promise<Event[]> => {
-      const resp = await fetch(`${RAILWAY_URL}/events`);
+      const resp = await fetch(`${RAILWAY_URL}/api/news/events`);
       if (!resp.ok) throw new Error(`Server responded ${resp.status}`);
       const data = await resp.json();
       const events = Array.isArray(data.events) ? data.events : [];
