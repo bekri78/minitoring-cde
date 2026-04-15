@@ -3,10 +3,10 @@
 /**
  * finetune-uploader.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Convertit finetune-approved.jsonl au format Mistral, l'uploade et lance
+ * Convertit finetune-approved.jsonl au format OpenAI, l'uploade et lance
  * un job de fine-tuning automatiquement.
  *
- * Format Mistral attendu (une ligne par exemple) :
+ * Format OpenAI attendu (une ligne par exemple) :
  * {"messages": [
  *   {"role": "system",    "content": "..."},
  *   {"role": "user",      "content": "..."},
@@ -17,20 +17,17 @@
 const fs   = require('fs');
 const path = require('path');
 
-// Répertoire persistant — utilise le volume Railway (/data) si disponible,
-// sinon fallback local pour le dev
 const DATA_DIR       = process.env.FINETUNE_DATA_DIR || '/data';
 const APPROVED_FILE  = path.join(DATA_DIR, 'finetune-approved.jsonl');
-const EXPORT_FILE    = path.join(DATA_DIR, 'finetune-mistral-export.jsonl');
+const EXPORT_FILE    = path.join(DATA_DIR, 'finetune-openai-export.jsonl');
 const STATUS_FILE    = path.join(DATA_DIR, 'finetune-job-status.json');
 
-const MISTRAL_API_KEY = () => (process.env.MISTRAL_API_KEY || '').trim().replace(/^=+/, '');
+const OPENAI_API_KEY = () => (process.env.OPENAI_API_KEY || '').trim().replace(/^=+/, '');
 
-// Modèle de base à fine-tuner (mistral-small = rapport qualité/coût optimal)
-const BASE_MODEL = process.env.FINETUNE_BASE_MODEL || 'open-mistral-nemo';
+// gpt-4o-mini = meilleur rapport qualité/coût pour fine-tuning OpenAI
+const BASE_MODEL     = process.env.FINETUNE_BASE_MODEL || 'gpt-4o-mini';
 const AUTO_THRESHOLD = parseInt(process.env.FINETUNE_AUTO_THRESHOLD || '200', 10);
 
-// Prompt système reproduit pour le fine-tuning (doit correspondre à celui de l'agent)
 const SYSTEM_PROMPT = `You are a military and geopolitical OSINT classifier.
 Given a raw event (JSON), you must return a JSON object with:
 - keep (boolean): true if the event is relevant for OSINT monitoring, false otherwise
@@ -51,12 +48,11 @@ function readAllJsonl(filePath) {
     .filter(Boolean);
 }
 
-// ── Conversion vers format Mistral fine-tuning ────────────────────────────────
-function convertToMistralFormat(entries) {
+// ── Conversion vers format OpenAI fine-tuning ─────────────────────────────────
+function convertToOpenAIFormat(entries) {
   const examples = [];
 
   for (const entry of entries) {
-    // Reconstituer le message user (même format que buildPrompt dans collector)
     const userContent = JSON.stringify({
       title:     entry.input?.title,
       country:   entry.input?.country || entry.input?.countryCode || 'unknown',
@@ -71,7 +67,6 @@ function convertToMistralFormat(entries) {
       rootCode:  entry.input?.rootCode  || '',
     });
 
-    // Reconstituer la réponse assistant
     const assistantContent = JSON.stringify({
       keep:                  entry.output?.keep,
       domain_primary:        entry.output?.domain_primary,
@@ -97,7 +92,7 @@ function exportForMistral() {
   const entries  = readAllJsonl(APPROVED_FILE);
   if (entries.length === 0) throw new Error('Aucune entrée approuvée à exporter');
 
-  const examples = convertToMistralFormat(entries);
+  const examples = convertToOpenAIFormat(entries);
   const content  = examples.map(e => JSON.stringify(e)).join('\n') + '\n';
   fs.writeFileSync(EXPORT_FILE, content, 'utf8');
 
@@ -105,15 +100,14 @@ function exportForMistral() {
   return { count: examples.length, filePath: EXPORT_FILE };
 }
 
-// ── Upload vers Mistral Files API ─────────────────────────────────────────────
+// ── Upload vers OpenAI Files API ──────────────────────────────────────────────
 async function uploadToMistral(filePath) {
-  const key = MISTRAL_API_KEY();
-  if (!key) throw new Error('MISTRAL_API_KEY non définie');
+  const key = OPENAI_API_KEY();
+  if (!key) throw new Error('OPENAI_API_KEY non définie');
 
   const fileContent = fs.readFileSync(filePath);
   const fileName    = path.basename(filePath);
 
-  // Construire multipart/form-data manuellement (pas de dépendance form-data)
   const boundary = '----FormBoundary' + Date.now().toString(16);
   const CRLF = '\r\n';
 
@@ -128,7 +122,7 @@ async function uploadToMistral(filePath) {
   const epilogue = Buffer.from(`${CRLF}--${boundary}--${CRLF}`);
   const body = Buffer.concat([preamble, fileContent, epilogue]);
 
-  const res = await fetch('https://api.mistral.ai/v1/files', {
+  const res = await fetch('https://api.openai.com/v1/files', {
     method:  'POST',
     headers: {
       'Authorization': `Bearer ${key}`,
@@ -140,7 +134,7 @@ async function uploadToMistral(filePath) {
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Upload Mistral HTTP ${res.status}: ${err.slice(0, 300)}`);
+    throw new Error(`Upload OpenAI HTTP ${res.status}: ${err.slice(0, 300)}`);
   }
 
   const data = await res.json();
@@ -149,32 +143,26 @@ async function uploadToMistral(filePath) {
 }
 
 // ── Créer le job de fine-tuning ───────────────────────────────────────────────
-async function createFinetuneJob(fileId, approvedCount) {
-  const key = MISTRAL_API_KEY();
-  if (!key) throw new Error('MISTRAL_API_KEY non définie');
+async function createFinetuneJob(fileId) {
+  const key = OPENAI_API_KEY();
+  if (!key) throw new Error('OPENAI_API_KEY non définie');
 
-  const jobName = `world-monitor-osint-${new Date().toISOString().slice(0, 10)}-n${approvedCount}`;
-
-  const res = await fetch('https://api.mistral.ai/v1/fine_tuning/jobs', {
+  const res = await fetch('https://api.openai.com/v1/fine_tuning/jobs', {
     method:  'POST',
     headers: {
       'Authorization': `Bearer ${key}`,
       'Content-Type':  'application/json',
     },
     body: JSON.stringify({
-      model:           BASE_MODEL,
-      training_files:  [{ file_id: fileId, weight: 1 }],
-      hyperparameters: {
-        training_steps:  null,   // auto (Mistral calcule selon la taille du dataset)
-        learning_rate:   0.0001,
-      },
-      suffix: 'osint-classifier',
+      model:         BASE_MODEL,
+      training_file: fileId,
+      suffix:        'osint-classifier',
     }),
   });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Création job Mistral HTTP ${res.status}: ${err.slice(0, 300)}`);
+    throw new Error(`Création job OpenAI HTTP ${res.status}: ${err.slice(0, 300)}`);
   }
 
   const job = await res.json();
@@ -195,21 +183,20 @@ function loadJobStatus() {
 
 // ── Vérifier le statut d'un job en cours ─────────────────────────────────────
 async function checkJobStatus(jobId) {
-  const key = MISTRAL_API_KEY();
-  if (!key) throw new Error('MISTRAL_API_KEY non définie');
+  const key = OPENAI_API_KEY();
+  if (!key) throw new Error('OPENAI_API_KEY non définie');
 
-  const res = await fetch(`https://api.mistral.ai/v1/fine_tuning/jobs/${jobId}`, {
+  const res = await fetch(`https://api.openai.com/v1/fine_tuning/jobs/${jobId}`, {
     headers: { 'Authorization': `Bearer ${key}` },
   });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Check job Mistral HTTP ${res.status}: ${err.slice(0, 200)}`);
+    throw new Error(`Check job OpenAI HTTP ${res.status}: ${err.slice(0, 200)}`);
   }
 
   const job = await res.json();
 
-  // Sauvegarder le statut mis à jour
   const current = loadJobStatus() || {};
   saveJobStatus({ ...current, ...job, checked_at: new Date().toISOString() });
 
@@ -221,7 +208,7 @@ async function runFinetuneUpload(approvedCount) {
   const status = loadJobStatus();
 
   // Ne pas relancer si un job est déjà en cours
-  if (status?.status && ['RUNNING', 'QUEUED'].includes(status.status)) {
+  if (status?.status && ['running', 'queued', 'validating_files'].includes(status.status)) {
     console.log(`[finetune-upload] Job déjà en cours (${status.id} - ${status.status}) — skip`);
     return { skipped: true, reason: 'job_already_running', job_id: status.id };
   }
@@ -240,19 +227,19 @@ async function runFinetuneUpload(approvedCount) {
   // 4. Sauvegarder
   saveJobStatus({
     ...job,
-    approved_count:  count,
-    launched_at:     new Date().toISOString(),
-    export_file:     filePath,
+    approved_count:   count,
+    launched_at:      new Date().toISOString(),
+    export_file:      filePath,
     training_file_id: fileId,
   });
 
   return {
-    ok:         true,
-    job_id:     job.id,
-    status:     job.status,
-    model:      job.fine_tuned_model || 'pending',
-    examples:   count,
-    file_id:    fileId,
+    ok:       true,
+    job_id:   job.id,
+    status:   job.status,
+    model:    job.fine_tuned_model || 'pending',
+    examples: count,
+    file_id:  fileId,
   };
 }
 
