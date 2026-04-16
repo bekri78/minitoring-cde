@@ -24,8 +24,8 @@ const STATUS_FILE    = path.join(DATA_DIR, 'finetune-job-status.json');
 
 const OPENAI_API_KEY = () => (process.env.OPENAI_API_KEY || '').trim().replace(/^=+/, '');
 
-// gpt-4o-mini = meilleur rapport qualité/coût pour fine-tuning OpenAI
-const BASE_MODEL     = process.env.FINETUNE_BASE_MODEL || 'gpt-4o-mini';
+// gpt-4o-mini-2024-07-18 = ID exact requis par l'API fine-tuning OpenAI (l'alias gpt-4o-mini est refusé)
+const BASE_MODEL     = process.env.FINETUNE_BASE_MODEL || 'gpt-4o-mini-2024-07-18';
 const AUTO_THRESHOLD = parseInt(process.env.FINETUNE_AUTO_THRESHOLD || '200', 10);
 
 const SYSTEM_PROMPT = `You are a military and geopolitical OSINT classifier.
@@ -213,16 +213,37 @@ async function runFinetuneUpload(approvedCount) {
     return { skipped: true, reason: 'job_already_running', job_id: status.id };
   }
 
+  // Ne pas relancer si la dernière tentative a échoué il y a moins de 2h
+  if (status?.status === 'error' && status.failed_at) {
+    const elapsed = Date.now() - new Date(status.failed_at).getTime();
+    if (elapsed < 2 * 60 * 60 * 1000) {
+      console.log(`[finetune-upload] Dernière erreur il y a ${Math.round(elapsed / 60000)}min — skip (cooldown 2h)`);
+      return { skipped: true, reason: 'error_cooldown', last_error: status.error };
+    }
+  }
+
   console.log(`[finetune-upload] Démarrage pipeline upload (${approvedCount} exemples approuvés)`);
 
   // 1. Export
   const { count, filePath } = exportForMistral();
 
   // 2. Upload
-  const fileId = await uploadToMistral(filePath);
+  let fileId;
+  try {
+    fileId = await uploadToMistral(filePath);
+  } catch (err) {
+    saveJobStatus({ status: 'error', error: err.message, failed_at: new Date().toISOString() });
+    throw err;
+  }
 
   // 3. Créer job
-  const job = await createFinetuneJob(fileId, count);
+  let job;
+  try {
+    job = await createFinetuneJob(fileId, count);
+  } catch (err) {
+    saveJobStatus({ status: 'error', error: err.message, failed_at: new Date().toISOString(), training_file_id: fileId });
+    throw err;
+  }
 
   // 4. Sauvegarder
   saveJobStatus({
