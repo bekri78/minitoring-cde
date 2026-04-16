@@ -7,10 +7,16 @@
  *   1. Reçoit les events GDELT bruts du cache
  *   2. Les groupe par cellule géographique de 2° (≈ 220 km)
  *   3. Pour chaque cluster de ≥ 3 events : appel Groq → summary + key_points
- *   4. Cache en mémoire 4h
+ *   4. Cache en mémoire 4h + persistance disque
  */
 
-const GROQ_API_KEY = process.env.groq;
+const fs   = require('fs');
+const path = require('path');
+
+const CACHE_DIR   = process.env.CACHE_DIR || '/data';
+const DISK_PATH   = path.join(CACHE_DIR, 'signals-cache.json');
+
+const GROQ_API_KEY = process.env.groq || process.env.GROQ_API_KEY;
 const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL   = 'llama-3.1-8b-instant';
 
@@ -21,7 +27,33 @@ const MAX_CLUSTERS    = 30;  // réduit pour respecter le rate limit Groq free t
 const CONCURRENCY     = 1;   // 1 appel à la fois — Groq free = ~30 req/min
 const MIN_DELAY_MS    = 2500; // délai minimum entre appels (24/min < 30/min limite)
 
-let signalsCache  = { signals: [], lastUpdate: null };
+function loadSignalsFromDisk() {
+  try {
+    if (!fs.existsSync(DISK_PATH)) return null;
+    const raw = fs.readFileSync(DISK_PATH, 'utf8');
+    const data = JSON.parse(raw);
+    if (Array.isArray(data?.signals) && data.lastUpdate) return data;
+  } catch {}
+  return null;
+}
+
+function saveSignalsToDisk(cache) {
+  try {
+    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(DISK_PATH, JSON.stringify(cache), 'utf8');
+  } catch (err) {
+    console.warn('[signals] disk save failed:', err.message);
+  }
+}
+
+// Restaurer depuis le disque au démarrage
+const _diskCache  = loadSignalsFromDisk();
+let signalsCache  = _diskCache || { signals: [], lastUpdate: null };
+if (_diskCache) {
+  const age = Math.round((Date.now() - new Date(_diskCache.lastUpdate).getTime()) / 60000);
+  console.log(`[signals] restored from disk — ${_diskCache.signals.length} signals (${age}min old)`);
+}
+
 let isRunning     = false;
 let lastGroqCall  = 0; // timestamp du dernier appel Groq pour throttling
 
@@ -259,6 +291,7 @@ async function refreshSignals(events) {
   try {
     const signals = await buildSignals(events);
     signalsCache = { signals, lastUpdate: new Date().toISOString() };
+    saveSignalsToDisk(signalsCache);
   } finally {
     isRunning = false;
   }

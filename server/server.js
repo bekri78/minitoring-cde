@@ -113,6 +113,8 @@ async function refresh(force = false) {
         cache.status     = 'ok';
         isRefreshing     = false;
         console.log(`[refresh] restored from disk — ${disk.events.length} events (${Math.round(age / 60000)}min old)`);
+        // Rafraîchir les signals si périmés (ils ont leur propre cache disque)
+        if (isStale()) refreshSignals(disk.events).catch(err => console.error('[signals]', err.message));
         return;
       }
     }
