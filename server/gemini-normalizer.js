@@ -416,38 +416,23 @@ async function translateTitleWithDeepSeek(event) {
   };
 }
 
-// ── Groq (traduction / normalisation — gratuit) ───────────────────────────────
+// ── Groq (1 seul essai — si échec on passe à DeepSeek) ───────────────────────
 const _sleep = ms => new Promise(r => setTimeout(r, ms));
 async function callGroq(messages, timeoutMs = 30000) {
-  const RETRY_DELAYS = [10000, 20000, 40000]; // 10s, 20s, 40s sur 429
-  let lastErr;
-  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
-    if (attempt > 0) await _sleep(RETRY_DELAYS[attempt - 1]);
-    const resp = await fetch(GROQ_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({ model: GROQ_MODEL, messages, temperature: 0, max_tokens: 2048, response_format: { type: 'json_object' } }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (resp.status === 429) {
-      const retryAfter = parseInt(resp.headers?.get?.('retry-after') || '0', 10);
-      // Cap à 60s max — Groq envoie parfois des Retry-After de 400-800s qui bloquent tout
-      const wait = Math.min((retryAfter > 0 ? retryAfter * 1000 : RETRY_DELAYS[attempt] || 60000), 60000);
-      console.warn(`[normalize] Groq 429 — retry dans ${Math.round(wait / 1000)}s (tentative ${attempt + 1}/${RETRY_DELAYS.length + 1})`);
-      lastErr = new Error(`Groq HTTP_429`);
-      await _sleep(wait);
-      continue;
-    }
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => '');
-      const err = new Error(`Groq HTTP_${resp.status} ${body.slice(0, 120)}`);
-      err.status = resp.status;
-      throw err;
-    }
-    const data = await resp.json();
-    return data.choices?.[0]?.message?.content || '';
+  const resp = await fetch(GROQ_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+    body: JSON.stringify({ model: GROQ_MODEL, messages, temperature: 0, max_tokens: 2048, response_format: { type: 'json_object' } }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    const err = new Error(`Groq HTTP_${resp.status} ${body.slice(0, 120)}`);
+    err.status = resp.status;
+    throw err;
   }
-  throw lastErr;
+  const data = await resp.json();
+  return data.choices?.[0]?.message?.content || '';
 }
 
 async function normalizeBatchWithGroq(events) {
