@@ -6,9 +6,22 @@ const OpenAI = require('openai');
 const GEMINI_LIMIT   = Number(process.env.GEMINI_NORMALIZE_LIMIT || 80);
 const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
 
+const fs_   = require('fs');
+const path_ = require('path');
+
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const FINETUNE_MODEL   = process.env.FINETUNE_MODEL || null; // ft:gpt-4o-mini-...:osint-classifier
+
+// Lecture dynamique du modèle fine-tuné depuis finetune-job-status.json
+// → mis à jour automatiquement dès que le job OpenAI passe en "succeeded"
+const _JOB_STATUS_PATH = path_.join(process.env.FINETUNE_DATA_DIR || '/data', 'finetune-job-status.json');
+function getFineTunedModel() {
+  try {
+    const s = JSON.parse(fs_.readFileSync(_JOB_STATUS_PATH, 'utf8'));
+    if (s?.status === 'succeeded' && s?.fine_tuned_model) return s.fine_tuned_model;
+  } catch {}
+  return process.env.FINETUNE_MODEL || null;
+}
 
 const GROQ_API_KEY  = (process.env.groq || process.env.GROQ_API_KEY || '').trim();
 const GROQ_URL      = 'https://api.groq.com/openai/v1/chat/completions';
@@ -40,7 +53,7 @@ console.log('[normalizer] DEEPSEEK_API_KEY set:', !!DEEPSEEK_API_KEY);
 console.log('[normalizer] GROQ_API_KEY set:    ', !!GROQ_API_KEY);
 console.log('[normalizer] OPENAI_MODEL:        ', OPENAI_MODEL);
 console.log('[normalizer] DEEPSEEK_MODEL:      ', DEEPSEEK_MODEL);
-console.log('[normalizer] FINETUNE_MODEL:      ', FINETUNE_MODEL || '(none)');
+console.log('[normalizer] FINETUNE_MODEL:      ', getFineTunedModel() || '(none)');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const VALID_CATEGORIES = new Set([
@@ -496,7 +509,7 @@ async function filterEventsWithMistral(events) {
     return events;
   }
 
-  const filterModel = FINETUNE_MODEL || OPENAI_MODEL;
+  const filterModel = getFineTunedModel() || OPENAI_MODEL;
 
   for (let i = 0; i < candidates.length; i += AI_FILTER_BATCH) {
     const batch = candidates.slice(i, i + AI_FILTER_BATCH);
