@@ -14,14 +14,16 @@ const GROQ_API_KEY = process.env.groq;
 const GROQ_URL     = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL   = 'llama-3.1-8b-instant';
 
-const CACHE_TTL_MS  = 4 * 60 * 60 * 1000; // 4h
-const GRID_DEG      = 2;   // cellule 2° ≈ 220 km
-const MIN_EVENTS    = 3;   // minimum d'events pour générer un résumé
-const MAX_CLUSTERS  = 30;  // réduit pour respecter le rate limit Groq free tier
-const CONCURRENCY   = 1;   // 1 appel à la fois — Groq free = ~30 req/min
+const CACHE_TTL_MS    = 4 * 60 * 60 * 1000; // 4h
+const GRID_DEG        = 2;   // cellule 2° ≈ 220 km
+const MIN_EVENTS      = 3;   // minimum d'events pour générer un résumé
+const MAX_CLUSTERS    = 30;  // réduit pour respecter le rate limit Groq free tier
+const CONCURRENCY     = 1;   // 1 appel à la fois — Groq free = ~30 req/min
+const MIN_DELAY_MS    = 2500; // délai minimum entre appels (24/min < 30/min limite)
 
-let signalsCache = { signals: [], lastUpdate: null };
-let isRunning    = false;
+let signalsCache  = { signals: [], lastUpdate: null };
+let isRunning     = false;
+let lastGroqCall  = 0; // timestamp du dernier appel Groq pour throttling
 
 // ── Grouper les events par cellule 2° ─────────────────────────────────────
 function groupByCells(events) {
@@ -170,8 +172,13 @@ Rules: max 5 key_points, English only, factual and concise, no speculation.`;
   // Retry avec backoff sur 429 (rate limit Groq free tier)
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await sleep(attempt * 8000); // 8s, 16s
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) await sleep(attempt * 15000); // 15s, 30s, 45s
+
+    // Throttle : respecter MIN_DELAY_MS entre chaque appel API
+    const wait = MIN_DELAY_MS - (Date.now() - lastGroqCall);
+    if (wait > 0) await sleep(wait);
+    lastGroqCall = Date.now();
 
     const resp = await fetch(GROQ_URL, {
       method:  'POST',
