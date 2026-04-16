@@ -563,9 +563,7 @@ async function normalizeEventsWithMistral(events) {
     const batch = candidates.slice(i, i + GEMINI_BATCH);
     try {
       let results;
-      if (GROQ_API_KEY) {
-        results = await normalizeBatchWithGroq(batch);
-      } else if (DEEPSEEK_API_KEY) {
+      if (DEEPSEEK_API_KEY) {
         results = await requestJsonArrayFromDeepSeek([
           { role: 'system', content: 'You are an OSINT geopolitical analyst. Return JSON only.' },
           { role: 'user', content: `Return a JSON object with an "events" array.\n${buildPrompt(batch)}` },
@@ -583,29 +581,10 @@ async function normalizeEventsWithMistral(events) {
         if (merged) byId.set(original.id, merged);
         else { rejectedIds.add(original.id); rejected++; }
       }
-      const provider = GROQ_API_KEY ? 'groq' : (DEEPSEEK_API_KEY ? 'deepseek' : 'openai');
+      const provider = DEEPSEEK_API_KEY ? 'deepseek' : 'openai';
       console.log(`[normalize:${provider}] batch ${Math.floor(i / GEMINI_BATCH) + 1}: ${results.length}/${batch.length}`);
     } catch (err) {
       console.warn('[normalize] batch failed:', err.message);
-      // Fallback DeepSeek si Groq échoue
-      if (GROQ_API_KEY && DEEPSEEK_API_KEY) {
-        try {
-          const results = await requestJsonArrayFromDeepSeek([
-            { role: 'system', content: 'You are an OSINT geopolitical analyst. Return JSON only.' },
-            { role: 'user', content: `Return a JSON object with an "events" array.\n${buildPrompt(batch)}` },
-          ]);
-          for (const result of results) {
-            const original = batch.find(e => e.id === result.id);
-            if (!original) continue;
-            const merged = mergeResult(original, result);
-            if (merged) byId.set(original.id, merged);
-            else { rejectedIds.add(original.id); rejected++; }
-          }
-          console.log(`[normalize:deepseek] fallback batch ${Math.floor(i / GEMINI_BATCH) + 1}: ${results.length}/${batch.length}`);
-        } catch (fallbackErr) {
-          console.warn('[normalize] DeepSeek fallback also failed:', fallbackErr.message);
-        }
-      }
     }
 
     if (i + GEMINI_BATCH < candidates.length) await sleep(350);
@@ -615,7 +594,7 @@ async function normalizeEventsWithMistral(events) {
     .map(event => byId.get(event.id) || event)
     .filter(event => !rejectedIds.has(event.id));
 
-  const provider = GROQ_API_KEY ? 'groq' : (DEEPSEEK_API_KEY ? 'deepseek' : 'openai');
+  const provider = DEEPSEEK_API_KEY ? 'deepseek' : 'openai';
   console.log(`[normalize:${provider}] done: ${byId.size} normalized, ${rejected} rejected, ${candidates.length} checked`);
   return normalized;
 }
@@ -631,13 +610,6 @@ async function normalizeTitleWithGemini(event) {
   const id = event?.id || `title_${Date.now()}`;
   const baseEvent = { ...event, id, title, category: event?.category || 'incident' };
 
-  if (GROQ_API_KEY) {
-    try {
-      return await translateTitleWithGroq(baseEvent);
-    } catch (err) {
-      console.warn('[normalize] Groq title translation failed, trying DeepSeek:', err.message);
-    }
-  }
   if (DEEPSEEK_API_KEY) {
     return translateTitleWithDeepSeek(baseEvent);
   }

@@ -211,30 +211,7 @@ Rules: max 5 key_points, English only, factual and concise, no speculation.`;
 
   const messages = [{ role: 'user', content: prompt }];
 
-  // ── Tentative Groq (1 seul essai — si échec on passe à DeepSeek) ────────
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-  if (GROQ_API_KEY) {
-    const wait = MIN_DELAY_MS - (Date.now() - lastGroqCall);
-    if (wait > 0) await sleep(wait);
-    lastGroqCall = Date.now();
-
-    try {
-      const resp = await fetch(GROQ_URL, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-        body: JSON.stringify({ model: GROQ_MODEL, messages, temperature: 0, max_tokens: 400, response_format: { type: 'json_object' } }),
-        signal: AbortSignal.timeout(20000),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        const text = data.choices?.[0]?.message?.content || '';
-        return parseSignalResponse(text);
-      }
-      // 429 ou autre erreur → fallback immédiat
-    } catch { /* timeout ou réseau → fallback immédiat */ }
-  }
-
-  // ── Fallback DeepSeek si Groq 429 ou indisponible ────────────────────────
+  // ── DeepSeek uniquement (Groq en pause) ──────────────────────────────────
   if (deepseekClient) {
     const completion = await deepseekClient.chat.completions.create({
       model: DEEPSEEK_MODEL,
@@ -247,7 +224,7 @@ Rules: max 5 key_points, English only, factual and concise, no speculation.`;
     return parseSignalResponse(text);
   }
 
-  throw new Error('Groq 429 and no DeepSeek fallback available');
+  throw new Error('DEEPSEEK_API_KEY required (Groq en pause)');
 }
 
 // ── Générer tous les signals ───────────────────────────────────────────────
