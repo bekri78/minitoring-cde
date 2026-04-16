@@ -14,6 +14,9 @@ const GROQ_API_KEY  = (process.env.groq || process.env.GROQ_API_KEY || '').trim(
 const GROQ_URL      = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL    = process.env.GROQ_NORMALIZE_MODEL || 'llama-3.1-8b-instant';
 
+const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
+const DEEPSEEK_MODEL   = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+
 const AI_FILTER_ENABLED        = process.env.AI_FILTER_ENABLED !== 'false';
 const AI_FILTER_BATCH          = Number(process.env.AI_FILTER_BATCH || 20);
 const AI_FILTER_LIMIT          = Number(process.env.AI_FILTER_LIMIT || 1500);
@@ -27,10 +30,16 @@ const openaiClient = OPENAI_API_KEY
   ? new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1' })
   : null;
 
+const deepseekClient = DEEPSEEK_API_KEY
+  ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com/v1' })
+  : null;
+
 // Startup diagnostics
 console.log('[normalizer] OPENAI_API_KEY set:  ', !!OPENAI_API_KEY);
+console.log('[normalizer] DEEPSEEK_API_KEY set:', !!DEEPSEEK_API_KEY);
 console.log('[normalizer] GROQ_API_KEY set:    ', !!GROQ_API_KEY);
 console.log('[normalizer] OPENAI_MODEL:        ', OPENAI_MODEL);
+console.log('[normalizer] DEEPSEEK_MODEL:      ', DEEPSEEK_MODEL);
 console.log('[normalizer] FINETUNE_MODEL:      ', FINETUNE_MODEL || '(none)');
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -326,6 +335,87 @@ async function translateTitleWithOpenAI(event) {
   };
 }
 
+// ── DeepSeek (fallback Groq — API OpenAI-compatible) ──────────────────────────
+async function requestJsonArrayFromDeepSeek(messages) {
+  if (!deepseekClient) {
+    const err = new Error('DEEPSEEK_API_KEY missing');
+    err.status = 503;
+    throw err;
+  }
+  let completion;
+  try {
+    completion = await deepseekClient.chat.completions.create({
+      model: DEEPSEEK_MODEL,
+      messages,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+    }, { timeout: 45000 });
+  } catch (e) {
+    const status = e?.status || e?.response?.status || 500;
+    const err = new Error(`DeepSeek HTTP_${status} ${(e?.message || '').slice(0, 180)}`);
+    err.status = status >= 500 ? 502 : 503;
+    throw err;
+  }
+  const text = parseChatTextContent(completion.choices?.[0]?.message?.content);
+  const parsed = extractJsonObject(text);
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed?.events)) return parsed.events;
+  if (Array.isArray(parsed?.results)) return parsed.results;
+  return extractJsonArray(text);
+}
+
+async function translateTitleWithDeepSeek(event) {
+  if (!deepseekClient) {
+    const err = new Error('DEEPSEEK_API_KEY missing');
+    err.status = 503;
+    throw err;
+  }
+  let completion;
+  try {
+    completion = await deepseekClient.chat.completions.create({
+      model: DEEPSEEK_MODEL,
+      messages: [
+        { role: 'system', content: 'Translate OSINT/geopolitical article titles into concise French. Return JSON only.' },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            title: event.title,
+            domain: event.domain || '',
+            country: event.country || '',
+            category: event.category || 'incident',
+            eventCode: event.eventCode || '',
+            rootCode: event.rootCode || '',
+            output: { fr: 'French title <= 16 words', en: 'English title <= 16 words', notes: 'French summary <= 22 words', language: 'detected language' },
+          }),
+        },
+      ],
+      temperature: 0,
+      response_format: { type: 'json_object' },
+    }, { timeout: 45000 });
+  } catch (e) {
+    const status = e?.status || e?.response?.status || 500;
+    const err = new Error(`DeepSeek HTTP_${status} ${(e?.message || '').slice(0, 180)}`);
+    err.status = status >= 500 ? 502 : 503;
+    throw err;
+  }
+  const text = completion.choices?.[0]?.message?.content || '';
+  const result = extractJsonObject(text) || {};
+  const output = result.output && typeof result.output === 'object' ? result.output : {};
+  const fr = result.fr || result.title_fr || result.french || result.translation || output.fr || output.french || output.translation;
+  const en = result.en || result.headline || result.english || output.en || output.headline;
+  const notes = result.notes || result.summary || output.notes || output.summary;
+  const language = result.language || result.detected_language || output.language;
+  return {
+    id: event.id, keep: true,
+    originalTitle: event.title, title: fr || event.title,
+    fr: fr || event.title, headline: en || null, notes: notes || null,
+    category: VALID_CATEGORIES.has(event.category) ? event.category : 'incident',
+    relevance: Number(event.relevance || 0),
+    language: language || null, isRomanized: false, nativeTitle: null,
+    provider: 'deepseek',
+  };
+}
+
 // ── Groq (traduction / normalisation — gratuit) ───────────────────────────────
 const _sleep = ms => new Promise(r => setTimeout(r, ms));
 async function callGroq(messages, timeoutMs = 30000) {
@@ -466,9 +556,9 @@ async function filterEventsWithMistral(events) {
   return filtered;
 }
 
-// ── Normalisation / Traduction (Groq gratuit, fallback OpenAI) ────────────────
+// ── Normalisation / Traduction (Groq gratuit, fallback DeepSeek) ─────────────
 async function normalizeEventsWithMistral(events) {
-  if (!GROQ_API_KEY && !OPENAI_API_KEY) {
+  if (!GROQ_API_KEY && !DEEPSEEK_API_KEY && !OPENAI_API_KEY) {
     console.log('[normalize] skipped: no API key available');
     return events;
   }
@@ -489,6 +579,11 @@ async function normalizeEventsWithMistral(events) {
       let results;
       if (GROQ_API_KEY) {
         results = await normalizeBatchWithGroq(batch);
+      } else if (DEEPSEEK_API_KEY) {
+        results = await requestJsonArrayFromDeepSeek([
+          { role: 'system', content: 'You are an OSINT geopolitical analyst. Return JSON only.' },
+          { role: 'user', content: `Return a JSON object with an "events" array.\n${buildPrompt(batch)}` },
+        ]);
       } else {
         results = await requestJsonArrayFromOpenAI([
           { role: 'system', content: 'You are an OSINT geopolitical analyst. Return JSON only.' },
@@ -502,17 +597,17 @@ async function normalizeEventsWithMistral(events) {
         if (merged) byId.set(original.id, merged);
         else { rejectedIds.add(original.id); rejected++; }
       }
-      const provider = GROQ_API_KEY ? 'groq' : 'openai';
+      const provider = GROQ_API_KEY ? 'groq' : (DEEPSEEK_API_KEY ? 'deepseek' : 'openai');
       console.log(`[normalize:${provider}] batch ${Math.floor(i / GEMINI_BATCH) + 1}: ${results.length}/${batch.length}`);
     } catch (err) {
       console.warn('[normalize] batch failed:', err.message);
-      // Fallback OpenAI si Groq échoue
-      if (GROQ_API_KEY && OPENAI_API_KEY) {
+      // Fallback DeepSeek si Groq échoue
+      if (GROQ_API_KEY && DEEPSEEK_API_KEY) {
         try {
-          const results = await requestJsonArrayFromOpenAI([
+          const results = await requestJsonArrayFromDeepSeek([
             { role: 'system', content: 'You are an OSINT geopolitical analyst. Return JSON only.' },
             { role: 'user', content: `Return a JSON object with an "events" array.\n${buildPrompt(batch)}` },
-          ], OPENAI_MODEL);
+          ]);
           for (const result of results) {
             const original = batch.find(e => e.id === result.id);
             if (!original) continue;
@@ -520,8 +615,9 @@ async function normalizeEventsWithMistral(events) {
             if (merged) byId.set(original.id, merged);
             else { rejectedIds.add(original.id); rejected++; }
           }
+          console.log(`[normalize:deepseek] fallback batch ${Math.floor(i / GEMINI_BATCH) + 1}: ${results.length}/${batch.length}`);
         } catch (fallbackErr) {
-          console.warn('[normalize] OpenAI fallback also failed:', fallbackErr.message);
+          console.warn('[normalize] DeepSeek fallback also failed:', fallbackErr.message);
         }
       }
     }
@@ -533,7 +629,7 @@ async function normalizeEventsWithMistral(events) {
     .map(event => byId.get(event.id) || event)
     .filter(event => !rejectedIds.has(event.id));
 
-  const provider = GROQ_API_KEY ? 'groq' : 'openai';
+  const provider = GROQ_API_KEY ? 'groq' : (DEEPSEEK_API_KEY ? 'deepseek' : 'openai');
   console.log(`[normalize:${provider}] done: ${byId.size} normalized, ${rejected} rejected, ${candidates.length} checked`);
   return normalized;
 }
@@ -553,13 +649,16 @@ async function normalizeTitleWithGemini(event) {
     try {
       return await translateTitleWithGroq(baseEvent);
     } catch (err) {
-      console.warn('[normalize] Groq title translation failed, trying OpenAI:', err.message);
+      console.warn('[normalize] Groq title translation failed, trying DeepSeek:', err.message);
     }
+  }
+  if (DEEPSEEK_API_KEY) {
+    return translateTitleWithDeepSeek(baseEvent);
   }
   if (OPENAI_API_KEY) {
     return translateTitleWithOpenAI(baseEvent);
   }
-  const err = new Error('GROQ_API_KEY or OPENAI_API_KEY missing');
+  const err = new Error('No translation API key available (GROQ_API_KEY, DEEPSEEK_API_KEY, or OPENAI_API_KEY required)');
   err.status = 503;
   throw err;
 }
