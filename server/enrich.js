@@ -11,7 +11,7 @@ const ENRICH_URL       = LLM_PROVIDER === 'mistral' ? 'https://api.mistral.ai/v1
 const ENRICH_API_KEY   = LLM_PROVIDER === 'mistral' ? process.env.MISTRAL_API_KEY : (DEEPSEEK_API_KEY || OPENAI_API_KEY);
 
 const openaiClient = LLM_PROVIDER === 'deepseek'
-  ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' })
+  ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com/v1' })
   : LLM_PROVIDER === 'openai'
   ? new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1' })
   : null;
