@@ -431,7 +431,8 @@ async function callGroq(messages, timeoutMs = 30000) {
     });
     if (resp.status === 429) {
       const retryAfter = parseInt(resp.headers?.get?.('retry-after') || '0', 10);
-      const wait = retryAfter > 0 ? retryAfter * 1000 : RETRY_DELAYS[attempt] || 60000;
+      // Cap à 60s max — Groq envoie parfois des Retry-After de 400-800s qui bloquent tout
+      const wait = Math.min((retryAfter > 0 ? retryAfter * 1000 : RETRY_DELAYS[attempt] || 60000), 60000);
       console.warn(`[normalize] Groq 429 — retry dans ${Math.round(wait / 1000)}s (tentative ${attempt + 1}/${RETRY_DELAYS.length + 1})`);
       lastErr = new Error(`Groq HTTP_429`);
       await _sleep(wait);
