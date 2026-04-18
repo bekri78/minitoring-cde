@@ -1,26 +1,25 @@
 'use strict';
 
+const fs     = require('fs');
+const path   = require('path');
 const OpenAI = require('openai');
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 const GEMINI_LIMIT   = Number(process.env.GEMINI_NORMALIZE_LIMIT || 80);
 const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
 
-const fs_   = require('fs');
-const path_ = require('path');
-
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-// Lecture dynamique du modèle fine-tuné depuis finetune-job-status.json
-// → mis à jour automatiquement dès que le job OpenAI passe en "succeeded"
-const _JOB_STATUS_PATH = path_.join(process.env.FINETUNE_DATA_DIR || '/data', 'finetune-job-status.json');
-function getFineTunedModel() {
+// Lecture dynamique du modèle fine-tuné : priorité env var, sinon finetune-job-status.json
+const FINETUNE_STATUS_FILE = path.join(process.env.FINETUNE_DATA_DIR || '/data', 'finetune-job-status.json');
+function getFilterModel() {
+  if (process.env.FINETUNE_MODEL) return process.env.FINETUNE_MODEL;
   try {
-    const s = JSON.parse(fs_.readFileSync(_JOB_STATUS_PATH, 'utf8'));
-    if (s?.status === 'succeeded' && s?.fine_tuned_model) return s.fine_tuned_model;
-  } catch {}
-  return process.env.FINETUNE_MODEL || null;
+    const status = JSON.parse(fs.readFileSync(FINETUNE_STATUS_FILE, 'utf8'));
+    if (status?.status === 'succeeded' && status?.fine_tuned_model) return status.fine_tuned_model;
+  } catch { /* fichier absent ou invalide → fallback */ }
+  return OPENAI_MODEL;
 }
 
 const GROQ_API_KEY  = (process.env.groq || process.env.GROQ_API_KEY || '').trim();
@@ -53,7 +52,7 @@ console.log('[normalizer] DEEPSEEK_API_KEY set:', !!DEEPSEEK_API_KEY);
 console.log('[normalizer] GROQ_API_KEY set:    ', !!GROQ_API_KEY);
 console.log('[normalizer] OPENAI_MODEL:        ', OPENAI_MODEL);
 console.log('[normalizer] DEEPSEEK_MODEL:      ', DEEPSEEK_MODEL);
-console.log('[normalizer] FINETUNE_MODEL:      ', getFineTunedModel() || '(none)');
+console.log('[normalizer] FINETUNE_MODEL:      ', getFilterModel());
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const VALID_CATEGORIES = new Set([
@@ -117,7 +116,7 @@ function isLikelyEnglish(text) {
   return false;
 }
 
-function needsMistral(event) {
+function needsTranslation(event) {
   const title = event?.title || '';
   if (!title || title.length < 8) return false;
   if (hasNonLatin(title)) return true;
@@ -489,7 +488,7 @@ async function translateTitleWithGroq(event) {
 }
 
 // ── Filtre IA (OpenAI gpt-4o-mini, batch) ─────────────────────────────────────
-async function filterEventsWithMistral(events) {
+async function filterEventsWithAI(events) {
   if (!AI_FILTER_ENABLED) {
     console.log('[ai-filter] disabled via AI_FILTER_ENABLED=false');
     return events;
@@ -509,7 +508,7 @@ async function filterEventsWithMistral(events) {
     return events;
   }
 
-  const filterModel = getFineTunedModel() || OPENAI_MODEL;
+  const filterModel = getFilterModel();
 
   for (let i = 0; i < candidates.length; i += AI_FILTER_BATCH) {
     const batch = candidates.slice(i, i + AI_FILTER_BATCH);
@@ -555,14 +554,14 @@ async function filterEventsWithMistral(events) {
   return filtered;
 }
 
-// ── Normalisation / Traduction (Groq gratuit, fallback DeepSeek) ─────────────
-async function normalizeEventsWithMistral(events) {
+// ── Normalisation / Traduction (Groq gratuit, fallback OpenAI) ────────────────
+async function normalizeEvents(events) {
   if (!GROQ_API_KEY && !DEEPSEEK_API_KEY && !OPENAI_API_KEY) {
     console.log('[normalize] skipped: no API key available');
     return events;
   }
 
-  const candidates = events.filter(needsMistral).slice(0, GEMINI_LIMIT);
+  const candidates = events.filter(needsTranslation).slice(0, GEMINI_LIMIT);
   if (!candidates.length) {
     console.log('[normalize] skipped: no ambiguous titles');
     return events;
@@ -634,4 +633,4 @@ async function normalizeTitleWithGemini(event) {
   throw err;
 }
 
-module.exports = { normalizeEventsWithMistral, normalizeTitleWithGemini, filterEventsWithMistral };
+module.exports = { normalizeEvents, normalizeTitleWithGemini, filterEventsWithAI };

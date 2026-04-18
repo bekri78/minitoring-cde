@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const unzipper = require('unzipper');
-const { normalizeEventsWithMistral, filterEventsWithMistral } = require('./gemini-normalizer');
+const { normalizeEvents, filterEventsWithAI } = require('./gemini-normalizer');
 
 const MASTERFILELIST_URL = process.env.GDELT_MASTERFILELIST_URL || 'http://data.gdeltproject.org/gdeltv2/masterfilelist.txt';
 const MASTERFILELIST_TRANSLATION_URL = process.env.GDELT_MASTERFILELIST_TRANSLATION_URL || 'http://data.gdeltproject.org/gdeltv2/masterfilelist-translation.txt';
@@ -1254,8 +1254,8 @@ async function fetchTodayEvents(options = {}) {
     console.log(`[gdelt-files] no new batches — returning snapshot ${state.snapshot?.length || 0}`);
     const selected = selectDiverseEvents(state.snapshot || []);
     logCalibration(state.snapshot || [], selected);
-    const filtered = await filterEventsWithMistral(selected);
-    const normalized = await normalizeEventsWithMistral(filtered);
+    const filtered = await filterEventsWithAI(selected);
+    const normalized = await normalizeEvents(filtered);
     return normalized;
   }
 
@@ -1297,8 +1297,8 @@ async function fetchTodayEvents(options = {}) {
   console.log(`[gdelt-files] snapshot ready — ${snapshot.length} events`);
   const selected = selectDiverseEvents(snapshot);
   logCalibration(snapshot, selected);
-  const filtered = await filterEventsWithMistral(selected);
-  const normalized = await normalizeEventsWithMistral(filtered);
+  const filtered = await filterEventsWithAI(selected);
+  const normalized = await normalizeEvents(filtered);
   return normalized;
 }
 

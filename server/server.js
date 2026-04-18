@@ -19,7 +19,7 @@ const { refreshSignals, getSignalsCache, isStale }                   = require('
 const { normalizeTitleWithGemini }                                   = require('./gemini-normalizer');
 const { fetchSignalMarkers, getCache: getSignalMarkersCache }        = require('./signalMarkers');
 const { runFinetuneCollector, getDatasetStats, getReviewEntries, approveEntry, rejectEntry } = require('./finetune-collector');
-const { runFinetuneUpload, checkJobStatus, loadJobStatus, exportForMistral } = require('./finetune-uploader');
+const { runFinetuneUpload, checkJobStatus, loadJobStatus, exportForOpenAI } = require('./finetune-uploader');
 const { fetchWorldEvents, getCache: getWorldEventsCache }            = require('./worldEvents');
 const { getMaritimeEvents, getMaritimeAnomalies, getNavalActivity }  = require('./maritime-osint');
 const { fetchMaritimeAnomalies }                                     = require('./maritime-anomalies');
@@ -770,8 +770,8 @@ app.get('/api/finetune/job', async (_req, res) => {
   try {
     const status = loadJobStatus();
     if (!status) return res.json({ job: null, message: 'Aucun job lancé' });
-    // Rafraîchir le statut si job actif
-    if (['RUNNING', 'QUEUED'].includes(status.status)) {
+    // Rafraîchir le statut si job actif (statuts OpenAI en minuscules)
+    if (['running', 'queued', 'validating_files'].includes(status.status)) {
       const updated = await checkJobStatus(status.id);
       return res.json({ job: updated });
     }
@@ -800,8 +800,8 @@ app.post('/api/finetune/upload', async (_req, res) => {
 // Export seul (sans upload) — pour télécharger le fichier converti
 app.get('/api/finetune/export', (_req, res) => {
   try {
-    const { count, filePath } = exportForMistral();
-    res.download(filePath, `finetune-mistral-export-${count}ex.jsonl`);
+    const { count, filePath } = exportForOpenAI();
+    res.download(filePath, `finetune-openai-export-${count}ex.jsonl`);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

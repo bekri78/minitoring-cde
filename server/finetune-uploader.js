@@ -88,7 +88,7 @@ function convertToOpenAIFormat(entries) {
 }
 
 // ── Export fichier JSONL converti ─────────────────────────────────────────────
-function exportForMistral() {
+function exportForOpenAI() {
   const entries  = readAllJsonl(APPROVED_FILE);
   if (entries.length === 0) throw new Error('Aucune entrée approuvée à exporter');
 
@@ -101,7 +101,7 @@ function exportForMistral() {
 }
 
 // ── Upload vers OpenAI Files API ──────────────────────────────────────────────
-async function uploadToMistral(filePath) {
+async function uploadToOpenAI(filePath) {
   const key = OPENAI_API_KEY();
   if (!key) throw new Error('OPENAI_API_KEY non définie');
 
@@ -203,6 +203,31 @@ async function checkJobStatus(jobId) {
   return job;
 }
 
+// ── Polling automatique jusqu'à succeeded/failed ──────────────────────────────
+async function pollJobUntilComplete(jobId) {
+  const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 min
+  const MAX_POLLS = 36; // 6h max
+
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+    try {
+      const job = await checkJobStatus(jobId);
+      console.log(`[finetune-poll] job ${jobId} → ${job.status}${job.fine_tuned_model ? ` | model: ${job.fine_tuned_model}` : ''}`);
+      if (job.status === 'succeeded') {
+        console.log(`[finetune-poll] ✅ Fine-tuning terminé — modèle actif: ${job.fine_tuned_model}`);
+        return;
+      }
+      if (job.status === 'failed' || job.status === 'cancelled') {
+        console.warn(`[finetune-poll] ❌ Job ${job.status}: ${JSON.stringify(job.error || {})}`);
+        return;
+      }
+    } catch (err) {
+      console.warn(`[finetune-poll] erreur check job: ${err.message}`);
+    }
+  }
+  console.warn(`[finetune-poll] timeout après ${MAX_POLLS} polls — vérifier manuellement`);
+}
+
 // ── Pipeline complet : export → upload → job ──────────────────────────────────
 async function runFinetuneUpload(approvedCount) {
   const status = loadJobStatus();
@@ -225,12 +250,12 @@ async function runFinetuneUpload(approvedCount) {
   console.log(`[finetune-upload] Démarrage pipeline upload (${approvedCount} exemples approuvés)`);
 
   // 1. Export
-  const { count, filePath } = exportForMistral();
+  const { count, filePath } = exportForOpenAI();
 
   // 2. Upload
   let fileId;
   try {
-    fileId = await uploadToMistral(filePath);
+    fileId = await uploadToOpenAI(filePath);
   } catch (err) {
     saveJobStatus({ status: 'error', error: err.message, failed_at: new Date().toISOString() });
     throw err;
@@ -254,6 +279,9 @@ async function runFinetuneUpload(approvedCount) {
     training_file_id: fileId,
   });
 
+  // 5. Polling en background — met à jour le status file automatiquement
+  pollJobUntilComplete(job.id).catch(err => console.warn('[finetune-poll] fatal:', err.message));
+
   return {
     ok:       true,
     job_id:   job.id,
@@ -268,6 +296,6 @@ module.exports = {
   runFinetuneUpload,
   checkJobStatus,
   loadJobStatus,
-  exportForMistral,
+  exportForOpenAI,
   AUTO_THRESHOLD,
 };
