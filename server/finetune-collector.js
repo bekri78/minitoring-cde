@@ -3,13 +3,13 @@
 /**
  * finetune-collector.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Pipeline automatique de génération de dataset fine-tuning Mistral.
+ * Pipeline automatique de génération de dataset fine-tuning OpenAI.
  *
  * Étapes :
  *  1. Fetch  — GET /events (API interne)
  *  2. Filter — score, catégorie, qualité du titre
  *  3. Dedup  — event_id + fingerprint sémantique (hash)
- *  4. Agent  — classification Mistral par batches de 20
+ *  4. Agent  — classification Claude par batches de 20
  *  5. Raw    — stockage dans data/finetune-raw.jsonl (tout)
  *  6. Flags  — needs_review automatique selon critères qualité
  *  7. Approved — data/finetune-approved.jsonl (filtrés)
@@ -21,16 +21,26 @@ const path   = require('path');
 const crypto = require('crypto');
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const MISTRAL_API_KEY  = () => (process.env.MISTRAL_API_KEY || '').trim().replace(/^=+/, '');
-const MISTRAL_AGENT_ID = process.env.MISTRAL_AGENT_ID || 'ag_019d80e9997f70f9821291b4ac8dde18';
 const CLAUDE_API_KEY   = () => (process.env.CLAUDE_API_KEY || '').trim().replace(/^=+/, '');
 const CLAUDE_MODEL     = process.env.CLAUDE_LABELER_MODEL || 'claude-sonnet-4-6';
-// LABELER: 'claude' | 'mistral' (défaut mistral si CLAUDE_API_KEY absente)
-const LABELER          = process.env.FINETUNE_LABELER || (process.env.CLAUDE_API_KEY ? 'claude' : 'mistral');
+const OPENAI_API_KEY   = () => (process.env.OPENAI_API_KEY || '').trim().replace(/^=+/, '');
+const OPENAI_DEDUP_MODEL = 'gpt-4o-mini';
 const PROMPT_VERSION   = 'v2.0';
 const AGENT_VERSION    = 2;
 const INTERNAL_PORT    = process.env.PORT || 3000;
 const INTERNAL_URL     = process.env.RAILWAY_INTERNAL_URL || `http://localhost:${INTERNAL_PORT}`;
+
+// ── Dedup AI config ───────────────────────────────────────────────────────────
+const DEDUP_RECENT_HOURS  = 48;       // fenêtre de comparaison avec les approuvés récents
+const DEDUP_GRAY_MIN      = 0.20;     // similarité Jaccard min pour zone grise
+const DEDUP_GRAY_MAX      = 0.70;     // similarité Jaccard max (au-dessus = doublon évident)
+const DEDUP_AI_BATCH      = 30;       // max paires par appel LLM
+const DEDUP_STOPWORDS     = new Set([
+  'le','la','les','de','du','des','un','une','en','et','ou','sur','avec','pour',
+  'par','dans','il','ils','elle','elles','se','qui','que','est','son','sa','ses',
+  'leur','leurs','on','nous','vous','dont','mais','si','car','ni','au','aux','ce',
+  'cette','ces','the','and','for','with','in','of','to','is','are','was','from',
+]);
 
 // Filtres de qualité
 const MIN_SCORE           = 50;
@@ -203,6 +213,112 @@ function readAllJsonl(filePath) {
   } catch { return []; }
 }
 
+// ── STEP 3b — Dedup sémantique AI ────────────────────────────────────────────
+
+function titleWords(title) {
+  return new Set(
+    (title || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9 ]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 3 && !DEDUP_STOPWORDS.has(w))
+  );
+}
+
+function jaccardSimilarity(a, b) {
+  if (!a.size || !b.size) return 0;
+  const intersection = [...a].filter(w => b.has(w)).length;
+  return intersection / (a.size + b.size - intersection);
+}
+
+function loadRecentApprovedTitles() {
+  const cutoff = Date.now() - DEDUP_RECENT_HOURS * 3600 * 1000;
+  return readAllJsonl(RAW_FILE)
+    .filter(e => e.output?.keep === true && Date.parse(e.meta?.collected_at) > cutoff)
+    .map(e => ({ id: String(e.input?.id || ''), title: e.input?.title || '' }));
+}
+
+function findDedupPairs(candidates, recentApproved) {
+  const all = [
+    ...candidates.map((e, i) => ({ idx: i, isCandidate: true, id: String(e.id), title: e.title || '', words: titleWords(e.title) })),
+    ...recentApproved.map(e => ({ idx: -1, isCandidate: false, id: e.id, title: e.title, words: titleWords(e.title) })),
+  ];
+  const pairs = [];
+  for (let i = 0; i < candidates.length; i++) {
+    const a = all[i];
+    for (let j = i + 1; j < all.length; j++) {
+      const b = all[j];
+      if (a.id === b.id) continue;
+      const sim = jaccardSimilarity(a.words, b.words);
+      if (sim >= DEDUP_GRAY_MIN && sim < DEDUP_GRAY_MAX) {
+        pairs.push({ i: a.idx, j: b.idx, titleA: a.title, titleB: b.title, jIsCandidate: b.isCandidate });
+      } else if (sim >= DEDUP_GRAY_MAX) {
+        // Doublon évident → marquer directement sans LLM
+        pairs.push({ i: a.idx, j: b.idx, titleA: a.title, titleB: b.title, jIsCandidate: b.isCandidate, obvious: true });
+      }
+    }
+  }
+  return pairs;
+}
+
+async function deduplicateCandidatesWithAI(candidates) {
+  const key = OPENAI_API_KEY();
+  if (!key || !candidates.length) return candidates;
+
+  const recentApproved = loadRecentApprovedTitles();
+  const allPairs = findDedupPairs(candidates, recentApproved);
+  if (!allPairs.length) return candidates;
+
+  const duplicateCandidateIndices = new Set();
+
+  // Doublons évidents — sans LLM
+  for (const p of allPairs.filter(p => p.obvious)) {
+    duplicateCandidateIndices.add(p.i);
+  }
+
+  // Zone grise — LLM
+  const grayPairs = allPairs.filter(p => !p.obvious);
+  for (let b = 0; b < grayPairs.length; b += DEDUP_AI_BATCH) {
+    const batch = grayPairs.slice(b, b + DEDUP_AI_BATCH);
+    const prompt = batch.map((p, idx) =>
+      `Pair ${idx}:\n  A: "${p.titleA}"\n  B: "${p.titleB}"`
+    ).join('\n\n');
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: OPENAI_DEDUP_MODEL,
+          messages: [
+            { role: 'system', content: 'You are an OSINT news deduplication expert.\nGiven pairs of headlines, decide if each pair covers the SAME real-world event.\nSame event = same incident/operation/announcement, even if worded differently or from different sources.\nDifferent event = different incident, different day, different location, or only thematically similar.\nReturn ONLY a JSON object: {"pairs":[{"pair":0,"same":true},{"pair":1,"same":false},...]}' },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0,
+          response_format: { type: 'json_object' },
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content || '';
+      const parsed = JSON.parse(text);
+      const results = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.pairs) ? parsed.pairs : []);
+      for (const r of results) {
+        if (!r.same) continue;
+        const pair = batch[r.pair];
+        if (pair) duplicateCandidateIndices.add(pair.i);
+      }
+    } catch (err) {
+      console.warn('[finetune-dedup] batch AI failed:', err.message.slice(0, 80));
+    }
+  }
+
+  if (duplicateCandidateIndices.size > 0) {
+    console.log(`[finetune-dedup] ${duplicateCandidateIndices.size} doublons sémantiques supprimés sur ${candidates.length}`);
+  }
+  return candidates.filter((_, i) => !duplicateCandidateIndices.has(i));
+}
+
 // ── STEP 2 — Filtre qualité ───────────────────────────────────────────────────
 function isFallbackTitle(title) {
   return FALLBACK_PATTERNS.some(p => p.test(title));
@@ -222,7 +338,7 @@ function passesFilter(event) {
   return true;
 }
 
-// ── STEP 4 — Labélisation (Claude ou Mistral agent) ──────────────────────────
+// ── STEP 4 — Labélisation (Claude) ───────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are a military and geopolitical OSINT classifier.
 Given a raw event (JSON), you must return a JSON object with:
@@ -295,35 +411,8 @@ async function callClaudeLabeler(event) {
   return parseAndValidate(content, 'Claude');
 }
 
-async function callMistralAgent(event) {
-  const key = MISTRAL_API_KEY();
-  if (!key) throw new Error('MISTRAL_API_KEY non définie');
-
-  const res = await fetch('https://api.mistral.ai/v1/agents/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      agent_id: MISTRAL_AGENT_ID,
-      messages: [{ role: 'user', content: buildPrompt(event) }],
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Mistral HTTP ${res.status}: ${err.slice(0, 200)}`);
-  }
-
-  const data    = await res.json();
-  const content = data.choices?.[0]?.message?.content || '';
-  return parseAndValidate(content, 'Mistral');
-}
-
 function callLabeler(event) {
-  if (LABELER === 'claude') return callClaudeLabeler(event);
-  return callMistralAgent(event);
+  return callClaudeLabeler(event);
 }
 
 // ── STEP 6 — Flags qualité ────────────────────────────────────────────────────
@@ -387,8 +476,8 @@ function storeEntry(event, output) {
       strategic_relevance:   output.strategic_relevance,
     },
     meta: {
-      labeler:        LABELER,
-      agent_id:       LABELER === 'mistral' ? MISTRAL_AGENT_ID : CLAUDE_MODEL,
+      labeler:        'claude',
+      agent_id:       CLAUDE_MODEL,
       agent_version:  AGENT_VERSION,
       prompt_version: PROMPT_VERSION,
       collected_at:   new Date().toISOString(),
@@ -422,16 +511,10 @@ async function runFinetuneCollector(directEvents = null) {
     return;
   }
 
-  const key = MISTRAL_API_KEY();
-  if (!key) {
-    console.warn('[finetune] MISTRAL_API_KEY non définie — pipeline désactivé');
-    return;
-  }
-
   _state.running = true;
   _state.lastRun = new Date().toISOString();
   loadApprovedFps(); // charge les fps approved au premier cycle
-  console.log(`[finetune] cycle start — labeler: ${LABELER} model: ${LABELER === 'claude' ? CLAUDE_MODEL : MISTRAL_AGENT_ID}`);
+  console.log(`[finetune] cycle start — labeler: claude model: ${CLAUDE_MODEL}`);
 
   try {
     // ── STEP 1 — Events (directs si fournis, sinon fetch /events) ───────────
@@ -480,7 +563,11 @@ async function runFinetuneCollector(directEvents = null) {
 
     console.log(`[finetune] ${candidates.length} candidats nouveaux (max ${MAX_PER_RUN}/cycle)`);
 
-    if (candidates.length === 0) {
+    // ── STEP 3b — Dedup sémantique AI ───────────────────────────────────────
+    const dedupedCandidates = await deduplicateCandidatesWithAI(candidates);
+    const finalCandidates = dedupedCandidates;
+
+    if (finalCandidates.length === 0) {
       console.log('[finetune] Aucun événement à labéliser');
       _state.lastRunProcessed = 0;
       // Vérifier quand même l'auto-upload (le seuil peut être atteint sans nouveaux events)
@@ -499,11 +586,11 @@ async function runFinetuneCollector(directEvents = null) {
       return;
     }
 
-    // ── STEP 4 — Batches Mistral ─────────────────────────────────────────────
+    // ── STEP 4 — Labellisation ───────────────────────────────────────────────
     let processed = 0, discards = 0, errors = 0, reviewCount = 0;
 
-    for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-      const batch = candidates.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < finalCandidates.length; i += BATCH_SIZE) {
+      const batch = finalCandidates.slice(i, i + BATCH_SIZE);
       console.log(`[finetune] Batch ${Math.floor(i / BATCH_SIZE) + 1} — ${batch.length} events`);
 
       for (const event of batch) {
@@ -539,7 +626,7 @@ async function runFinetuneCollector(directEvents = null) {
     }
 
     // ── Sauvegarder le seen store ────────────────────────────────────────────
-    saveSeen(seenIds, candidates.map(e => semanticFingerprint(e)));
+    saveSeen(seenIds, finalCandidates.map(e => semanticFingerprint(e)));
     _state.lastRunProcessed = processed;
     _state.lastRunDiscards  = discards;
 
@@ -614,8 +701,8 @@ function getDatasetStats() {
     review_flag_distribution: flagDist,
 
     // ── État pipeline ────────────────────────────────────────────────────
-    labeler:            LABELER,
-    labeler_model:      LABELER === 'claude' ? CLAUDE_MODEL : `agent:${MISTRAL_AGENT_ID}`,
+    labeler:            'claude',
+    labeler_model:      CLAUDE_MODEL,
     total_events_seen:  _memSeen.ids.size,
     total_fingerprints: _memSeen.fpTimestamps.size,
     last_run:           _state.lastRun,

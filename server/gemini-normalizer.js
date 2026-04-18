@@ -22,10 +22,6 @@ function getFilterModel() {
   return OPENAI_MODEL;
 }
 
-const GROQ_API_KEY  = (process.env.groq || process.env.GROQ_API_KEY || '').trim();
-const GROQ_URL      = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL    = process.env.GROQ_NORMALIZE_MODEL || 'llama-3.1-8b-instant';
-
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
 const DEEPSEEK_MODEL   = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
 
@@ -49,7 +45,6 @@ const deepseekClient = DEEPSEEK_API_KEY
 // Startup diagnostics
 console.log('[normalizer] OPENAI_API_KEY set:  ', !!OPENAI_API_KEY);
 console.log('[normalizer] DEEPSEEK_API_KEY set:', !!DEEPSEEK_API_KEY);
-console.log('[normalizer] GROQ_API_KEY set:    ', !!GROQ_API_KEY);
 console.log('[normalizer] OPENAI_MODEL:        ', OPENAI_MODEL);
 console.log('[normalizer] DEEPSEEK_MODEL:      ', DEEPSEEK_MODEL);
 console.log('[normalizer] FINETUNE_MODEL:      ', getFilterModel());
@@ -428,65 +423,6 @@ async function translateTitleWithDeepSeek(event) {
   };
 }
 
-// ── Groq (1 seul essai — si échec on passe à DeepSeek) ───────────────────────
-const _sleep = ms => new Promise(r => setTimeout(r, ms));
-async function callGroq(messages, timeoutMs = 30000) {
-  const resp = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-    body: JSON.stringify({ model: GROQ_MODEL, messages, temperature: 0, max_tokens: 2048, response_format: { type: 'json_object' } }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    const err = new Error(`Groq HTTP_${resp.status} ${body.slice(0, 120)}`);
-    err.status = resp.status;
-    throw err;
-  }
-  const data = await resp.json();
-  return data.choices?.[0]?.message?.content || '';
-}
-
-async function normalizeBatchWithGroq(events) {
-  const text = await callGroq([
-    { role: 'system', content: 'You are an OSINT geopolitical analyst. Return ONLY a valid JSON object with an "events" array.' },
-    { role: 'user', content: buildPrompt(events) },
-  ]);
-  const parsed = extractJsonObject(text);
-  if (Array.isArray(parsed?.events)) return parsed.events;
-  return extractJsonArray(text);
-}
-
-async function translateTitleWithGroq(event) {
-  const text = await callGroq([
-    { role: 'system', content: 'Translate OSINT/geopolitical article titles into concise French. Return JSON only.' },
-    {
-      role: 'user',
-      content: JSON.stringify({
-        title: event.title,
-        country: event.country || '',
-        category: event.category || 'incident',
-        output: { fr: 'French title <= 16 words', en: 'English title <= 16 words', notes: 'French summary <= 22 words', language: 'detected language' },
-      }),
-    },
-  ]);
-  const result = extractJsonObject(text) || {};
-  const output = result.output && typeof result.output === 'object' ? result.output : {};
-  const fr = result.fr || result.title_fr || result.french || result.translation || output.fr || output.french || output.translation;
-  const en = result.en || result.headline || result.english || output.en || output.headline;
-  const notes = result.notes || result.summary || output.notes || output.summary;
-  const language = result.language || result.detected_language || output.language;
-  return {
-    id: event.id, keep: true,
-    originalTitle: event.title, title: fr || event.title,
-    fr: fr || event.title, headline: en || null, notes: notes || null,
-    category: VALID_CATEGORIES.has(event.category) ? event.category : 'incident',
-    relevance: Number(event.relevance || 0),
-    language: language || null, isRomanized: false, nativeTitle: null,
-    provider: 'groq',
-  };
-}
-
 // ── Filtre IA (OpenAI gpt-4o-mini, batch) ─────────────────────────────────────
 async function filterEventsWithAI(events) {
   if (!AI_FILTER_ENABLED) {
@@ -554,9 +490,9 @@ async function filterEventsWithAI(events) {
   return filtered;
 }
 
-// ── Normalisation / Traduction (Groq gratuit, fallback OpenAI) ────────────────
+// ── Normalisation / Traduction (DeepSeek, fallback OpenAI) ───────────────────
 async function normalizeEvents(events) {
-  if (!GROQ_API_KEY && !DEEPSEEK_API_KEY && !OPENAI_API_KEY) {
+  if (!DEEPSEEK_API_KEY && !OPENAI_API_KEY) {
     console.log('[normalize] skipped: no API key available');
     return events;
   }
@@ -611,7 +547,7 @@ async function normalizeEvents(events) {
   return normalized;
 }
 
-// ── Traduction unitaire (Groq, fallback OpenAI) ───────────────────────────────
+// ── Traduction unitaire (DeepSeek, fallback OpenAI) ──────────────────────────
 async function normalizeTitleWithGemini(event) {
   const title = String(event?.title || '').trim();
   if (!title) {
@@ -628,7 +564,7 @@ async function normalizeTitleWithGemini(event) {
   if (OPENAI_API_KEY) {
     return translateTitleWithOpenAI(baseEvent);
   }
-  const err = new Error('No translation API key available (GROQ_API_KEY, DEEPSEEK_API_KEY, or OPENAI_API_KEY required)');
+  const err = new Error('No translation API key available (DEEPSEEK_API_KEY or OPENAI_API_KEY required)');
   err.status = 503;
   throw err;
 }

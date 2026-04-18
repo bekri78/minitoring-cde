@@ -1,12 +1,12 @@
 'use strict';
 
 /**
- * signals.js — Synthèse géopolitique par zone via Groq (Llama 3.1 8B gratuit)
+ * signals.js — Synthèse géopolitique par zone via DeepSeek
  *
  * Pipeline :
  *   1. Reçoit les events GDELT bruts du cache
  *   2. Les groupe par cellule géographique de 2° (≈ 220 km)
- *   3. Pour chaque cluster de ≥ 3 events : appel Groq → summary + key_points
+ *   3. Pour chaque cluster de ≥ 3 events : appel DeepSeek → summary + key_points
  *   4. Cache en mémoire 4h + persistance disque
  */
 
@@ -17,10 +17,6 @@ const CACHE_DIR   = process.env.CACHE_DIR || '/data';
 const DISK_PATH   = path.join(CACHE_DIR, 'signals-cache.json');
 
 const OpenAI = require('openai');
-
-const GROQ_API_KEY    = process.env.groq || process.env.GROQ_API_KEY;
-const GROQ_URL        = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL      = 'llama-3.1-8b-instant';
 
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
 const DEEPSEEK_MODEL   = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
@@ -63,7 +59,6 @@ if (_diskCache) {
 }
 
 let isRunning     = false;
-let lastGroqCall  = 0; // timestamp du dernier appel Groq pour throttling
 
 // ── Grouper les events par cellule 2° ─────────────────────────────────────
 function groupByCells(events) {
@@ -229,8 +224,8 @@ Rules: max 5 key_points, English only, factual and concise, no speculation.`;
 
 // ── Générer tous les signals ───────────────────────────────────────────────
 async function buildSignals(events) {
-  if (!GROQ_API_KEY && !deepseekClient) {
-    console.warn('[signals] no API key available (GROQ_API_KEY or DEEPSEEK_API_KEY required) — skipping');
+  if (!deepseekClient) {
+    console.warn('[signals] no API key available (DEEPSEEK_API_KEY required) — skipping');
     return [];
   }
   if (!events?.length) return [];

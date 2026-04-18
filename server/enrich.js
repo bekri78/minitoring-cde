@@ -5,20 +5,15 @@ const OpenAI = require('openai');
 
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_API_KEY   = (process.env.OPENAI_API_KEY || '').trim().replace(/^=+/, '') || undefined;
-const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'mistral')).toLowerCase();
-const ENRICH_MODEL     = process.env.ENRICH_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-chat' : LLM_PROVIDER === 'openai' ? 'gpt-4o' : 'mistral-medium-latest');
-const ENRICH_URL       = LLM_PROVIDER === 'mistral' ? 'https://api.mistral.ai/v1/chat/completions' : null;
-const ENRICH_API_KEY   = LLM_PROVIDER === 'mistral' ? process.env.MISTRAL_API_KEY : (DEEPSEEK_API_KEY || OPENAI_API_KEY);
+const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : 'openai')).toLowerCase();
+const ENRICH_MODEL     = process.env.ENRICH_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
 
 const openaiClient = LLM_PROVIDER === 'deepseek'
   ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com/v1' })
-  : LLM_PROVIDER === 'openai'
-  ? new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1' })
-  : null;
+  : new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1' });
 
 // Compat interne
 const OPENAI_MODEL   = ENRICH_MODEL;
-const OPENAI_URL     = ENRICH_URL;
 const AI_FILTER_ENABLED = process.env.AI_FILTER_ENABLED !== 'false';
 
 const TARGET_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 600);
@@ -239,68 +234,29 @@ ${events.map(event => JSON.stringify(compactEvent(event))).join('\n')}`;
 }
 
 async function classifyBatch(events, attempt = 0) {
-  // Use OpenAI SDK for DeepSeek (handles auth correctly), raw fetch for Mistral
-  if (openaiClient) {
-    try {
-      const completion = await openaiClient.chat.completions.create({
-        model: ENRICH_MODEL,
-        messages: [{ role: 'user', content: buildPrompt(events) }],
-        temperature: 0,
-        max_tokens: Math.max(2000, events.length * 150),
-        response_format: { type: 'json_object' },
-      }, { timeout: OPENAI_TIMEOUT_MS });
-      const text = completion.choices?.[0]?.message?.content || '';
-      const parsed = JSON.parse(text);
-      if (Array.isArray(parsed)) return parsed;
-      if (Array.isArray(parsed.events)) return parsed.events;
-      if (Array.isArray(parsed.results)) return parsed.results;
-      return extractJsonArray(text);
-    } catch (e) {
-      if (e?.status === 429 && attempt < 2) {
-        const wait = (attempt + 1) * 8000;
-        console.warn(`[enrich] DeepSeek 429; retry in ${wait / 1000}s`);
-        await sleep(wait);
-        return classifyBatch(events, attempt + 1);
-      }
-      throw new Error(`OpenAI HTTP_${e?.status || 500} ${(e?.message || '').slice(0, 160)}`);
-    }
-  }
-
-  // Fallback: raw fetch for Mistral
-  const resp = await fetch(ENRICH_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${ENRICH_API_KEY}`,
-    },
-    body: JSON.stringify({
+  try {
+    const completion = await openaiClient.chat.completions.create({
       model: ENRICH_MODEL,
       messages: [{ role: 'user', content: buildPrompt(events) }],
       temperature: 0,
       max_tokens: Math.max(2000, events.length * 150),
-    }),
-    signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
-  });
-
-  if (resp.status === 429 && attempt < 2) {
-    const wait = (attempt + 1) * 8000;
-    console.warn(`[enrich] Mistral 429; retry in ${wait / 1000}s`);
-    await sleep(wait);
-    return classifyBatch(events, attempt + 1);
+      response_format: { type: 'json_object' },
+    }, { timeout: OPENAI_TIMEOUT_MS });
+    const text = completion.choices?.[0]?.message?.content || '';
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed.events)) return parsed.events;
+    if (Array.isArray(parsed.results)) return parsed.results;
+    return extractJsonArray(text);
+  } catch (e) {
+    if (e?.status === 429 && attempt < 2) {
+      const wait = (attempt + 1) * 8000;
+      console.warn(`[enrich] 429; retry in ${wait / 1000}s`);
+      await sleep(wait);
+      return classifyBatch(events, attempt + 1);
+    }
+    throw new Error(`OpenAI HTTP_${e?.status || 500} ${(e?.message || '').slice(0, 160)}`);
   }
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new Error(`OpenAI HTTP_${resp.status}${body ? ` ${body.slice(0, 160)}` : ''}`);
-  }
-
-  const data = await resp.json();
-  const text = data.choices?.[0]?.message?.content || '';
-  const parsed = JSON.parse(text);
-  if (Array.isArray(parsed)) return parsed;
-  if (Array.isArray(parsed.events)) return parsed.events;
-  if (Array.isArray(parsed.results)) return parsed.results;
-  return extractJsonArray(text);
 }
 
 function mergeAiResult(event, result) {
