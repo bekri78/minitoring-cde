@@ -483,6 +483,19 @@ async function runFinetuneCollector(directEvents = null) {
     if (candidates.length === 0) {
       console.log('[finetune] Aucun événement à labéliser');
       _state.lastRunProcessed = 0;
+      // Vérifier quand même l'auto-upload (le seuil peut être atteint sans nouveaux events)
+      try {
+        const { runFinetuneUpload, AUTO_THRESHOLD } = require('./finetune-uploader');
+        const approvedCount = countJsonlLines(APPROVED_FILE);
+        if (approvedCount >= AUTO_THRESHOLD) {
+          console.log(`[finetune] Seuil ${AUTO_THRESHOLD} atteint (${approvedCount}) — lancement upload automatique`);
+          runFinetuneUpload(approvedCount).catch(err =>
+            console.error('[finetune-upload] Erreur auto-upload:', err.message)
+          );
+        }
+      } catch (uploadErr) {
+        console.error('[finetune] Impossible de charger finetune-uploader:', uploadErr.message);
+      }
       return;
     }
 
