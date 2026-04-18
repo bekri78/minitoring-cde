@@ -370,9 +370,29 @@ function buildPrompt(event) {
 }
 
 function parseAndValidate(content, source) {
-  const match = content.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error(`Réponse non-JSON ${source}: ${content.slice(0, 150)}`);
-  const parsed = JSON.parse(match[0]);
+  // Extraction robuste : cherche le premier { jusqu'au } fermant correspondant
+  const start = content.indexOf('{');
+  if (start === -1) throw new Error(`Réponse non-JSON ${source}: ${content.slice(0, 150)}`);
+
+  let depth = 0, inStr = false, esc = false, end = -1;
+  for (let i = start; i < content.length; i++) {
+    const c = content[i];
+    if (esc)       { esc = false; continue; }
+    if (c === '\\' && inStr) { esc = true; continue; }
+    if (c === '"') { inStr = !inStr; continue; }
+    if (inStr)     continue;
+    if (c === '{') depth++;
+    if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+  }
+  if (end === -1) throw new Error(`JSON incomplet ${source}: ${content.slice(0, 200)}`);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(content.slice(start, end + 1));
+  } catch (e) {
+    throw new Error(`JSON invalide ${source} (${e.message}): ${content.slice(start, start + 220)}`);
+  }
+
   if (parsed.keep === false) return parsed;
   const VALID_DOMAINS = new Set(['air', 'land', 'maritime', 'space', 'cyber', 'strategic']);
   if (!VALID_DOMAINS.has(parsed.domain_primary)) {
@@ -394,9 +414,13 @@ async function callClaudeLabeler(event) {
     },
     body: JSON.stringify({
       model:      CLAUDE_MODEL,
-      max_tokens: 256,
+      max_tokens: 512,
       system:     SYSTEM_PROMPT,
-      messages:   [{ role: 'user', content: buildPrompt(event) }],
+      // Prefill "{"  → force Claude à commencer directement le JSON sans preamble
+      messages: [
+        { role: 'user',      content: buildPrompt(event) },
+        { role: 'assistant', content: '{' },
+      ],
     }),
     signal: AbortSignal.timeout(30000),
   });
@@ -407,7 +431,8 @@ async function callClaudeLabeler(event) {
   }
 
   const data    = await res.json();
-  const content = data.content?.[0]?.text || '';
+  // Le prefill "{" est retourné séparé — on le réassemble
+  const content = '{' + (data.content?.[0]?.text || '');
   return parseAndValidate(content, 'Claude');
 }
 
