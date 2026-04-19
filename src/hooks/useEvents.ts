@@ -29,7 +29,14 @@ export function useEvents() {
       if (!resp.ok) throw new Error(`Server responded ${resp.status}`);
       const data = await resp.json();
       const events = Array.isArray(data.events) ? data.events : [];
-      return events.map(normalizeEvent);
+      const seen = new Set<string | number>();
+      return events
+        .map(normalizeEvent)
+        .filter(e => {
+          if (seen.has(e.id)) return false;
+          seen.add(e.id);
+          return true;
+        });
     },
     refetchInterval: 60 * 60 * 1000,
     staleTime:       59 * 60 * 1000,

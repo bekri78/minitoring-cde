@@ -291,7 +291,13 @@ export function WorldMap({
     seaOsintLayerRef.current?.clearLayers();
     spaceOsintLayerRef.current?.clearLayers();
 
-    const geoJSON = buildGeoJSON(events) as GeoJSON.FeatureCollection;
+    const seenIds = new Set<string | number>();
+    const uniqueEvents = events.filter(e => {
+      if (seenIds.has(e.id)) return false;
+      seenIds.add(e.id);
+      return true;
+    });
+    const geoJSON = buildGeoJSON(uniqueEvents) as GeoJSON.FeatureCollection;
     // Jitter : décale légèrement les points qui partagent les mêmes coordonnées exactes
     const coordCount = new Map<string, number>();
     const jitterLat = (lat: number, lon: number): [number, number] => {
