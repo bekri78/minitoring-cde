@@ -388,7 +388,9 @@ function parseAndValidate(content, source) {
 
   let parsed;
   try {
-    parsed = JSON.parse(content.slice(start, end + 1));
+    // Réparer le pattern fréquent : "key">value → "key":value (Claude confond > et :)
+    const raw = content.slice(start, end + 1).replace(/"(\w+)">\s*(-?\d+(?:\.\d+)?)/g, '"$1":$2');
+    parsed = JSON.parse(raw);
   } catch (e) {
     throw new Error(`JSON invalide ${source} (${e.message}): ${content.slice(start, start + 220)}`);
   }
