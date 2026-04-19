@@ -458,47 +458,58 @@ function titleFromUrl(url) {
   try {
     const u = new URL(url);
     const hasNativeScript = (value) => /[\u3000-\u9fff\uac00-\ud7af\u3040-\u30ff\u0600-\u06ff\u0400-\u04ff]/.test(value);
+
+    // Query params : native script en priorité absolue
     for (const [, rawParam] of u.searchParams.entries()) {
       const candidate = decodeHtmlEntities(decodeURIComponent(String(rawParam || '')))
-        .replace(/[+_]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+        .replace(/[+_]+/g, ' ').replace(/\s+/g, ' ').trim();
       if (hasNativeScript(candidate) && candidate.length >= 4) return candidate;
     }
+
     const segments = u.pathname.split('/').filter(Boolean);
-    for (let i = segments.length - 1; i >= 0; i -= 1) {
-      const raw = decodeHtmlEntities(decodeURIComponent(segments[i]))
-        .replace(/\.[a-z0-9]{2,6}$/i, '')
+    const candidates = [];
+
+    for (const seg of segments) {
+      const raw = decodeHtmlEntities(decodeURIComponent(seg))
+        .replace(/\.[a-z0-9]{2,6}$/i, '')   // extension
         .replace(/[-_+%]+/g, ' ')
         .replace(/\s+/g, ' ')
-        // Strip trailing numeric article IDs (e.g. "karas ukrainoje 57 2660274" → "karas ukrainoje")
-        .replace(/(\s+\d+)+\s*$/, '')
+        .replace(/(\s+\d+)+\s*$/, '')         // trailing numeric IDs
+        .replace(/^\s*\d+\s+/, '')             // leading numeric IDs (ex: "956431 clanok" → "clanok")
         .trim();
-      if (!raw || /^\d+$/.test(raw) || URL_NAV_SEGMENTS.has(raw.toLowerCase())) continue;
-      const nextSegment = String(segments[i + 1] || '');
-      const words = raw.split(/\s+/).filter(Boolean);
-      const wordCount = words.length;
-      const lowerRaw = raw.toLowerCase();
-      const alphaWords = words.filter(word => /[a-z]/i.test(word));
-      const hasActionWord = /\b(attack|strike|missile|drone|troops|forces|navy|warship|submarine|exercise|deployment|detains|seizes|launch|returns|meets|talks|warns|says|kills|arrests|blocks|approves|deploys|fires)\b/i.test(raw);
-      const allWordsLookGeneric = alphaWords.length > 0 && alphaWords.every(word =>
-        URL_NAV_SEGMENTS.has(word.toLowerCase()) ||
-        /^(world|local|global|middle|east|west|north|south|cross|strait|politics|business|technology|defense|opinion|commentary|analysis|life|travel|culture)$/.test(word.toLowerCase())
+
+      if (!raw) continue;
+      if (/^\d+$/.test(raw)) continue;                               // purement numérique
+      if (/^[0-9a-f]{16,64}$/i.test(raw.replace(/ /g, ''))) continue; // hash hex
+      if (URL_NAV_SEGMENTS.has(raw.toLowerCase())) continue;          // segment de navigation
+
+      const words     = raw.split(/\s+/).filter(Boolean);
+      const alphaWords = words.filter(w => /[a-z]{2,}/i.test(w));
+
+      if (alphaWords.length === 0) continue;
+      // Un seul mot générique (rubrique, type d'article) → skip
+      if (alphaWords.length === 1 && raw.length < 12) continue;
+
+      // Score : nombre de mots alpha × longueur totale
+      // Bonus si script non-latin, pénalité si tous les mots sont des nav-segments
+      const allGeneric = alphaWords.every(w =>
+        URL_NAV_SEGMENTS.has(w.toLowerCase()) ||
+        /^(world|local|global|middle|east|west|north|south|cross|strait|politics|business|technology|defense|opinion|commentary|analysis|life|travel|culture)$/i.test(w)
       );
-      const genericSectionLike = (
-        /^\d{6,}$/.test(nextSegment) &&
-        wordCount <= 3 &&
-        (
-          allWordsLookGeneric ||
-          (!hasActionWord && lowerRaw === normalizeTitleForDedup(raw))
-        )
-      );
-      if (genericSectionLike) continue;
-      // Reject hex hashes (MD5/SHA-like: 16-64 hex chars, no spaces)
-      if (/^[0-9a-f]{16,64}$/i.test(raw.replace(/ /g, ''))) continue;
-      if (hasNativeScript(raw) && raw.length >= 4) return raw;
-      if (raw.length >= 20 || (/[a-zA-Z]{3,}/.test(raw) && raw.includes(' '))) return raw;
+      if (allGeneric) continue;
+
+      let score = alphaWords.length * raw.length;
+      if (hasNativeScript(raw)) score += 500;
+
+      candidates.push({ raw, score });
     }
+
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => b.score - a.score);
+    const best = candidates[0].raw;
+
+    if (hasNativeScript(best) && best.length >= 4) return best;
+    if (best.length >= 15 || (/[a-zA-Z]{3,}/.test(best) && best.includes(' '))) return best;
   } catch {}
   return null;
 }
