@@ -416,11 +416,7 @@ async function callClaudeLabeler(event) {
       model:      CLAUDE_MODEL,
       max_tokens: 512,
       system:     SYSTEM_PROMPT,
-      // Prefill "{"  → force Claude à commencer directement le JSON sans preamble
-      messages: [
-        { role: 'user',      content: buildPrompt(event) },
-        { role: 'assistant', content: '{' },
-      ],
+      messages:   [{ role: 'user', content: buildPrompt(event) }],
     }),
     signal: AbortSignal.timeout(30000),
   });
@@ -431,8 +427,7 @@ async function callClaudeLabeler(event) {
   }
 
   const data    = await res.json();
-  // Le prefill "{" est retourné séparé — on le réassemble
-  const content = '{' + (data.content?.[0]?.text || '');
+  const content = data.content?.[0]?.text || '';
   return parseAndValidate(content, 'Claude');
 }
 
