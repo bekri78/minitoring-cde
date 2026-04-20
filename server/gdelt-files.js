@@ -140,6 +140,17 @@ const NOISE_KEYWORDS = [
   'defitcit ukhoda', 'ne khvataet vrachei', // RU hospice
   'prokuror zaprosila', 'byvshego muzha', // RU celebrity trial
   'sone shop', 'index id news sc', // garbage URL titles
+  // French crime/court section URL paths
+  'faits-divers', '/faits_divers/',
+  // Commodity price movements — pure financial news (ES/EN/FR/PT)
+  'petroleo sube', 'petróleo sube', 'precio del petroleo', 'precio del petróleo',
+  'precio petroleo', 'precio petróleo', 'petroleo baja', 'petróleo baja',
+  'petroleo alcanza', 'petróleo alcanza', 'barril de petroleo', 'barril de petróleo',
+  'oil prices rise', 'oil prices fall', 'oil prices climb', 'oil prices drop',
+  'crude oil rises', 'crude oil falls', 'brent rises', 'brent falls', 'brent crude hits',
+  'wti rises', 'wti falls', 'oil hits', 'barrel hits', 'oil surges',
+  'prix du petrole', 'prix du pétrole', 'precio del gas', 'gas prices rise',
+  'gold prices', 'gold surges', 'gold falls', // commodity price noise
 ];
 
 const CIVILIAN_OVERRIDE = [
@@ -208,6 +219,14 @@ const CIVIL_CRIME_NOISE_KEYWORDS = [
   'couple arrested', 'parents of a woman', 'body in closet', 'family murder',
   'serial killer', 'stabbed to death', 'shot dead in home', 'civil crime',
   'san antonio', 'otra forma de morir', 'murder of parents',
+  // French civilian crime / judicial — ordinary criminal proceedings, not conflict
+  'braquage', 'cambriolage', 'casse rate', 'casse de banque', 'vol a main armee',
+  'hold-up', 'gang de braqueurs', 'juge en correctionnelle', 'jugé en correctionnelle',
+  'condamné par le tribunal', 'condamne par le tribunal',
+  'faits divers', 'faits-divers',
+  // Spanish / Portuguese civilian crime
+  'atraco al banco', 'robo de banco', 'robo a mano armada', 'asalto al banco',
+  'juzgado por', 'condenado por',
 ];
 
 const GLOBAL_SECURITY_OVERRIDE = [
@@ -629,13 +648,19 @@ function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
   // Civilian noise check first
   if (flags.civilian_noise_flag && !flags.military_keyword_flag) return 'discard';
   if (String(eventCode || '').startsWith('155')) return 'cyber';
-  if (['181', '1831', '1832', '1833'].some(prefix => String(eventCode || '').startsWith(prefix))) return 'terrorism';
+  if (['1831', '1832', '1833'].some(prefix => String(eventCode || '').startsWith(prefix))) return 'terrorism';
+  if (String(eventCode || '').startsWith('181')) {
+    // Code 181 (Abduct/hijack/hostage) is heavily misused by GDELT for civilian articles
+    // (family reunions, migration, divorces, child custody, disappearances).
+    // Only keep if there is a genuine terrorism/kidnapping signal in the text.
+    const hasTerrorSignal = /\b(hostage|kidnap|abduct|ransom|hijack|armed group|militant|terrorist|terror attack|bombing|explosion|captive|detained by|held by|seized by)\b/.test(normalized);
+    if (!hasTerrorSignal && !flags.military_keyword_flag) return 'discard';
+    return 'terrorism';
+  }
   if (['18', '19', '20'].includes(String(rootCode || ''))) {
-    if (flags.military_keyword_flag || /\b(attack|airstrike|strike|missile|drone|troops|forces|army|navy|militia|rebels|offensive|shelling|artillery|deployment|deployed|warship|submarine)\b/.test(normalized)) {
-      return 'conflict';
-    }
-    // No independent military signal → GDELT CAMEO code is unreliable here, discard
-    return 'discard';
+    // Assign 'conflict' regardless of signal strength — fine-tuned model decides keep/discard.
+    // Strong signal gets the category confirmed; weak/ambiguous signal gets rejected by AI.
+    return 'conflict';
   }
   if (String(rootCode || '') === '15') return 'military';
   if (String(rootCode || '') === '14') return 'protest';
@@ -647,11 +672,8 @@ function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
     if (rule.cameo.some(prefix => String(eventCode || '').startsWith(prefix))) return rule.key;
   }
   if (['13', '16', '17'].includes(String(rootCode || ''))) {
-    if (flags.military_keyword_flag || /\b(sanction|nuclear|ballistic|hypersonic|missile|border|diplomatic|naval|warship|drone|satellite|space)\b/.test(normalized)) {
-      return 'strategic';
-    }
-    // No security signal → discard routine diplomacy/coercion
-    return 'discard';
+    // Assign 'strategic' regardless — fine-tuned model decides keep/discard.
+    return 'strategic';
   }
   return 'discard';
 }

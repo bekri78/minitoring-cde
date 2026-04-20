@@ -155,8 +155,11 @@ function shouldBypassAiFilter(event) {
   if (event.domain_bucket === 'maritime' && event.maritime_anchor_flag) return true;
   const HIGH_CONFIDENCE_CATS = new Set(['terrorism', 'cyber', 'military', 'conflict']);
   const cat = String(event.category || '');
-  if (event.is_strategic && HIGH_CONFIDENCE_CATS.has(cat) && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 8) return true;
-  if (HIGH_CONFIDENCE_CATS.has(cat) && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 18) return true;
+  // Score-based bypass only when military keyword is confirmed — prevents false positives
+  // (oil price articles, criminal trials) with high scores from skipping the fine-tuned model
+  const hasMilitarySignal = !!event.military_keyword_flag;
+  if (event.is_strategic && HIGH_CONFIDENCE_CATS.has(cat) && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 8 && hasMilitarySignal) return true;
+  if (HIGH_CONFIDENCE_CATS.has(cat) && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 18 && hasMilitarySignal) return true;
   if (['terrorism', 'cyber'].includes(cat)) return true;
   return false;
 }
