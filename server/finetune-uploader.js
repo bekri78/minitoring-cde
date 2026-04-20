@@ -26,7 +26,8 @@ const OPENAI_API_KEY = () => (process.env.OPENAI_API_KEY || '').trim().replace(/
 
 // gpt-4o-mini-2024-07-18 = ID exact requis par l'API fine-tuning OpenAI (l'alias gpt-4o-mini est refusé)
 const BASE_MODEL     = process.env.FINETUNE_BASE_MODEL || 'gpt-4o-mini-2024-07-18';
-const AUTO_THRESHOLD = parseInt(process.env.FINETUNE_AUTO_THRESHOLD || '200', 10);
+const AUTO_THRESHOLD       = parseInt(process.env.FINETUNE_AUTO_THRESHOLD    || '200', 10);
+const MIN_NEW_FOR_RELAUNCH = parseInt(process.env.FINETUNE_MIN_NEW_ENTRIES  || '50',  10);
 
 const SYSTEM_PROMPT = `You are a military and geopolitical OSINT classifier.
 Given a raw event (JSON), you must return a JSON object with:
@@ -238,6 +239,15 @@ async function runFinetuneUpload(approvedCount) {
     return { skipped: true, reason: 'job_already_running', job_id: status.id };
   }
 
+  // Ne pas relancer si le dernier job a réussi sans assez de nouvelles données approuvées
+  if (status?.status === 'succeeded' && typeof status.approved_count === 'number' && typeof approvedCount === 'number') {
+    const newEntries = approvedCount - status.approved_count;
+    if (newEntries < MIN_NEW_FOR_RELAUNCH) {
+      console.log(`[finetune-upload] Seulement ${newEntries} nouvelles entrées depuis le dernier job (min ${MIN_NEW_FOR_RELAUNCH}) — skip`);
+      return { skipped: true, reason: 'insufficient_new_data', new_entries: newEntries };
+    }
+  }
+
   // Ne pas relancer si la dernière tentative a échoué il y a moins de 2h
   if (status?.status === 'error' && status.failed_at) {
     const elapsed = Date.now() - new Date(status.failed_at).getTime();
@@ -298,4 +308,5 @@ module.exports = {
   loadJobStatus,
   exportForOpenAI,
   AUTO_THRESHOLD,
+  MIN_NEW_FOR_RELAUNCH,
 };
