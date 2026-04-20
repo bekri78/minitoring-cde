@@ -27,7 +27,7 @@ const OPENAI_API_KEY = () => (process.env.OPENAI_API_KEY || '').trim().replace(/
 // gpt-4o-mini-2024-07-18 = ID exact requis par l'API fine-tuning OpenAI (l'alias gpt-4o-mini est refusé)
 const BASE_MODEL     = process.env.FINETUNE_BASE_MODEL || 'gpt-4o-mini-2024-07-18';
 const AUTO_THRESHOLD       = parseInt(process.env.FINETUNE_AUTO_THRESHOLD    || '200', 10);
-const MIN_NEW_FOR_RELAUNCH = parseInt(process.env.FINETUNE_MIN_NEW_ENTRIES  || '200', 10);
+const MIN_NEW_FOR_RELAUNCH = 200;
 
 const SYSTEM_PROMPT = `You are a military and geopolitical OSINT classifier.
 Given a raw event (JSON), you must return a JSON object with:
