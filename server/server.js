@@ -120,6 +120,16 @@ async function refresh(force = false) {
     }
   }
 
+  // Pré-peupler le cache depuis le disque même si trop vieux — la carte reste visible pendant le refresh
+  if (!cache.events.length) {
+    const disk = loadFromDisk(today);
+    if (disk?.events?.length) {
+      cache.events = disk.events;
+      cache.date   = today;
+      console.log(`[refresh] pre-populated ${disk.events.length} events from disk while refreshing`);
+    }
+  }
+
   console.log('[refresh] starting...');
   cache.status = 'refreshing';
 
