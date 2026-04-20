@@ -107,12 +107,15 @@ async function refresh(force = false) {
     if (disk && disk.lastUpdate) {
       const age = Date.now() - new Date(disk.lastUpdate).getTime();
       if (age < REFRESH_INTERVAL_MS) {
-        cache.events     = disk.events;
+        const clean = disk.events.filter(e => !isCameoFallbackTitle(e.title));
+        const removed = disk.events.length - clean.length;
+        if (removed > 0) saveToDisk(today, clean, disk.lastUpdate);
+        cache.events     = clean;
         cache.lastUpdate = disk.lastUpdate;
         cache.date       = today;
         cache.status     = 'ok';
         isRefreshing     = false;
-        console.log(`[refresh] restored from disk — ${disk.events.length} events (${Math.round(age / 60000)}min old)`);
+        console.log(`[refresh] restored from disk — ${clean.length} events (${Math.round(age / 60000)}min old, ${removed} CAMEO deleted)`);
         // Rafraîchir les signals si périmés (ils ont leur propre cache disque)
         if (isStale()) refreshSignals(disk.events).catch(err => console.error('[signals]', err.message));
         return;
