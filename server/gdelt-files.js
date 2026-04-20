@@ -65,6 +65,21 @@ const CIVILIAN_NOISE_KEYWORDS = [
   'social welfare', 'welfare center', 'charity opens', 'free clinic', 'free hospital',
   'celebrity divorce', 'celebrity couple', 'pop star', 'singer arrested',
   'weather forecast', 'flood warning', 'earthquake damage',
+  // Labor / union disputes (not military)
+  'workers strike', 'labor dispute', 'labour dispute', 'union strike', 'wage dispute',
+  'workers demand', 'dockworkers', 'longshoremen', 'transport strike', 'healthcare strike',
+  'teachers strike', 'nurses strike', 'workers protest wages', 'union negotiation',
+  'industrial action', 'collective bargaining', 'work stoppage',
+  // Local crime / police blotter (not conflict)
+  'robbery', 'burglary', 'theft', 'shoplifting', 'carjacking',
+  'drive-by shooting', 'gang shooting', 'gang related', 'gang activity',
+  'workplace violence', 'school shooting', 'office shooting',
+  'drug bust', 'drug trafficking arrest', 'drug seizure',
+  // Civil accidents
+  'industrial accident', 'construction accident', 'workplace accident',
+  'factory fire', 'factory incident', 'assembly line', 'mine collapse',
+  // Hotel / hospitality incidents
+  'hotel', 'motel', 'inn', 'lodge', 'hostel', 'airbnb',
   // Multilingual civilian noise
   'acidente', 'veiculos', 'tombado', // PT: car accident
   'khospisc', 'khosp', 'vrachei', 'bolnitsa', // RU: medical
@@ -232,6 +247,13 @@ const URL_NAV_SEGMENTS = new Set([
   'national', 'local', 'international', 'sports', 'business', 'technology',
   'opinion', 'editorial', 'comment', 'comments', 'html', 'htm', 'php', 'aspx', 'jsp',
   'en', 'fr', 'ru', 'zh', 'ar', 'ko', 'ja', 'de', 'es', 'pt', 'tr', 'fa', 'he',
+  // Generic nav/update segments that produce meaningless titles
+  'update', 'updates', 'brief', 'briefing', 'briefings',
+  'report', 'reports', 'coverage', 'headline', 'headlines',
+  'alert', 'alerts', 'notice', 'notices', 'bulletin',
+  'summary', 'recap', 'roundup', 'digest',
+  'live', 'video', 'photo', 'photos', 'gallery',
+  'explainer', 'analysis', 'feature', 'features',
 ]);
 
 const CAMEO_SUBTYPE = {
@@ -519,14 +541,6 @@ function getSubEventType(eventCode) {
   return CAMEO_SUBTYPE[eventCode] || CAMEO_SUBTYPE[eventCode.slice(0, 3)] || CAMEO_SUBTYPE[eventCode.slice(0, 2)] || 'Unknown';
 }
 
-function buildFallbackTitle(event) {
-  const parts = [];
-  const subtype = getSubEventType(event.eventCode || event.rootCode);
-  if (subtype !== 'Unknown') parts.push(subtype);
-  if (event.actor1) parts.push(event.actor1);
-  if (event.location) parts.push(event.location);
-  return parts.filter(Boolean).join(' — ') || 'Unknown Event';
-}
 
 function pageTitleFromExtras(extras) {
   const match = String(extras || '').match(/<PAGE_TITLE>([^<]{4,300})<\/PAGE_TITLE>/i);
@@ -620,7 +634,8 @@ function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
     if (flags.military_keyword_flag || /\b(attack|airstrike|strike|missile|drone|troops|forces|army|navy|militia|rebels|offensive|shelling|artillery|deployment|deployed|warship|submarine)\b/.test(normalized)) {
       return 'conflict';
     }
-    return 'incident';
+    // No independent military signal → GDELT CAMEO code is unreliable here, discard
+    return 'discard';
   }
   if (String(rootCode || '') === '15') return 'military';
   if (String(rootCode || '') === '14') return 'protest';
@@ -635,9 +650,10 @@ function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
     if (flags.military_keyword_flag || /\b(sanction|nuclear|ballistic|hypersonic|missile|border|diplomatic|naval|warship|drone|satellite|space)\b/.test(normalized)) {
       return 'strategic';
     }
-    return 'incident';
+    // No security signal → discard routine diplomacy/coercion
+    return 'discard';
   }
-  return 'incident';
+  return 'discard';
 }
 
 function structuralSeverityScore(rootCode, eventCode) {
@@ -708,13 +724,13 @@ function shouldKeepEvent(row, flags, isStructural = false) {
   // Military keyword confirmed → keep (positive signal approach)
   if (flags.military_keyword_flag) return true;
 
-  // Without military keyword: require CAMEO conflict/coercion root code + multi-source confirmation
-  // This is the core gate — events with no military keyword AND no conflict CAMEO are dropped
-  // regardless of country, score, or any other factor.
+  // Without military keyword: CAMEO conflict root code alone is not enough — GDELT often
+  // misclassifies civilian articles (hotel incidents, labor disputes, local crime) as rootCode 18.
+  // Require very high source count (5+) as a proxy for genuine armed conflict coverage.
   if (!STRUCTURAL_ROOT_CODES.has(rootCode)) return false;
-  if (['18', '19', '20'].includes(rootCode) && sources >= 2) return true; // armed conflict
-  if (['14', '15'].includes(rootCode) && sources >= 3) return true;       // protest / force display
-  if (['13', '16', '17'].includes(rootCode) && sources >= 4) return true; // threaten / coerce / sanction
+  if (['18', '19', '20'].includes(rootCode) && sources >= 5) return true; // armed conflict, high-confidence
+  if (['14', '15'].includes(rootCode) && sources >= 5) return true;       // protest / force display
+  if (['13', '16', '17'].includes(rootCode) && sources >= 6) return true; // threaten / coerce / sanction
 
   return false;
 }
@@ -931,12 +947,10 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
     const candidateUrl = mention?.bestIdentifier || row.sourceUrl;
     const gkg = gkgMap.get(candidateUrl) || gkgMap.get(row.sourceUrl) || null;
     const domain = safeDomainFromUrl(candidateUrl || row.sourceUrl);
-    const title =
-      pageTitleFromExtras(gkg?.extras) ||
-      titleFromUrl(candidateUrl || row.sourceUrl) ||
-      buildFallbackTitle(row);
+    const title = pageTitleFromExtras(gkg?.extras) || titleFromUrl(candidateUrl || row.sourceUrl);
+    if (!title) continue;
 
-    if (!title || isNoiseEvent(title, candidateUrl || row.sourceUrl, domain)) continue;
+    if (isNoiseEvent(title, candidateUrl || row.sourceUrl, domain)) continue;
 
     const subtype = getSubEventType(row.eventCode);
     const themes = gkg?.themes || [];

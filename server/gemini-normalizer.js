@@ -153,9 +153,11 @@ function shouldBypassAiFilter(event) {
   if (event.domain_bucket === 'spatial' && event.spatial_anchor_flag) return true;
   if (event.domain_bucket === 'aviation' && event.aviation_anchor_flag) return true;
   if (event.domain_bucket === 'maritime' && event.maritime_anchor_flag) return true;
-  if (event.is_strategic && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 8) return true;
-  if (Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 18) return true;
-  if (['terrorism', 'cyber'].includes(String(event.category || ''))) return true;
+  const HIGH_CONFIDENCE_CATS = new Set(['terrorism', 'cyber', 'military', 'conflict']);
+  const cat = String(event.category || '');
+  if (event.is_strategic && HIGH_CONFIDENCE_CATS.has(cat) && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 8) return true;
+  if (HIGH_CONFIDENCE_CATS.has(cat) && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 18) return true;
+  if (['terrorism', 'cyber'].includes(cat)) return true;
   return false;
 }
 
@@ -232,6 +234,7 @@ function buildFilterPrompt(events) {
     is_strategic: Boolean(e.is_strategic),
     actor1: e.actor1 || null,
     actor2: e.actor2 || null,
+    fallback_title: Boolean(e.isFallbackTitle),
   })).join('\n');
 
   return `You are an OSINT military intelligence analyst reviewing news events for a geopolitical security dashboard.
@@ -245,14 +248,27 @@ KEEP if the event is about:
 - Weapons programs, nuclear, ballistic or hypersonic missiles
 - Significant protests turning violent or with geopolitical impact
 
+When fallback_title=true, the title is a GDELT CAMEO code description (not the real article headline). Treat it as an unreliable signal and DISCARD unless actor1/actor2/domain provide strong independent military/security evidence.
+
 DISCARD if the event is about:
 - Lifestyle, sports, entertainment, celebrity, music, food, tourism
 - Viral or human-interest stories (even if they mention NASA, military, police)
 - Business, finance, stock markets, earnings, IPO, real estate
 - Local crime, road accidents, natural disasters unrelated to conflict
 - Domestic murder, homicide, family crime, police blotter
-- Elections, parliament, diplomacy with no security dimension
+- Elections, parliament, routine diplomacy with no security dimension
 - Humanitarian aid, health, education with no conflict context
+- Labor disputes, strikes, wage negotiations, union actions (even if "violent")
+- Hotel, hospitality, or consumer safety incidents
+- Routine police operations, drug busts, local arrests unrelated to terrorism
+- Accidents: industrial, construction, factory, workplace
+
+DISCARD examples (routine diplomacy misclassified by GDELT):
+- "Country recalls ambassador over visa policy disagreement"
+- "Trade talks postponed due to scheduling conflict"
+- "Port workers end strike after wage agreement"
+- "Hotel gave room key to wrong guest"
+- "Workers clash with management over contract"
 
 Reply ONLY with a valid JSON array, one object per input, in the same order:
 [{"id":"<same id>","keep":true},{"id":"<same id>","keep":false},...]
