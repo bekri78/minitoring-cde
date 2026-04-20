@@ -1327,16 +1327,9 @@ async function fetchTodayEvents(options = {}) {
   return normalized;
 }
 
-// Set of all CAMEO-generated title prefixes — used to detect and purge fallback titles
-const CAMEO_TITLE_PREFIXES = new Set(Object.values(CAMEO_SUBTYPE).map(v => v.toLowerCase()));
-
 function isCameoFallbackTitle(title) {
   if (!title) return false;
-  const lower = String(title).toLowerCase();
-  for (const prefix of CAMEO_TITLE_PREFIXES) {
-    if (lower.startsWith(prefix)) return true;
-  }
-  return false;
+  return String(title).toLowerCase().startsWith('use conventional military force');
 }
 
 function purgeSnapshot(cacheDir) {
