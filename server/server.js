@@ -26,7 +26,7 @@ const { fetchMaritimeAnomalies }                                     = require('
 const { getAviationEvents, refreshOpenSkyCache }                     = require('./aviation-osint');
 const { getSpatialEvents }                                           = require('./spatial-osint');
 const { fetchGoogleNewsEvents, getCache: getNewsCache, getNewsEventsForMap } = require('./google-news-rss');
-const { fetchTodayEvents: fetchTodayEventsFromFiles }                = require('./gdelt-files');
+const { fetchTodayEvents: fetchTodayEventsFromFiles, isCameoFallbackTitle, purgeSnapshot } = require('./gdelt-files');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -897,6 +897,37 @@ app.get('/health', (req, res) => {
     events:     cache.events.length,
     lastUpdate: cache.lastUpdate,
     date:       cache.date
+  });
+});
+
+// ── Purge des titres CAMEO fallback (nettoyage base existante) ───────────
+app.post('/admin/purge-cameo-titles', (req, res) => {
+  // 1. Nettoyer le cache mémoire
+  const before = cache.events.length;
+  cache.events = cache.events.filter(e => !isCameoFallbackTitle(e.title));
+  const removedMemory = before - cache.events.length;
+
+  // 2. Nettoyer le fichier disque du jour
+  let removedDisk = 0;
+  if (cache.date) {
+    try {
+      const p = diskCachePath(cache.date);
+      const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
+      const beforeDisk = (raw.events || []).length;
+      raw.events = (raw.events || []).filter(e => !isCameoFallbackTitle(e.title));
+      removedDisk = beforeDisk - raw.events.length;
+      fs.writeFileSync(p, JSON.stringify(raw));
+    } catch (_) {}
+  }
+
+  // 3. Nettoyer le snapshot GDELT (gdelt-file-state.json)
+  const snapshotResult = purgeSnapshot(CACHE_DIR);
+
+  console.log(`[purge-cameo] memory=${removedMemory} disk=${removedDisk} snapshot=${snapshotResult.removed}`);
+  res.json({
+    ok: true,
+    removed: { memory: removedMemory, disk: removedDisk, snapshot: snapshotResult.removed },
+    remaining: { memory: cache.events.length, snapshot: snapshotResult.remaining },
   });
 });
 

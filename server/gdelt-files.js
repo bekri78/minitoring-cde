@@ -1327,4 +1327,32 @@ async function fetchTodayEvents(options = {}) {
   return normalized;
 }
 
-module.exports = { fetchTodayEvents };
+// Set of all CAMEO-generated title prefixes — used to detect and purge fallback titles
+const CAMEO_TITLE_PREFIXES = new Set(Object.values(CAMEO_SUBTYPE).map(v => v.toLowerCase()));
+
+function isCameoFallbackTitle(title) {
+  if (!title) return false;
+  const lower = String(title).toLowerCase();
+  for (const prefix of CAMEO_TITLE_PREFIXES) {
+    if (lower.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+function purgeSnapshot(cacheDir) {
+  const statePath = path.join(cacheDir || CACHE_DIR, 'gdelt-file-state.json');
+  try {
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    const before = (state.snapshot || []).length;
+    state.snapshot = (state.snapshot || []).filter(e => !isCameoFallbackTitle(e.title));
+    const removed = before - state.snapshot.length;
+    fs.writeFileSync(statePath, JSON.stringify(state));
+    console.log(`[purge-snapshot] removed ${removed} CAMEO fallback titles from snapshot (${state.snapshot.length} remain)`);
+    return { removed, remaining: state.snapshot.length };
+  } catch (err) {
+    console.warn('[purge-snapshot] failed:', err.message);
+    return { removed: 0, remaining: 0, error: err.message };
+  }
+}
+
+module.exports = { fetchTodayEvents, isCameoFallbackTitle, purgeSnapshot };
