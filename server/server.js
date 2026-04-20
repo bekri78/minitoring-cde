@@ -124,9 +124,12 @@ async function refresh(force = false) {
   if (!cache.events.length) {
     const disk = loadFromDisk(today);
     if (disk?.events?.length) {
-      cache.events = disk.events;
+      const clean = disk.events.filter(e => !isCameoFallbackTitle(e.title));
+      const removed = disk.events.length - clean.length;
+      cache.events = clean;
       cache.date   = today;
-      console.log(`[refresh] pre-populated ${disk.events.length} events from disk while refreshing`);
+      if (removed > 0) saveToDisk(today, clean, disk.lastUpdate);
+      console.log(`[refresh] pre-populated ${clean.length} events from disk (${removed} CAMEO deleted)`);
     }
   }
 
@@ -917,18 +920,17 @@ app.post('/admin/purge-cameo-titles', (req, res) => {
   cache.events = cache.events.filter(e => !isCameoFallbackTitle(e.title));
   const removedMemory = before - cache.events.length;
 
-  // 2. Nettoyer le fichier disque du jour
+  // 2. Nettoyer le fichier disque du jour (utilise cache.date ou today si refresh en cours)
   let removedDisk = 0;
-  if (cache.date) {
-    try {
-      const p = diskCachePath(cache.date);
-      const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
-      const beforeDisk = (raw.events || []).length;
-      raw.events = (raw.events || []).filter(e => !isCameoFallbackTitle(e.title));
-      removedDisk = beforeDisk - raw.events.length;
-      fs.writeFileSync(p, JSON.stringify(raw));
-    } catch (_) {}
-  }
+  const purgeDate = cache.date || new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  try {
+    const p = diskCachePath(purgeDate);
+    const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const beforeDisk = (raw.events || []).length;
+    raw.events = (raw.events || []).filter(e => !isCameoFallbackTitle(e.title));
+    removedDisk = beforeDisk - raw.events.length;
+    fs.writeFileSync(p, JSON.stringify(raw));
+  } catch (_) {}
 
   // 3. Nettoyer le snapshot GDELT (gdelt-file-state.json)
   const snapshotResult = purgeSnapshot(CACHE_DIR);
