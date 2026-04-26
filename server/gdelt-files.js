@@ -40,15 +40,27 @@ const MILITARY_KEYWORDS = [
   'troop movement', 'troop buildup', 'troop build-up', 'redeploy', 'redeployment',
   'mobilization', 'mobilisation', 'incursion', 'cross-border', 'staging area',
   'military drill', 'live-fire', 'war game', 'brigade', 'battalion', 'militia',
-  'army', 'armed forces', 'military', 'navy', 'air force', 'air defense',
-  'surface-to-air', 'sam', 'radar', 'airbase', 'base commander', 'sortie',
+  'armed forces', 'military', 'air force', 'air defense',
+  'surface-to-air', 'airbase', 'base commander', 'sortie',
   'munitions', 'arms shipment', 'weapons transfer', 'defense ministry',
   'ministry of defence', 'general staff', 'special forces', 'paratrooper',
   'border guard', 'rocket force', 'naval task force', 'fleet command',
-  'deployment', 'deployed', 'forward deployed', 'combat readiness', 'battle group',
+  'forward deployed', 'combat readiness', 'battle group',
   'carrier strike group', 'destroyer squadron', 'frigate squadron', 'air-defence',
   'air defence', 'combat drone', 'fighter squadron', 'naval exercise', 'joint exercise',
-  'field exercise', 'warships', 'warship', 'submarine patrol', 'marines',
+  'field exercise', 'warships', 'warship', 'submarine patrol',
+  // Termes retirés ou qualifiés pour réduire le bruit :
+  // - "sam" → trop de faux positifs (prénom, Samsung) ; "surface-to-air" couvre le cas SAM
+  // - "army" → Salvation Army, "army of" ; remplacé par des formes composées
+  // - "navy" → Old Navy (vêtements) ; remplacé par des formes composées
+  // - "radar" → météo, vitesse ; remplacé par "military radar"
+  // - "deployment"/"deployed" → déploiement logiciel omniprésent
+  // - "marines" → faune marine ; remplacé par "us marines" / "royal marines"
+  'military army', 'national army', 'rebel army',
+  'military navy', 'naval',
+  'military radar', 'radar system',
+  'military deployment', 'troop deployment',
+  'us marines', 'royal marines', 'marine corps',
 ];
 
 const CIVILIAN_NOISE_KEYWORDS = [
@@ -89,6 +101,14 @@ const CIVILIAN_NOISE_KEYWORDS = [
   'murder', 'homicide', 'killed wife', 'killed husband', 'couple arrested',
   'domestic violence', 'family dispute', 'child abuse', 'parents murdered',
   'femicide', 'kidnapped child', 'serial killer', 'body found', 'cadaver',
+  // Synced from NOISE_KEYWORDS — financial / commodity / tech
+  'stock market', 'earnings report', 'quarterly results', 'investing',
+  'samsung', 'semiconductor', 'memory chips',
+  'bitcoin', 'cryptocurrency', 'crypto exchange',
+  // Synced — courts / legal (civil proceedings)
+  'court rules', 'lawsuit', 'class action', 'plea deal',
+  // Synced — lifestyle / opinion
+  'anniversary', 'memorial service', 'fact check', 'opinion column', 'op-ed',
 ];
 
 const DEESCALATION_KEYWORDS = [
@@ -96,22 +116,57 @@ const DEESCALATION_KEYWORDS = [
 ];
 
 const CATEGORY_RULES = [
-  { key: 'terrorism', cameo: ['181', '1831', '1832', '1833'], keywords: ['terrorist', 'terrorism', 'isis', 'al qaeda', 'boko haram', 'suicide bombing', 'ied', 'car bomb', 'hostage'] },
+  { key: 'terrorism', cameo: ['181', '1831', '1832', '1833'], keywords: ['terrorist', 'terrorism', 'isis', 'al qaeda', 'boko haram', 'suicide bombing', 'ied', 'car bomb', 'hostage taking'] },
   { key: 'cyber', cameo: ['155'], keywords: ['cyberattack', 'cyber attack', 'ransomware', 'hacked', 'hackers', 'malware', 'ddos', 'cyber forces'] },
-  { key: 'protest', cameo: ['14'], keywords: ['protest', 'riot', 'demonstration', 'unrest', 'march', 'rally', 'boycott'] },
-  { key: 'strategic', cameo: ['13', '16', '17'], keywords: ['sanction', 'nuclear', 'ballistic missile', 'hypersonic', 'wmd', 'diplomatic rupture', 'strategic'] },
-  { key: 'conflict', cameo: ['18', '19', '20'], keywords: ['clashes', 'fighting', 'battle', 'combat', 'war', 'rebels', 'militia', 'offensive', 'siege'] },
-  { key: 'military', cameo: ['15', '180', '184', '185', '186', '190', '193', '194', '195', '196', '204'], keywords: ['airstrike', 'missile', 'artillery', 'shelling', 'bombardment', 'warplane', 'fighter jet', 'military aircraft', 'tank', 'drone strike', 'armed forces', 'military exercise', 'troops', 'mobilization', 'navy', 'naval', 'submarine', 'warship'] },
-  { key: 'crisis', cameo: ['13', '16', '17'], keywords: ['expelled', 'detained', 'arrested', 'crisis', 'emergency', 'martial law', 'evacuation', 'refugee', 'ultimatum', 'warning', 'diplomatic', 'tension', 'border'] },
-  { key: 'incident', cameo: [], keywords: ['security incident', 'incident', 'police operation', 'checkpoint'] },
+  { key: 'protest', cameo: ['14'], keywords: [
+    'mass protest', 'violent protest', 'anti-government protest', 'demonstration',
+    'civil unrest', 'political unrest',
+    // Removed: "march" (month), "rally" (stock/car), "boycott" (consumer), "riot" (Riot Games)
+    // "protest" alone kept but now word-boundary matched so won't match inside compound words
+  ] },
+  { key: 'strategic', cameo: ['13', '16', '17'], keywords: [
+    'sanctions imposed', 'nuclear program', 'nuclear weapon', 'ballistic missile',
+    'hypersonic', 'wmd', 'diplomatic rupture', 'diplomatic crisis',
+    'arms embargo', 'export ban',
+    // Removed: "sanction" (sports sanction), "nuclear" alone (nuclear energy),
+    // "strategic" (strategic planning/partnership)
+  ] },
+  { key: 'conflict', cameo: ['18', '19', '20'], keywords: [
+    'armed clashes', 'fighting', 'armed combat', 'rebels', 'militia',
+    'military offensive', 'siege', 'insurgent', 'guerrilla',
+    // Removed: "battle" (battle of ideas), "war" (software), "clashes" alone (verbal)
+  ] },
+  { key: 'military', cameo: ['15', '180', '184', '185', '186', '190', '193', '194', '195', '196', '204'], keywords: [
+    'airstrike', 'missile', 'artillery', 'shelling', 'bombardment',
+    'warplane', 'fighter jet', 'military aircraft', 'drone strike',
+    'armed forces', 'military exercise', 'troops', 'mobilization',
+    'naval', 'submarine', 'warship',
+    // Removed: "tank" (think tank), "navy" (Old Navy)
+  ] },
+  { key: 'crisis', cameo: ['13', '16', '17'], keywords: [
+    'diplomatic expulsion', 'political crisis', 'martial law',
+    'mass evacuation', 'refugee crisis', 'ultimatum',
+    'diplomatic tension', 'border incident', 'border clash',
+    // Removed: "expelled" (school), "detained" (any arrest), "arrested" (any arrest),
+    // "crisis" (financial/health), "emergency" (medical), "warning" (weather),
+    // "diplomatic" alone, "tension" alone, "border" alone
+  ] },
+  { key: 'incident', cameo: [], keywords: ['security incident', 'police operation', 'checkpoint'] },
 ];
 
 const MILITARY_CRISIS_KEYWORDS = [
-  'military', 'army', 'navy', 'air force', 'missile', 'strike', 'attack',
-  'drone', 'artillery', 'troops', 'forces', 'defense', 'conflict', 'war',
-  'battle', 'combat', 'terror', 'explosion', 'shelling', 'bombing', 'raid',
-  'militia', 'hostage', 'coup', 'sanction', 'protest', 'riot', 'clashes',
-  'crisis', 'security', 'martial law', 'offensive', 'gunfire', 'rocket',
+  'military', 'air force', 'missile', 'airstrike', 'drone strike',
+  'artillery', 'troops', 'armed forces', 'armed conflict',
+  'combat', 'terrorism', 'shelling', 'bombing', 'bombardment',
+  'militia', 'hostage', 'coup', 'martial law', 'offensive', 'gunfire', 'rocket',
+  'warship', 'warplane', 'fighter jet', 'ballistic',
+  // Termes retirés car trop ambigus en isolation :
+  // "army" (Salvation Army), "navy" (Old Navy), "war" (software, warning),
+  // "strike" (labor strike), "attack" (heart attack), "forces" (market forces),
+  // "defense" (legal defense), "conflict" (scheduling conflict), "crisis" (financial),
+  // "security" (job security), "raid" (police raid), "battle" (battle of ideas),
+  // "explosion" (population explosion), "protest" (consumer), "riot" (Riot Games),
+  // "sanction" (sports sanction), "clashes" (verbal clashes)
 ];
 
 const NOISE_KEYWORDS = [
@@ -151,22 +206,61 @@ const NOISE_KEYWORDS = [
   'wti rises', 'wti falls', 'oil hits', 'barrel hits', 'oil surges',
   'prix du petrole', 'prix du pétrole', 'precio del gas', 'gas prices rise',
   'gold prices', 'gold surges', 'gold falls', // commodity price noise
+  // Court / justice / legal proceedings (civil, not conflict)
+  'court rules', 'court ruling', 'court order', 'sentenced to', 'found guilty',
+  'jury verdict', 'verdict in', 'convicted of', 'acquitted', 'indicted',
+  'pleaded guilty', 'plea deal', 'class action', 'lawsuit filed', 'sued for',
+  'tribunal correctionnel', 'cour de cassation', 'mis en examen',
+  // Crypto / finance noise
+  'bitcoin', 'cryptocurrency', 'blockchain', 'crypto market', 'crypto exchange',
+  'nft', 'defi', 'ethereum',
+  // Animal incidents (not conflict)
+  'bear attack', 'shark attack', 'alligator attack', 'snake bite', 'dog attack',
+  'wolf attack', 'animal attack', 'wild animal',
+  // Health / education (not conflict-related)
+  'school board', 'curriculum', 'university campus', 'tuition',
+  'vaccination campaign', 'covid cases', 'pandemic response',
+  // Real estate / housing
+  'mortgage rate', 'housing market', 'property prices', 'home sales',
+  'real estate market', 'rent prices',
+  // Software / tech (to avoid "deployment", "strike" false positives)
+  'software update', 'app update', 'software release', 'tech company',
+  'software deployment', 'cloud deployment', 'code deployment',
 ];
 
 const CIVILIAN_OVERRIDE = [
+  // Medical
   'clinical trial', 'patient', 'vaccine', 'cancer', 'therapy', 'hospital',
   'birth', 'delivery', 'triplets', 'twins', 'pregnant', 'pregnancy', 'mother',
-  'maternity', 'obstetric', 'election', 'vote', 'ballot', 'parliament',
+  'maternity', 'obstetric',
+  // Politics (routine, not crisis)
+  'election result', 'ballot count', 'parliament session',
+  // Finance / economy
   'economic growth', 'gdp', 'inflation', 'interest rate', 'trade deal',
   'stock market', 'share price', 'earnings', 'revenue', 'profit',
-  'earthquake', 'flood', 'hurricane', 'wildfire', 'accident', 'crash',
-  'collision', 'sports', 'tournament', 'championship', 'concert', 'movie',
+  // Natural disasters (not conflict)
+  'earthquake damage', 'flood damage', 'hurricane damage', 'wildfire',
+  // Accidents (not conflict)
+  'car accident', 'road accident', 'plane crash', 'train derail',
+  // Entertainment / sports
+  'sports', 'tournament', 'championship', 'concert', 'movie',
+  // Removed overly broad: "election" (→ coup context), "vote" (→ UN vote),
+  // "accident" alone, "crash" alone (→ "crash landing" military), "collision" alone,
+  // "flood" alone (→ "flood of refugees"), "earthquake" alone
 ];
 
 const SECURITY_OVERRIDE_KEYWORDS = [
-  'attack', 'airstrike', 'strike', 'missile', 'drone', 'military', 'war',
-  'terror', 'bomb', 'explosion', 'hostage', 'raid', 'shelling', 'cyberattack',
-  'ransomware', 'hack', 'sanction', 'border', 'coup', 'riot', 'protest',
+  // Only compound/unambiguous terms that truly indicate security context.
+  // Removed: "attack" (heart/shark/anxiety), "strike" (labor), "war" (software/warning),
+  // "border" (collie/design), "raid" (police drug raid), "hack" (life hack),
+  // "explosion" (population), "protest" (consumer), "riot" (Riot Games),
+  // "sanction" (sports), "bomb" (bombshell/bombastic)
+  'airstrike', 'missile', 'drone strike', 'military', 'armed conflict',
+  'terror attack', 'terrorist', 'terrorism', 'car bomb', 'suicide bomb',
+  'hostage', 'shelling', 'cyberattack', 'ransomware',
+  'coup', 'martial law', 'bombardment', 'gunfire', 'artillery',
+  'armed forces', 'air force', 'warship', 'fighter jet',
+  'ballistic', 'nuclear weapon', 'chemical weapon',
 ];
 
 const NOISE_DOMAINS = new Set([
@@ -380,13 +474,31 @@ function decodeHtmlEntities(value) {
     .replace(/&gt;/g, '>');
 }
 
+// Word-boundary matching cache — avoids rebuilding regexes every call
+const _wbCache = new Map();
+function _wordBoundaryRegex(keyword) {
+  if (_wbCache.has(keyword)) return _wbCache.get(keyword);
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Multi-word phrases: match with flexible whitespace/hyphens between words
+  const pattern = escaped.replace(/\s+/g, '[\\s\\-]+');
+  const re = new RegExp(`(?:^|[\\s\\-_/.,;:!?"'()])${pattern}(?=[\\s\\-_/.,;:!?"'()]|$)`, 'i');
+  _wbCache.set(keyword, re);
+  return re;
+}
+
 function containsAnyKeyword(text, keywords) {
   const decoded = decodeHtmlEntities(text).toLowerCase();
   const normalized = normalizeText(decoded);
-  return keywords.some(keyword =>
-    decoded.includes(decodeHtmlEntities(keyword).toLowerCase()) ||
-    normalized.includes(normalizeText(keyword))
-  );
+  return keywords.some(keyword => {
+    const kw = decodeHtmlEntities(keyword).toLowerCase();
+    // For multi-word phrases (2+ words), substring match is safe — false positive risk is negligible
+    if (kw.includes(' ') || kw.includes('-')) {
+      return decoded.includes(kw) || normalized.includes(normalizeText(kw));
+    }
+    // Single words: use word-boundary regex to avoid substring false positives
+    // (e.g. "war" must not match "software", "army" must not match "pharmacy")
+    return _wordBoundaryRegex(kw).test(decoded) || _wordBoundaryRegex(normalizeText(kw)).test(normalized);
+  });
 }
 
 function containsAnyPhrase(text, phrases) {
@@ -617,9 +729,22 @@ function buildSignalTextBlob(title, actor1, actor2, themes = [], organizations =
     .toLowerCase();
 }
 
+function countMilitaryKeywords(textBlob) {
+  let count = 0;
+  for (const kw of MILITARY_KEYWORDS) {
+    if (containsAnyKeyword(textBlob, [kw])) count++;
+  }
+  return count;
+}
+
 function buildFlags(textBlob) {
+  const milCount = countMilitaryKeywords(textBlob);
   return {
-    military_keyword_flag: containsAnyKeyword(textBlob, MILITARY_KEYWORDS) ? 1 : 0,
+    // military_keyword_flag=1 requires at least 1 match ; _strong requires ≥2
+    // Downstream logic uses _strong for bypass decisions to reduce false positives
+    military_keyword_flag: milCount >= 1 ? 1 : 0,
+    military_keyword_strong: milCount >= 2 ? 1 : 0,
+    military_keyword_count: milCount,
     civilian_noise_flag: isCivilianNoise(textBlob) ? 1 : 0,
     deescalation_flag: containsAnyKeyword(textBlob, DEESCALATION_KEYWORDS) ? 1 : 0,
     // Legacy domain flags kept as 0 to avoid breaking downstream references
@@ -639,7 +764,7 @@ function militaryContextBoost(themes, organizations, persons, textBlob) {
   if (/MILITARY|ARMED|MISSILE|NUCLEAR|TERROR|WAR|DEFENCE|DEFENSE|NAVAL|AVIATION|AIR_FORCE|AIRFORCE/i.test(joinedThemes)) score += 16;
   if (/ministry of defence|ministry of defense|defense ministry|defence ministry|armed forces|air force|navy|army|revolutionary guard|idf|pentagon|nato/i.test(normalizeText(joinedOrgs))) score += 14;
   if (/general|admiral|colonel|brigadier|commander/i.test(normalizeText((persons || []).join(' ')))) score += 6;
-  if (containsAnyKeyword(textBlob, ['exercise', 'drill', 'deployment', 'munition', 'ordnance', 'airbase', 'warship', 'fighter'])) score += 8;
+  if (containsAnyKeyword(textBlob, ['military exercise', 'military drill', 'field exercise', 'munition', 'ordnance', 'airbase', 'warship', 'fighter jet', 'fighter squadron'])) score += 8;
   return score;
 }
 
@@ -663,11 +788,22 @@ function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
     return 'terrorism';
   }
   if (['18', '19', '20'].includes(String(rootCode || ''))) {
-    // Assign 'conflict' regardless of signal strength — fine-tuned model decides keep/discard.
-    // Strong signal gets the category confirmed; weak/ambiguous signal gets rejected by AI.
-    return 'conflict';
+    // GDELT rootCode 18/19/20 is heavily over-assigned — hotel incidents, labor disputes,
+    // local crime all get tagged as "Use conventional military force".
+    // With military keyword: classify as conflict (fine-tuned model confirms/rejects).
+    // Without military keyword: only classify as conflict if text has clear violence indicators.
+    if (flags.military_keyword_flag) return 'conflict';
+    const hasViolenceSignal = /\b(killed|bombing|shelling|clashes|fighting|offensive|siege|rebel|militia|insurgent|guerrilla|ambush|attack(?:ed|s|ing)?)\b/.test(normalized);
+    if (hasViolenceSignal) return 'conflict';
+    // No signal at all — mark as incident (lower priority), AI model decides
+    return 'incident';
   }
-  if (String(rootCode || '') === '15') return 'military';
+  if (String(rootCode || '') === '15') {
+    // rootCode 15 = "Demonstrate military or police power"
+    // With military keyword → military ; without → only if strong signal
+    if (flags.military_keyword_flag) return 'military';
+    return 'incident';
+  }
   if (String(rootCode || '') === '14') return 'protest';
   // Keyword-based classification
   for (const rule of CATEGORY_RULES) {
@@ -677,8 +813,12 @@ function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
     if (rule.cameo.some(prefix => String(eventCode || '').startsWith(prefix))) return rule.key;
   }
   if (['13', '16', '17'].includes(String(rootCode || ''))) {
-    // Assign 'strategic' regardless — fine-tuned model decides keep/discard.
-    return 'strategic';
+    // rootCode 13/16/17 = Threaten/Coerce/Reduce relations
+    // With military keyword → strategic ; without → only if text has geopolitical signal
+    if (flags.military_keyword_flag) return 'strategic';
+    const hasGeopoliticalSignal = /\b(sanction|embargo|expel|diplomat|nuclear|weapon|ultimatum|blockade|annex)\b/.test(normalized);
+    if (hasGeopoliticalSignal) return 'strategic';
+    return 'incident';
   }
   return 'discard';
 }
@@ -717,7 +857,9 @@ function mediaVisibilityScore(row, mention) {
 
 function domainBonus(flags) {
   let score = 0;
-  if (flags.military_keyword_flag) score += 12;
+  // Full bonus only for strong signal (≥2 keywords) ; weak signal gets reduced bonus
+  if (flags.military_keyword_strong) score += 12;
+  else if (flags.military_keyword_flag) score += 5;
   return score;
 }
 
@@ -750,9 +892,18 @@ function shouldKeepEvent(row, flags, isStructural = false) {
 
   // Civilian noise with no military signal → always reject
   if (flags.civilian_noise_flag && !flags.military_keyword_flag) return false;
+  // Civilian noise + only weak military signal (1 keyword) → reject
+  // A single keyword like "military" in a civilian context (e.g. "military discount") is insufficient
+  if (flags.civilian_noise_flag && !flags.military_keyword_strong) return false;
 
-  // Military keyword confirmed → keep (positive signal approach)
-  if (flags.military_keyword_flag) return true;
+  // Strong military signal (≥2 keywords) → always keep
+  if (flags.military_keyword_strong) return true;
+
+  // Weak military signal (1 keyword) + structural CAMEO code → keep (CAMEO corroborates)
+  if (flags.military_keyword_flag && STRUCTURAL_ROOT_CODES.has(rootCode)) return true;
+
+  // Weak military signal (1 keyword) + multi-source → keep (volume corroborates)
+  if (flags.military_keyword_flag && sources >= 3) return true;
 
   // Without military keyword: CAMEO conflict root code alone is not enough — GDELT often
   // misclassifies civilian articles (hotel incidents, labor disputes, local crime) as rootCode 18.
@@ -1072,6 +1223,8 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
       organizations,
       text_blob: signalTextBlob,
       military_keyword_flag: flags.military_keyword_flag,
+      military_keyword_strong: flags.military_keyword_strong,
+      military_keyword_count: flags.military_keyword_count,
       civilian_noise_flag: flags.civilian_noise_flag,
       deescalation_flag: flags.deescalation_flag,
       rejectReason,
