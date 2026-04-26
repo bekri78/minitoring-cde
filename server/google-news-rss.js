@@ -47,9 +47,9 @@ const GEOCODE_DELAY  = 1100; // 1 req/s Nominatim
 const RSS_FEEDS = [
   // ── GLOBAL par domaine (pas de hintLocation — mondial) ──────────────
   { domain: 'spatial',  label: 'Space & Satellites',
-    query: '("satellite launch" OR "military satellite" OR "spy satellite" OR "rocket launch" OR "space launch" OR SpaceX OR Starlink OR "Falcon 9" OR "Blue Origin" OR NASA OR "space force")' },
+    query: '("satellite launch" OR "military satellite" OR "spy satellite" OR "rocket launch" OR "space launch" OR "space force" OR "space weapon" OR "anti-satellite")' },
   { domain: 'spatial',  label: 'Space Ops & Launches',
-    query: '(Vandenberg OR "Cape Canaveral" OR Wallops OR Baikonur OR "Rocket Lab" OR Ariane OR Artemis OR "space station" OR "ISS cargo" OR orbit)' },
+    query: '(Vandenberg OR "Cape Canaveral" OR Wallops OR Baikonur OR "Rocket Lab" OR Ariane OR "space station" OR "ISS cargo" OR orbit) (launch OR satellite OR military OR weapon)' },
   { domain: 'missile',  label: 'Missile Activity',
     query: '("missile test" OR "ballistic missile" OR "hypersonic missile" OR "rocket test")' },
   { domain: 'naval',    label: 'Naval Military',
@@ -75,7 +75,7 @@ const RSS_FEEDS = [
   { domain: 'spatial', label: 'China Space', hintLocation: 'china',
     query: '(China OR Chinese) (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR "Long March" OR Tiangong OR Beidou OR "space station" OR Jiuquan OR Xichang OR Wenchang)' },
   { domain: 'spatial', label: 'USA Space', hintLocation: 'united states',
-    query: '(USA OR American OR "United States") (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR "Space Force" OR SpaceX OR NASA OR Starlink OR "spy satellite" OR NRO OR "space command" OR "space weapon")' },
+    query: '(USA OR American OR "United States") ("Space Force" OR "spy satellite" OR NRO OR "space command" OR "space weapon" OR "military satellite" OR ASAT OR "anti-satellite" OR "satellite launch" OR "rocket launch")' },
   { domain: 'spatial', label: 'India Space', hintLocation: 'india',
     query: '(India OR Indian OR ISRO) (satellite OR "space launch" OR "rocket launch" OR orbit OR space OR ASAT OR Chandrayaan OR Gaganyaan OR PSLV OR GSLV)' },
   { domain: 'spatial', label: 'Europe Space', hintLocation: 'france',
@@ -296,6 +296,32 @@ const STRATEGIC_ZONES = new Map([
   ['south korea',           { lat: 35.91, lon: 127.77 }],
   ['united states',         { lat: 38.90, lon: -77.04 }],
   ['taiwan',                { lat: 23.70, lon: 120.96 }],
+  // Major countries — ensures detectCountryFromTitle results can be geocoded
+  ['china',                 { lat: 39.90, lon: 116.40 }],
+  ['russia',                { lat: 55.75, lon: 37.62  }],
+  ['ukraine',               { lat: 50.45, lon: 30.52  }],
+  ['iran',                  { lat: 35.69, lon: 51.39  }],
+  ['israel',                { lat: 31.77, lon: 35.22  }],
+  ['india',                 { lat: 28.61, lon: 77.21  }],
+  ['pakistan',               { lat: 33.69, lon: 73.04  }],
+  ['turkey',                { lat: 39.93, lon: 32.85  }],
+  ['japan',                 { lat: 35.68, lon: 139.69 }],
+  ['syria',                 { lat: 33.51, lon: 36.29  }],
+  ['yemen',                 { lat: 15.37, lon: 44.19  }],
+  ['libya',                 { lat: 32.90, lon: 13.18  }],
+  ['sudan',                 { lat: 15.60, lon: 32.53  }],
+  ['somalia',               { lat: 2.05,  lon: 45.32  }],
+  ['iraq',                  { lat: 33.34, lon: 44.40  }],
+  ['saudi arabia',          { lat: 24.71, lon: 46.68  }],
+  ['egypt',                 { lat: 30.04, lon: 31.24  }],
+  ['france',                { lat: 48.86, lon: 2.35   }],
+  ['germany',               { lat: 52.52, lon: 13.41  }],
+  ['united kingdom',        { lat: 51.51, lon: -0.13  }],
+  ['myanmar',               { lat: 16.87, lon: 96.20  }],
+  ['philippines',           { lat: 14.60, lon: 120.98 }],
+  ['vietnam',               { lat: 21.03, lon: 105.85 }],
+  ['afghanistan',           { lat: 34.53, lon: 69.17  }],
+  ['brazil',                { lat: -15.79, lon: -47.88}],
 ]);
 
 // ── Index mondial de villes (all-the-cities, 135k entrées) ───────────────────
@@ -351,6 +377,40 @@ const LOCATION_STOPWORDS = new Set([
   'july', 'august', 'september', 'october', 'november', 'december',
 ]);
 
+// ── Spatial noise: civil/tourism/entertainment space content ──────────────────
+const SPATIAL_NOISE_RE = new RegExp([
+  // NASA civil programs & exploration missions (not military/intel)
+  'artemis\\s*(?:i{1,3}|[1-4]|program|mission|crew|moon|lunar)',
+  'moon\\s*(?:mission|landing|base|program|exploration|return)',
+  'mars\\s*(?:mission|rover|helicopter|sample|colony|base|exploration)',
+  'james webb', 'hubble', 'jwst',
+  'voyager', 'curiosity\\s*rover', 'perseverance\\s*rover',
+  'europa\\s*clipper', 'dragonfly\\s*mission',
+  // Space tourism & commercial crew (not strategic)
+  'space\\s*tour', 'space\\s*tourism', 'space\\s*tourist',
+  'civilian\\s*astronaut', 'private\\s*astronaut', 'space\\s*hotel',
+  'axiom\\s*mission', 'inspiration4', 'polaris\\s*dawn',
+  'blue\\s*origin.*(?:tourist|crew|passenger)',
+  'virgin\\s*galactic',
+  // Science/exploration (no military dimension)
+  'asteroid\\s*(?:sample|mining|redirect|defense|mission)',
+  'comet', 'exoplanet', 'telescope', 'deep\\s*space\\s*network',
+  'planetary\\s*defense', 'solar\\s*probe', 'solar\\s*orbiter',
+  // Public/entertainment
+  'how\\s*to\\s*(?:see|watch|view)', 'viewing\\s*guide', 'visible\\s*(?:from|in)',
+  'sonic\\s*boom', 'livestream', 'live\\s*stream', 'live\\s*coverage',
+  'launch\\s*(?:photo|video|watch|viewing)', '(?:photo|video).*launch',
+  'watching.*launch', 'launch.*watch',
+  'spacex.*(?:record|milestone|anniversary|100th)',
+].join('|'), 'i');
+
+// Terms that override spatial noise (keep the article if these are present)
+const SPATIAL_STRATEGIC_RE = /military|spy|reconnaissance|nro|classified|ussf|space force|dod|pentagon|space weapon|asat|anti.satellite|jamming|spoofing|electronic warfare|icbm|slbm|hypersonic|ballistic|nuclear|warhead|intelligence|surveillance|early warning|missile defense|missile tracking|space command|weaponiz/i;
+
+function isSpatialNoise(title) {
+  return SPATIAL_NOISE_RE.test(title) && !SPATIAL_STRATEGIC_RE.test(title);
+}
+
 function detectDomainFromTitle(title) {
   const t = title.toLowerCase();
 
@@ -359,7 +419,7 @@ function detectDomainFromTitle(title) {
   // Military rocket ≠ space: exclude "rocket launch" when context is clearly military strikes
   if (/hezbollah|hamas|idf|israel.*rocket|rocket.*platform.*target|strikes.*rocket/i.test(t)) return 'military';
   // Spatial: genuine space/satellite context — broad keyword set
-  if (/satellite|space launch|orbit|space force|spaceforce|spacex|starlink|falcon 9|atlas v|vulcan|artemis|nasa.*launch|blue origin|vandenberg|cape canaveral|wallops|minotaur|delta iv|soyuz|long march|ariane|vega.*rocket|electron.*rocket|rocket lab|ula |iss |international space station|cosmodrome|baikonur|jiuquan|xichang|wenchang|space daily|spaceflight|spacety|xona space/i.test(t)) return 'spatial';
+  if (/satellite|space launch|orbit|space force|spaceforce|spacex|starlink|falcon 9|atlas v|vulcan|nasa.*launch|blue origin|vandenberg|cape canaveral|wallops|minotaur|delta iv|soyuz|long march|ariane|vega.*rocket|electron.*rocket|rocket lab|ula |iss |international space station|cosmodrome|baikonur|jiuquan|xichang|wenchang|space daily|spaceflight|spacety|xona space/i.test(t)) return 'spatial';
   // "rocket launch" only if no military context words
   if (/rocket launch|rocket.*liftoff|launch.*rocket/i.test(t) && !/strike|attack|target|military|bomb|shell|hezbollah|hamas|idf|israel|intercept/i.test(t)) return 'spatial';
   if (/naval|warship|carrier|submarine|fleet|destroyer|frigate|navy/i.test(t))   return 'naval';
@@ -401,6 +461,51 @@ function detectEventType(title, domain) {
   return domain;
 }
 
+// ── Country detection from title content ─────────────────────────────────────
+// Maps country names/adjectives mentioned in titles to their canonical location key
+// Used to override hintLocation when the article clearly discusses a different country
+const TITLE_COUNTRY_MAP = new Map([
+  ['china',         'china'],        ['chinese',       'china'],
+  ['russia',        'russia'],       ['russian',       'russia'],
+  ['ukraine',       'ukraine'],      ['ukrainian',     'ukraine'],
+  ['iran',          'iran'],         ['iranian',       'iran'],
+  ['israel',        'israel'],       ['israeli',       'israel'],
+  ['india',         'india'],        ['indian',        'india'],
+  ['pakistan',       'pakistan'],     ['pakistani',     'pakistan'],
+  ['turkey',        'turkey'],       ['turkish',       'turkey'],
+  ['japan',         'japan'],        ['japanese',      'japan'],
+  ['north korea',   'north korea'],  ['dprk',          'north korea'],  ['pyongyang',     'north korea'],
+  ['south korea',   'south korea'],  ['seoul',         'south korea'],
+  ['taiwan',        'taiwan'],       ['taiwanese',     'taiwan'],
+  ['france',        'france'],       ['french',        'france'],
+  ['germany',       'germany'],      ['german',        'germany'],
+  ['united kingdom','united kingdom'],['british',      'united kingdom'],['uk ',           'united kingdom'],
+  ['syria',         'syria'],        ['syrian',        'syria'],
+  ['yemen',         'yemen'],        ['houthi',        'yemen'],
+  ['libya',         'libya'],        ['libyan',        'libya'],
+  ['sudan',         'sudan'],        ['sudanese',      'sudan'],
+  ['somalia',       'somalia'],
+  ['iraq',          'iraq'],         ['iraqi',         'iraq'],
+  ['saudi',         'saudi arabia'], ['saudi arabia',  'saudi arabia'],
+  ['egypt',         'egypt'],        ['egyptian',      'egypt'],
+  ['brazil',        'brazil'],       ['brazilian',     'brazil'],
+  ['myanmar',       'myanmar'],
+  ['philippines',   'philippines'],  ['philippine',    'philippines'],
+  ['vietnam',       'vietnam'],      ['vietnamese',    'vietnam'],
+  ['afghanistan',   'afghanistan'],
+]);
+
+function detectCountryFromTitle(title) {
+  const t = title.toLowerCase();
+  // Multi-word entries first (e.g. "North Korea" before "Korea")
+  const sorted = [...TITLE_COUNTRY_MAP.entries()].sort((a, b) => b[0].length - a[0].length);
+  for (const [name, canonical] of sorted) {
+    const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    if (re.test(t)) return canonical;
+  }
+  return null;
+}
+
 function detectLocationFromTitle(title) {
   const t = title;
 
@@ -410,12 +515,16 @@ function detectLocationFromTitle(title) {
     if (re.test(t)) return name;
   }
 
-  // 2. Patterns syntaxiques : extraire candidats lieux depuis le titre
+  // 2. Country detection from content (e.g. "China launches satellite" → "china")
+  const country = detectCountryFromTitle(t);
+  if (country && lookupKnown(country)) return country;
+
+  // 3. Patterns syntaxiques : extraire candidats lieux depuis le titre
   const candidates = [];
   const patterns = [
     /\b(?:in|from|near|over|off|at|around)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})/g,
     /\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)\s+(?:launches?|tests?|fires?|deploys?|strikes?|attacks?)/g,
-    /\b([A-Z][a-zA-Z]+(?:'s)?)\s+(?:military|navy|air force|army|defense|missile)/g,
+    /\b([A-Z][a-zA-Z]+(?:'s)?)\s+(?:military|navy|air force|army|defense|missile|satellite)/g,
   ];
   for (const re of patterns) {
     let m;
@@ -427,12 +536,12 @@ function detectLocationFromTitle(title) {
     }
   }
 
-  // 3. Valider chaque candidat contre l'index mondial
+  // 4. Valider chaque candidat contre l'index mondial
   for (const loc of candidates) {
     if (lookupKnown(loc)) return loc;
   }
 
-  // 4. Retourner le premier candidat non validé (sera géocodé par Nominatim)
+  // 5. Retourner le premier candidat non validé (sera géocodé par Nominatim)
   return candidates[0] || '';
 }
 
@@ -450,16 +559,20 @@ function computeConfidence(title, domain, feedDomain, location) {
 
   // ── Bonus militaire/stratégique par domaine ────────────────────────
   if (domain === 'spatial') {
+    // Spatial noise (Artemis, tourism, science publique) → forte pénalité
+    if (isSpatialNoise(t)) score -= 50;
     // Vrai décollage spatial : rocket + satellite/orbit/space context → très pertinent
     if (/rocket launch|satellite launch|space launch|orbital launch|missile launch|ballistic.*launch|launch.*satellite|launch.*rocket|launch.*orbit|liftoff.*rocket|rocket.*liftoff/i.test(t)) score += 25;
     // Pertinente : militaire, renseignement, guerre spatiale
-    if (/military|spy|reconnaissance|asat|anti.satellite|jamming|spoofing|debris|weapon|classified|nro|intelligence|warning|defense|sensor|radar|tracking|destroyed|hit|strike/i.test(t)) score += 20;
+    if (SPATIAL_STRATEGIC_RE.test(t)) score += 20;
     // Non-spatial "launch" : produit, app, initiative, campagne → pénalité forte
     if (/launch/i.test(t) && !/rocket|satellite|space|orbital|orbit|missile|capsule|payload|vehicle|booster|spacecraft|probe|liftoff|pad|silo|ICBM|SLBM|sounding/i.test(t)) score -= 40;
     // Pénalité forte : contenu civil/tourisme/science grand public
     if (/how to (see|watch|view)|viewing guide|liftoff (time|tonight)|visible (from|in)|sonic boom|ticket|livestream|live stream|live coverage|photo.*launch|launch.*photo|watching.*launch|launch.*watch/i.test(t)) score -= 45;
-    // Pénalité modérée : commercial SpaceX sans enjeu militaire
-    if (/spacex|falcon 9|starlink/i.test(t) && !/military|nro|spy|classified|ussf|space force|dod|pentagon|missile|hypersonic/i.test(t)) score -= 20;
+    // Pénalité modérée : commercial SpaceX/Starlink sans enjeu militaire
+    if (/spacex|falcon 9|starlink/i.test(t) && !SPATIAL_STRATEGIC_RE.test(t)) score -= 25;
+    // Pénalité : Artemis, missions lunaires civiles sans dimension militaire
+    if (/artemis|moon mission|lunar.*mission|mars.*mission/i.test(t) && !SPATIAL_STRATEGIC_RE.test(t)) score -= 40;
   }
 
   if (domain === 'aviation') {
@@ -491,9 +604,15 @@ function computeConfidence(title, domain, feedDomain, location) {
   }
 
   // ── Pénalités génériques (bruit) ──────────────────────────────────
-  if (/opinion|editorial|could|might|may consider|if.*war|hypothetical|scenario/i.test(t)) score -= 20;
-  if (/historical|anniversary|years ago|world war ii|cold war era|in \d{4}/i.test(t)) score -= 30;
+  if (/opinion|editorial|could|might|may consider|if.*war|hypothetical|scenario|what if/i.test(t)) score -= 20;
+  if (/historical|anniversary|years ago|world war ii|cold war era|in \d{4}|commemorat|memorial/i.test(t)) score -= 30;
   if (/sport|football|soccer|basketball|cricket|olympic|medal|tourism|hotel|restaurant|recipe|fashion|entertainment/i.test(t)) score -= 60;
+  // Business/tech/finance noise
+  if (/stock|shares|earnings|revenue|profit|ipo|startup|investment|market cap|quarterly|fiscal|dividend/i.test(t) && !/sanction|embargo|military|weapon|defense/i.test(t)) score -= 40;
+  // Education / health / social
+  if (/school board|curriculum|university|vaccine|covid|pandemic|hospital|patient|medical/i.test(t) && !/attack|military|weapon|strike|bomb/i.test(t)) score -= 35;
+  // Routine diplomacy / non-crisis
+  if (/summit|state visit|trade agreement|trade deal|diplomatic visit|bilateral talks/i.test(t) && !/military|weapon|nuclear|sanction|crisis|war|conflict/i.test(t)) score -= 25;
 
   return Math.max(10, Math.min(95, score));
 }
