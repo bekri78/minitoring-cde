@@ -27,6 +27,7 @@ const { getAviationEvents, refreshOpenSkyCache }                     = require('
 const { getSpatialEvents }                                           = require('./spatial-osint');
 const { fetchGoogleNewsEvents, getCache: getNewsCache, getNewsEventsForMap } = require('./google-news-rss');
 const { fetchTodayEvents: fetchTodayEventsFromFiles, isCameoFallbackTitle, purgeSnapshot } = require('./gdelt-files');
+const { enrichEvents }                                                       = require('./enrich');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -74,9 +75,7 @@ async function fetchTodayEvents(options = {}) {
   return fetchTodayEventsFromFiles(options);
 }
 
-async function enrichEvents(events) {
-  return Array.isArray(events) ? events : [];
-}
+// enrichEvents importé depuis ./enrich — filtre gpt-4o avec quotas régionaux
 
 
 // Refresh events feed

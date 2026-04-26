@@ -160,7 +160,9 @@ function shouldBypassAiFilter(event) {
   const hasMilitarySignal = !!event.military_keyword_flag;
   if (event.is_strategic && HIGH_CONFIDENCE_CATS.has(cat) && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 8 && hasMilitarySignal) return true;
   if (HIGH_CONFIDENCE_CATS.has(cat) && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 18 && hasMilitarySignal) return true;
-  if (['terrorism', 'cyber'].includes(cat)) return true;
+  // Bypass uniquement si signal militaire confirmé — sans ça, un faux positif GDELT
+  // (ex. faucon qui "enlève" quelqu'un) classé terrorism saute le filtre IA
+  if (['terrorism', 'cyber'].includes(cat) && event.military_keyword_flag) return true;
   return false;
 }
 

@@ -653,7 +653,12 @@ function classifyEvent(text, eventCode = '', rootCode = '', flags = {}) {
     // Code 181 (Abduct/hijack/hostage) is heavily misused by GDELT for civilian articles
     // (family reunions, migration, divorces, child custody, disappearances).
     // Only keep if there is a genuine terrorism/kidnapping signal in the text.
-    const hasTerrorSignal = /\b(hostage|kidnap|abduct|ransom|hijack|armed group|militant|terrorist|terror attack|bombing|explosion|captive|detained by|held by|seized by)\b/.test(normalized);
+    // "abduct/kidnap" seuls ne suffisent pas — un faucon (oiseau) peut "abduire" sa proie.
+    // Exiger un contexte armé/politique explicite pour ces termes ambigus.
+    const hasStrongTerrorSignal = /\b(suicide bomb|car bomb|ied|hostage|ransom|hijack|armed group|militant|terrorist|terror attack|captive)\b/.test(normalized);
+    const hasAmbiguousTerrorSignal = /\b(kidnap|abduct|seized by|detained by|held by)\b/.test(normalized) &&
+      /\b(armed|militant|political|rebel|jihadist|cartel|gang|group|demand|claim)\b/.test(normalized);
+    const hasTerrorSignal = hasStrongTerrorSignal || hasAmbiguousTerrorSignal;
     if (!hasTerrorSignal && !flags.military_keyword_flag) return 'discard';
     return 'terrorism';
   }
@@ -729,6 +734,9 @@ function scoreEvent(row, mention, tone, domain, flags, region) {
   if (STRATEGIC_REGION_BOOST.has(region)) score += 8;
   if (flags.civilian_noise_flag) score -= 45;
   if (flags.deescalation_flag) score -= 20;
+  // Pénalité pour les events conflict/coercition sans aucun signal militaire dans le texte
+  // GDELT surclasse souvent des faits divers civils avec rootCode 18/19/20
+  if (!flags.military_keyword_flag && ['18', '19', '20'].includes(String(row.rootCode || ''))) score -= 18;
   return Math.round(score);
 }
 
