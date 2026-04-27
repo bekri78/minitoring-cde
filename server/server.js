@@ -951,6 +951,11 @@ app.post('/refresh', (req, res) => {
   refresh(true).catch(err => console.error('[manual-refresh] failed:', err.message));
 });
 
+app.post('/refresh/rss', (req, res) => {
+  res.json({ ok: true, message: 'RSS refresh triggered' });
+  fetchGoogleNewsEvents().catch(err => console.error('[manual-rss-refresh] failed:', err.message));
+});
+
 // ── Cron 30min — GDELT + finetune (finetune se déclenche après le refresh) ───────────
 cron.schedule('*/30 * * * *', () => {
   console.log('[cron] triggered');
