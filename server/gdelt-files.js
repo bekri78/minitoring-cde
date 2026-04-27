@@ -11,7 +11,7 @@ const INCLUDE_TRANSLATION = process.env.GDELT_INCLUDE_TRANSLATION !== 'false'; /
 const CACHE_DIR = process.env.CACHE_DIR || '/data';
 const STATE_PATH = path.join(CACHE_DIR, 'gdelt-file-state.json');
 
-const BOOTSTRAP_WINDOWS = Number(process.env.GDELT_BOOTSTRAP_WINDOWS || 8);
+const BOOTSTRAP_WINDOWS = Number(process.env.GDELT_BOOTSTRAP_WINDOWS || 48);
 const MAX_WINDOWS_PER_RUN = Number(process.env.GDELT_WINDOWS_PER_RUN || 8);
 const SNAPSHOT_LOOKBACK_HOURS = Number(process.env.GDELT_LOOKBACK_HOURS || 24);
 const MAX_DASHBOARD_EVENTS = Number(process.env.GDELT_MAX_EVENTS || 800);
@@ -1061,9 +1061,9 @@ function shouldKeepEvent(row, flags, isStructural = false) {
   // misclassifies civilian articles (hotel incidents, labor disputes, local crime) as rootCode 18.
   // Require very high source count (5+) as a proxy for genuine armed conflict coverage.
   if (!STRUCTURAL_ROOT_CODES.has(rootCode)) return false;
-  if (['18', '19', '20'].includes(rootCode) && sources >= 5) return true; // armed conflict, high-confidence
-  if (['14', '15'].includes(rootCode) && sources >= 5) return true;       // protest / force display
-  if (['13', '16', '17'].includes(rootCode) && sources >= 6) return true; // threaten / coerce / sanction
+  if (['18', '19', '20'].includes(rootCode) && sources >= 2) return true; // armed conflict
+  if (['14', '15'].includes(rootCode) && sources >= 2) return true;       // protest / force display
+  if (['13', '16', '17'].includes(rootCode) && sources >= 3) return true; // threaten / coerce / sanction
 
   return false;
 }
