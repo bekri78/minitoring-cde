@@ -349,6 +349,82 @@ async function prefetchReverseGeo(eventRows) {
   _saveReverseGeoCache();
 }
 
+// ── Forward geocoding cache (country code → centroid) ────────────────────────
+// Used after AI corrects countryCode to reposition the map pin to the right country.
+const _fwdGeoCache = new Map();
+const _FWD_GEO_PATH = path.join(CACHE_DIR, 'forward-geo-cache.json');
+let _fwdGeoCacheLoaded = false;
+
+function _loadFwdGeoCache() {
+  if (_fwdGeoCacheLoaded) return;
+  _fwdGeoCacheLoaded = true;
+  try {
+    const data = JSON.parse(fs.readFileSync(_FWD_GEO_PATH, 'utf8'));
+    for (const [k, v] of Object.entries(data || {})) _fwdGeoCache.set(k, v);
+    console.log(`[fwd-geo] cache loaded: ${_fwdGeoCache.size} countries`);
+  } catch {}
+}
+
+function _saveFwdGeoCache() {
+  try {
+    ensureCacheDir();
+    fs.writeFileSync(_FWD_GEO_PATH, JSON.stringify(Object.fromEntries(_fwdGeoCache)));
+  } catch {}
+}
+
+async function _nominatimForwardCountry(isoCode) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?country=${isoCode}&format=json&limit=1&featuretype=country`;
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'OSINT-Dashboard/1.0 (geopolitical-monitoring)' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (!data?.length) return null;
+    return { lat: Number(data[0].lat), lon: Number(data[0].lon) };
+  } catch {
+    return null;
+  }
+}
+
+async function fixGeoAfterAiCorrection(events) {
+  _loadFwdGeoCache();
+  const needFetch = [];
+  for (const ev of events) {
+    if (!ev._origCountryCode) continue;
+    const orig = String(ev._origCountryCode).toUpperCase();
+    const corrected = String(ev.countryCode || '').toUpperCase();
+    if (!corrected || corrected === orig || corrected.length !== 2) continue;
+    if (!_fwdGeoCache.has(corrected)) needFetch.push(corrected);
+  }
+  const unique = [...new Set(needFetch)];
+  if (unique.length) {
+    console.log(`[fwd-geo] fetching centroids for ${unique.length} AI-corrected country(ies): ${unique.join(', ')}`);
+    for (let i = 0; i < unique.length; i++) {
+      const code = unique[i];
+      const centroid = await _nominatimForwardCountry(code);
+      _fwdGeoCache.set(code, centroid || null);
+      if (i < unique.length - 1) await new Promise(r => setTimeout(r, 1100));
+    }
+    _saveFwdGeoCache();
+  }
+  return events.map(ev => {
+    if (!ev._origCountryCode) return ev;
+    const orig = String(ev._origCountryCode).toUpperCase();
+    const corrected = String(ev.countryCode || '').toUpperCase();
+    if (!corrected || corrected === orig || corrected.length !== 2) return ev;
+    const centroid = _fwdGeoCache.get(corrected);
+    if (!centroid) return ev;
+    const newLat = centroid.lat;
+    const newLon = centroid.lon;
+    const newRegion = getRegionKey(newLat, newLon, corrected);
+    console.log(`[fwd-geo] repositioned event "${(ev.title || '').slice(0, 60)}" ${orig}→${corrected} lat=${newLat.toFixed(2)} lon=${newLon.toFixed(2)} region=${newRegion}`);
+    const { _origCountryCode, ...rest } = ev;
+    return { ...rest, lat: newLat, lon: newLon, region: newRegion };
+  });
+}
+
 const LOW_QUALITY_NEWS_DOMAINS = new Set([
   'dailytrib.com', 'amren.com', 'bearingarms.com', 'nydailynews.com',
   'inquirer.com', 'ksl.com', 'norfolkdailynews.com', 'patch.com',
@@ -1549,9 +1625,10 @@ async function fetchTodayEvents(options = {}) {
     console.log(`[gdelt-files] no new batches — returning snapshot ${state.snapshot?.length || 0}`);
     const selected = selectDiverseEvents(state.snapshot || []);
     logCalibration(state.snapshot || [], selected);
-    const filtered = await filterEventsWithAI(selected);
+    const withOrig = selected.map(e => ({ ...e, _origCountryCode: e.countryCode }));
+    const filtered = await filterEventsWithAI(withOrig);
     const normalized = await normalizeEvents(filtered);
-    return normalized;
+    return fixGeoAfterAiCorrection(normalized);
   }
 
   const firstTs = toProcess[0]?.ts || toProcessTranslation[0]?.ts;
@@ -1592,9 +1669,10 @@ async function fetchTodayEvents(options = {}) {
   console.log(`[gdelt-files] snapshot ready — ${snapshot.length} events`);
   const selected = selectDiverseEvents(snapshot);
   logCalibration(snapshot, selected);
-  const filtered = await filterEventsWithAI(selected);
+  const withOrig = selected.map(e => ({ ...e, _origCountryCode: e.countryCode }));
+  const filtered = await filterEventsWithAI(withOrig);
   const normalized = await normalizeEvents(filtered);
-  return normalized;
+  return fixGeoAfterAiCorrection(normalized);
 }
 
 function isCameoFallbackTitle(title) {
