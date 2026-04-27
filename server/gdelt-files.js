@@ -21,10 +21,11 @@ const FINAL_EVENTS = Number(process.env.GDELT_FINAL_EVENTS || 800);
 const BASELINE_FINAL_EVENTS = 800;
 // Spatial / aviation / maritime domain classification removed — covered by Google News RSS feeds.
 
+// ISO 3166-1 alpha-2 codes (after FIPS→ISO correction)
 const STRATEGIC_COUNTRY_CODES = new Set([
-  'RS', 'CH', 'KN', 'KS', 'TW', 'VM',
-  'IR', 'SY', 'UP', 'IZ', 'AF', 'PK',
-  'LY', 'YM', 'SU',
+  'RU', 'CN', 'KP', 'KR', 'TW', 'VN',
+  'IR', 'SY', 'UA', 'IQ', 'AF', 'PK',
+  'LY', 'YE', 'SD',
 ]);
 
 const STRATEGIC_REGION_BOOST = new Set(['russia_cis', 'east_asia', 'middleeast', 'africa']);
@@ -279,7 +280,74 @@ const GDELT_FIPS_TO_ISO = {
   'DA': 'DK', 'IC': 'IS', 'EN': 'EE', 'LG': 'LV', 'LH': 'LT',
   'AJ': 'AZ', 'GG': 'GE', 'MO': 'MA', 'TU': 'TR', 'EZ': 'CZ',
   'SN': 'SG', 'RI': 'RS', // Serbia ISO code
+  'BO': 'BY', // Belarus
 };
+
+// ── Reverse geocoding cache (Nominatim) ──────────────────────────────────────
+// Key: "lat1d,lon1d" (0.1° grid ≈ 11 km) → ISO 3166-1 alpha-2 country code.
+// Persisted to disk so subsequent runs skip already-fetched cells.
+const _reverseGeoCache = new Map();
+const _REVERSE_GEO_PATH = path.join(CACHE_DIR, 'reverse-geo-cache.json');
+let _reverseGeoCacheLoaded = false;
+
+function _loadReverseGeoCache() {
+  if (_reverseGeoCacheLoaded) return;
+  _reverseGeoCacheLoaded = true;
+  try {
+    const data = JSON.parse(fs.readFileSync(_REVERSE_GEO_PATH, 'utf8'));
+    for (const [k, v] of Object.entries(data || {})) _reverseGeoCache.set(k, v);
+    console.log(`[reverse-geo] cache loaded: ${_reverseGeoCache.size} cells`);
+  } catch {}
+}
+
+function _saveReverseGeoCache() {
+  try {
+    ensureCacheDir();
+    fs.writeFileSync(_REVERSE_GEO_PATH, JSON.stringify(Object.fromEntries(_reverseGeoCache)));
+  } catch {}
+}
+
+function _geoKey(lat, lon) {
+  return `${Math.round(lat * 10)},${Math.round(lon * 10)}`;
+}
+
+async function _nominatimCountry(lat, lon) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=3`;
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'OSINT-Monitor/1.0 (gdelt-geolocation)' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return (data?.address?.country_code || '').toUpperCase() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function prefetchReverseGeo(eventRows) {
+  _loadReverseGeoCache();
+  const needed = [];
+  const seen = new Set();
+  for (const row of eventRows) {
+    if (!Number.isFinite(row.lat) || !Number.isFinite(row.lon)) continue;
+    const key = _geoKey(row.lat, row.lon);
+    if (!_reverseGeoCache.has(key) && !seen.has(key)) {
+      seen.add(key);
+      needed.push({ key, lat: row.lat, lon: row.lon });
+    }
+  }
+  if (!needed.length) return;
+  console.log(`[reverse-geo] fetching ${needed.length} new coordinate cell(s) via Nominatim`);
+  for (let i = 0; i < needed.length; i++) {
+    const { key, lat, lon } = needed[i];
+    const iso = await _nominatimCountry(lat, lon);
+    _reverseGeoCache.set(key, iso || null); // null cached too — avoids retrying failed cells
+    if (i < needed.length - 1) await new Promise(r => setTimeout(r, 1100)); // 1 req/sec
+  }
+  _saveReverseGeoCache();
+}
 
 const LOW_QUALITY_NEWS_DOMAINS = new Set([
   'dailytrib.com', 'amren.com', 'bearingarms.com', 'nydailynews.com',
@@ -596,14 +664,22 @@ function isCivilCrimeNoise(textBlob) {
 }
 
 /**
- * Normalise the GDELT FIPS 10-4 country code to ISO 3166-1 alpha-2.
- * GDELT uses FIPS codes (UP=Ukraine, RS=Russia, IS=Israel…) not ISO,
- * which causes wrong region assignment. This is a pure code remap —
- * geolocation (lat/lon/location string) is never changed.
+ * Resolve GDELT's country code to ISO 3166-1 alpha-2.
+ * Priority: Nominatim reverse-geocoding cache (pre-warmed per batch) > FIPS→ISO remap.
+ * GDELT's ActionGeo_CountryCode often reflects the article's source language country
+ * (e.g. FR for French-language sources covering Mali or Colombia); coordinates are
+ * the authoritative signal.
  */
-function correctCountryCode(rawCode) {
+function correctCountryCode(rawCode, lat, lon) {
   const fips = String(rawCode || '').toUpperCase();
-  return { countryCode: GDELT_FIPS_TO_ISO[fips] || fips, geoSuspect: false };
+  const isoFromFips = GDELT_FIPS_TO_ISO[fips] || fips;
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    const cached = _reverseGeoCache.get(_geoKey(lat, lon));
+    if (cached && cached !== isoFromFips) {
+      return { countryCode: cached, geoSuspect: true };
+    }
+  }
+  return { countryCode: isoFromFips, geoSuspect: false };
 }
 
 function titleFromUrl(url) {
@@ -863,7 +939,7 @@ function domainBonus(flags) {
   return score;
 }
 
-function scoreEvent(row, mention, tone, domain, flags, region) {
+function scoreEvent(row, mention, tone, domain, flags, region, correctedCode) {
   let score = 0;
   score += structuralSeverityScore(row.rootCode, row.eventCode);
   score += Math.min(24, Math.abs(Number(tone) || 0) * 4);
@@ -872,7 +948,7 @@ function scoreEvent(row, mention, tone, domain, flags, region) {
   score += geoPrecisionScore(row.actionGeoType);
   score += domainBonus(flags);
   if (domain && PRIORITY_DOMAIN_BOOST[domain]) score += Math.min(20, PRIORITY_DOMAIN_BOOST[domain] / 3);
-  if (STRATEGIC_COUNTRY_CODES.has(row.countryCode || '')) score += 18;
+  if (STRATEGIC_COUNTRY_CODES.has(correctedCode || '')) score += 18;
   if (STRATEGIC_REGION_BOOST.has(region)) score += 8;
   if (flags.civilian_noise_flag) score -= 45;
   if (flags.deescalation_flag) score -= 20;
@@ -920,7 +996,7 @@ function domainBucketFromFlags(_flags) {
   return 'general';
 }
 
-function isStrategicEvent(row, score) {
+function isStrategicEvent(row, score, correctedCode) {
   const rootCode = String(row.rootCode || '');
   const eventCode = String(row.eventCode || '');
   const goldstein = Number(row.goldstein || 0);
@@ -936,7 +1012,7 @@ function isStrategicEvent(row, score) {
   if (goldstein <= -9.5) return true;
 
   // Very high score AND known hotspot country (raised from 115 to 130)
-  if (s >= 130 && STRATEGIC_COUNTRY_CODES.has(String(row.countryCode || ''))) return true;
+  if (s >= 130 && STRATEGIC_COUNTRY_CODES.has(correctedCode || '')) return true;
 
   // Extreme score regardless of country (raised from 135 to 150)
   if (s >= 150) return true;
@@ -1011,9 +1087,14 @@ function getColor(tone) {
 }
 
 function getRegionKey(lat, lon, countryCode) {
-  if (countryCode === 'FR') return 'france';
+  // Coordinates take priority over GDELT's countryCode — GDELT frequently assigns the
+  // source article's language country (e.g. FR for French-language articles from Mali or
+  // Colombia) instead of the actual event location.
   if (lat > 34 && lat < 72 && lon > -25 && lon < 45) {
-    if (['RS', 'UP', 'AM', 'AJ', 'GG', 'KG', 'KZ', 'MD'].includes(countryCode)) return 'russia_cis';
+    // ISO codes (countryCode is already corrected via correctCountryCode)
+    if (['RU', 'UA', 'AM', 'AZ', 'GE', 'KG', 'KZ', 'MD', 'BY'].includes(countryCode)) return 'russia_cis';
+    // Only return 'france' when coordinates are actually inside metropolitan France
+    if (countryCode === 'FR' && lat > 41 && lat < 51.5 && lon > -5.5 && lon < 10) return 'france';
     return 'europe';
   }
   if (lat > 12 && lat < 43 && lon > 25 && lon < 65) return 'middleeast';
@@ -1023,7 +1104,10 @@ function getRegionKey(lat, lon, countryCode) {
   if (lat > -60 && lat < 15 && lon > -90 && lon < -30) return 'south_america';
   if (lat > 15 && lon > -170 && lon < -50) return 'north_america';
   if (lat < -10 && lon > 110 && lon < 180) return 'oceania';
-  if (countryCode === 'CH' || countryCode === 'KN' || countryCode === 'KS' || countryCode === 'TW' || countryCode === 'VM') return 'east_asia';
+  // Coordinate-based match failed — fall back to countryCode heuristics
+  // Coordinate-based match failed — ISO code fallbacks for events outside known bboxes
+  if (countryCode === 'FR') return 'france';
+  if (countryCode === 'CN' || countryCode === 'KP' || countryCode === 'KR' || countryCode === 'TW' || countryCode === 'VN') return 'east_asia';
   if (countryCode === 'AF' || countryCode === 'PK' || countryCode === 'IN' || countryCode === 'BD') return 'south_asia';
   if (countryCode === 'BR' || countryCode === 'AR' || countryCode === 'CL' || countryCode === 'CO' || countryCode === 'PE' || countryCode === 'VE') return 'south_america';
   return 'other';
@@ -1161,13 +1245,13 @@ function buildEventsForBatch(batch, eventRows, mentionMap, gkgMap) {
     if (category === 'discard') continue;
 
     const tone = Number.isFinite(row.goldstein) ? row.goldstein : (toneFromV2Tone(gkg?.v2Tone) ?? row.avgTone ?? 0);
-    const { countryCode: correctedCode } = correctCountryCode(row.countryCode);
+    const { countryCode: correctedCode } = correctCountryCode(row.countryCode, row.lat, row.lon);
     const region = getRegionKey(row.lat, row.lon, correctedCode);
-    let score = scoreEvent(row, mention, tone, domain, flags, region);
+    let score = scoreEvent(row, mention, tone, domain, flags, region, correctedCode);
     if (themes.some(theme => /MILITARY|ARMED|TERROR|CYBER|NUCLEAR|MISSILE|SPACE|AVIATION|MARITIME/i.test(theme))) score += 12;
     score += militaryContextBoost(themes, organizations, persons, signalTextBlob);
     const domain_bucket = domainBucketFromFlags(flags);
-    const is_strategic = isStrategicEvent(row, score) ? 1 : 0;
+    const is_strategic = isStrategicEvent(row, score, correctedCode) ? 1 : 0;
     const dedup_key = buildDedupKey(row);
     const canonical_url = canonicalUrl(candidateUrl || row.sourceUrl);
 
@@ -1411,6 +1495,9 @@ async function processBatch(batch) {
     downloadZipTextOptional(batch.gkg),
   ]);
   const eventRows = parseEventRows(eventsText);
+  // Pre-warm Nominatim reverse-geocoding cache for all unique coordinate cells in this
+  // batch before building events — correctCountryCode reads synchronously from the cache.
+  await prefetchReverseGeo(eventRows);
   const mentionMap = parseMentions(mentionsText);
   const gkgMap = parseGkg(gkgText);
   const events = buildEventsForBatch(batch, eventRows, mentionMap, gkgMap);

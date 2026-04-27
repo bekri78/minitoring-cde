@@ -296,14 +296,14 @@ const STRATEGIC_ZONES = new Map([
   ['south korea',           { lat: 35.91, lon: 127.77 }],
   ['united states',         { lat: 38.90, lon: -77.04 }],
   ['taiwan',                { lat: 23.70, lon: 120.96 }],
-  // Major countries — ensures detectCountryFromTitle results can be geocoded
+  // Major countries (English)
   ['china',                 { lat: 39.90, lon: 116.40 }],
   ['russia',                { lat: 55.75, lon: 37.62  }],
   ['ukraine',               { lat: 50.45, lon: 30.52  }],
   ['iran',                  { lat: 35.69, lon: 51.39  }],
   ['israel',                { lat: 31.77, lon: 35.22  }],
   ['india',                 { lat: 28.61, lon: 77.21  }],
-  ['pakistan',               { lat: 33.69, lon: 73.04  }],
+  ['pakistan',              { lat: 33.69, lon: 73.04  }],
   ['turkey',                { lat: 39.93, lon: 32.85  }],
   ['japan',                 { lat: 35.68, lon: 139.69 }],
   ['syria',                 { lat: 33.51, lon: 36.29  }],
@@ -322,6 +322,32 @@ const STRATEGIC_ZONES = new Map([
   ['vietnam',               { lat: 21.03, lon: 105.85 }],
   ['afghanistan',           { lat: 34.53, lon: 69.17  }],
   ['brazil',                { lat: -15.79, lon: -47.88}],
+  // French country names — France 24, RFI, Le Monde, TV5 coverage
+  ['liban',                 { lat: 33.89, lon: 35.50  }],
+  ['syrie',                 { lat: 34.80, lon: 38.90  }],
+  ['irak',                  { lat: 33.34, lon: 44.40  }],
+  ['russie',                { lat: 55.75, lon: 37.62  }],
+  ['chine',                 { lat: 39.91, lon: 116.39 }],
+  ['yémen',                 { lat: 15.55, lon: 44.21  }],
+  ['libye',                 { lat: 32.90, lon: 13.18  }],
+  ['soudan',                { lat: 15.55, lon: 32.53  }],
+  ['corée du nord',         { lat: 39.04, lon: 125.76 }],
+  ['corée du sud',          { lat: 35.91, lon: 127.77 }],
+  ['birmanie',              { lat: 16.87, lon: 96.19  }],
+  ['mali',                  { lat: 12.65, lon: -8.00  }],
+  ['niger',                 { lat: 13.51, lon:  2.12  }],
+  ['gaza',                  { lat: 31.35, lon: 34.31  }],
+  ['cisjordanie',           { lat: 31.95, lon: 35.30  }],
+  // Arabic romanized
+  ['lubnan',                { lat: 33.89, lon: 35.50  }],
+  ['suriya',                { lat: 34.80, lon: 38.90  }],
+  ['al-yaman',              { lat: 15.55, lon: 44.21  }],
+  // Spanish / Portuguese
+  ['líbano',                { lat: 33.89, lon: 35.50  }],
+  ['siria',                 { lat: 34.80, lon: 38.90  }],
+  ['irán',                  { lat: 35.69, lon: 51.39  }],
+  ['ucrania',               { lat: 48.38, lon: 31.17  }],
+  ['corea del norte',       { lat: 39.04, lon: 125.76 }],
 ]);
 
 // ── Index mondial de villes (all-the-cities, 135k entrées) ───────────────────
@@ -522,9 +548,16 @@ function detectLocationFromTitle(title) {
   // 3. Patterns syntaxiques : extraire candidats lieux depuis le titre
   const candidates = [];
   const patterns = [
+    // English prepositions
     /\b(?:in|from|near|over|off|at|around)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})/g,
     /\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)\s+(?:launches?|tests?|fires?|deploys?|strikes?|attacks?)/g,
     /\b([A-Z][a-zA-Z]+(?:'s)?)\s+(?:military|navy|air force|army|defense|missile|satellite)/g,
+    // French prepositions: "en Syrie", "au Liban", "aux Philippines", "dans le Donbass"
+    /\b(?:en|au|aux|dans\s+le|dans\s+la|depuis)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+(?:\s+[A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+)?)/g,
+    // Spanish prepositions: "en Siria", "en el Líbano"
+    /\b(?:en\s+el|en\s+la|en)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+(?:\s+[A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+)?)/g,
+    // "frappent le Liban", "touche le Yémen" — article + capitalized noun
+    /\b(?:le|la|les)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+(?:\s+[A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+)?)/g,
   ];
   for (const re of patterns) {
     let m;
@@ -948,9 +981,10 @@ async function fetchGoogleNewsEvents() {
     const doubtIndices = [];
     for (let i = 0; i < classified.length; i++) {
       const c = classified[i];
-      // Doute = pas de lieu du tout (même pas de hint) OU confiance < 40
-      const hasDoubt = (!c.location && !c.hasHintOnly)
-        || c.confidence < 40;
+      // Doute = pas de lieu extrait du titre (hint seul = source-country fallback, peu fiable)
+      // OU confiance < 40. Les événements hasHintOnly passent par l'IA pour corriger
+      // les cas où la source (France 24, RT…) couvre un pays différent du sien.
+      const hasDoubt = !c.location || c.hasHintOnly || c.confidence < 40;
       if (hasDoubt) {
         doubts.push(c.title);
         doubtIndices.push(i);
