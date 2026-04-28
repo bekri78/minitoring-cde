@@ -3,9 +3,6 @@
 const OpenAI = require('openai');
 
 // ── Configuration ─────────────────────────────────────────────────────────────
-const GEMINI_LIMIT   = Number(process.env.GEMINI_NORMALIZE_LIMIT || 80);
-const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
-
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
@@ -13,13 +10,12 @@ const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=
 const DEEPSEEK_MODEL   = 'deepseek-v4-flash';
 
 const AI_FILTER_ENABLED        = process.env.AI_FILTER_ENABLED !== 'false';
-const AI_FILTER_BATCH          = Number(process.env.AI_FILTER_BATCH || 20);
+const AI_FILTER_BATCH          = Number(process.env.AI_FILTER_BATCH || 50);
 const AI_FILTER_LIMIT          = Number(process.env.AI_FILTER_LIMIT || 1500);
 const AI_FILTER_DELAY          = Number(process.env.AI_FILTER_DELAY || 1200);
 const AI_FILTER_TIMEOUT_MS     = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
 const AI_FILTER_MAX_RETRIES    = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
 const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
-const AI_FILTER_ALWAYS_KEEP_SCORE = Number(process.env.AI_FILTER_ALWAYS_KEEP_SCORE || 88);
 
 const openaiClient = OPENAI_API_KEY
   ? new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1' })
@@ -34,18 +30,23 @@ console.log('[normalizer] DEEPSEEK_API_KEY set:', !!DEEPSEEK_API_KEY);
 console.log('[normalizer] DEEPSEEK_MODEL:      ', DEEPSEEK_MODEL);
 console.log('[normalizer] OPENAI_API_KEY set:  ', !!OPENAI_API_KEY);
 
+// ── Cache inter-refresh (clé = event.id) ─────────────────────────────────────
+// filterCache: id → { keep, fr, en, notes, category, countryCode } | null (discard)
+const filterCache = new Map();
+const CACHE_MAX_SIZE = 5000;
+
+function pruneCache(cache, currentIds) {
+  if (cache.size <= CACHE_MAX_SIZE) return;
+  for (const key of cache.keys()) {
+    if (!currentIds.has(key)) cache.delete(key);
+  }
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 const VALID_CATEGORIES = new Set([
   'terrorism', 'military', 'conflict', 'protest',
   'cyber', 'strategic', 'crisis', 'incident', 'discard',
 ]);
-
-const ROMANIZED_HINTS = [
-  'kai', 'toy', 'tou', 'tis', 'horis', 'xoris', 'anoigma', 'ormoyz', 'ormouz',
-  'sygkroysi', 'sigkrousi', 'diplomatiki', 'lysi', 'ellada', 'vretania',
-  'houthis', 'ansarallah', 'hezbollah', 'al quds', 'shahed',
-  'rossiya', 'ukraina', 'voenn', 'raket', 'udar', 'oboron',
-];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function sleep(ms) {
@@ -68,44 +69,6 @@ function getRetryableStatus(status) {
 function isRetryableNetworkError(err) {
   const msg = err?.message || '';
   return msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('ECONNREFUSED') || msg.includes('socket hang up');
-}
-
-function normalizeText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function hasNonLatin(text) {
-  return /[^\u0000-\u024f]/.test(String(text || ''));
-}
-
-function isLikelyRomanized(text) {
-  const normalized = normalizeText(text);
-  if (!normalized) return false;
-  return ROMANIZED_HINTS.some(hint => normalized.includes(hint));
-}
-
-function isLikelyEnglish(text) {
-  if (/\b(the|and|for|with|in|of|to|is|are|was|were|has|have|been|will|from|that|this|after|before|over|into|its|their|says|said|as|on|at|by|an|it|he|she|we|us|a|no|not|but|or|amid|against|between)\b/i.test(String(text || ''))) return true;
-  if (/\b(attack|strike|strikes|struck|killed|kills|forces|troops|army|navy|military|police|government|minister|president|official|war|conflict|crisis|sanctions|missile|missiles|drone|drones|fire|fires|fired|launch|launches|launched|deploy|deployed|arrest|arrested|protest|protests|explosion|bomb|bombing|dead|wounded|injured|civilian|civilians|report|reports|says|said|warns|warning|claims|confirms|threatens|threat|ceasefire|talks|deal|accord|agreement|offensive|operation|soldiers|rebels|militia|nuclear|ballistic|hypersonic|rocket|rockets|airstrike|airstrikes|naval|submarine|warship|frigate|fighter|bomber|satellite|spacecraft)\b/i.test(String(text || ''))) return true;
-  return false;
-}
-
-function needsTranslation(event) {
-  const title = event?.title || '';
-  if (!title || title.length < 8) return false;
-  if (hasNonLatin(title)) return true;
-  if (isLikelyRomanized(title)) return true;
-  if (/^[A-Z\s]+\s—\s/.test(title)) return true;
-  if (/^[a-z0-9-]+(?:-[a-z0-9]+){3,}$/.test(title)) return true;
-  if (/[À-ÖØ-öø-ÿ]/.test(title) && !isLikelyEnglish(title)) return true;
-  if (!isLikelyEnglish(title) && (title.match(/\b[a-z]{4,}\b/gi) || []).length >= 2) return true;
-  return false;
 }
 
 function extractJsonArray(text) {
@@ -132,102 +95,25 @@ function extractJsonObject(text) {
   return JSON.parse(match[0]);
 }
 
-function shouldBypassAiFilter(event) {
-  if (!event) return false;
-  if (event.osintDomain) return true;
-  if (event.domain_bucket === 'spatial' && event.spatial_anchor_flag) return true;
-  if (event.domain_bucket === 'aviation' && event.aviation_anchor_flag) return true;
-  if (event.domain_bucket === 'maritime' && event.maritime_anchor_flag) return true;
-  const HIGH_CONFIDENCE_CATS = new Set(['terrorism', 'cyber', 'military', 'conflict']);
-  const cat = String(event.category || '');
-  // Score-based bypass requires strong military signal (≥2 keywords) — prevents false positives
-  // (oil price articles, criminal trials) with high scores from skipping the fine-tuned model
-  const hasStrongMilitarySignal = !!event.military_keyword_strong;
-  if (event.is_strategic && HIGH_CONFIDENCE_CATS.has(cat) && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 8 && hasStrongMilitarySignal) return true;
-  if (HIGH_CONFIDENCE_CATS.has(cat) && Number(event.score || 0) >= AI_FILTER_ALWAYS_KEEP_SCORE + 18 && hasStrongMilitarySignal) return true;
-  // Bypass uniquement si signal militaire FORT — un seul keyword ne suffit pas
-  // (ex. "army" seul dans un article Salvation Army classé terrorism → faux bypass)
-  if (['terrorism', 'cyber'].includes(cat) && hasStrongMilitarySignal) return true;
-  return false;
-}
-
-function mergeResult(event, result) {
-  if (!result || result.keep === false || result.category === 'discard') return null;
-  const category = VALID_CATEGORIES.has(result.category) ? result.category : event.category;
-  const relevance = Math.max(0, Math.min(100, Number(result.relevance || event.relevance || 0)));
-  const countryCode = typeof result.countryCode === 'string' && result.countryCode.length === 2
-    ? result.countryCode.toUpperCase()
-    : event.countryCode;
-  return {
-    ...event,
-    originalTitle: event.originalTitle || event.title,
-    title: result.fr || event.title,
-    headline: result.en || event.headline || null,
-    notes: result.notes || event.notes || null,
-    category,
-    relevance,
-    countryCode,
-    language: result.language || event.language || null,
-    isRomanized: Boolean(result.is_romanized),
-    nativeTitle: result.native_text || event.nativeTitle || null,
-    score: Number(event.score || 0) + Math.round(relevance / 5),
-  };
-}
-
-// ── Prompts ───────────────────────────────────────────────────────────────────
-function buildPrompt(events) {
-  return `Normalize and translate OSINT event titles for a geopolitical monitoring dashboard.
-
-Handle romanized languages such as greeklish, arabizi, Russian/Ukrainian transliteration, and normal non-English scripts.
-Use CAMEO fields only as supporting context. Always translate the requested title. Use category "discard" only when the title has no meaningful news/security content.
-
-Return ONLY a valid JSON array. One object per input:
-{
-  "id": "same id",
-  "keep": true,
-  "language": "english|french|greek|arabic|russian|...",
-  "is_romanized": true,
-  "native_text": "native script when useful, else original",
-  "fr": "French title, <= 16 words",
-  "en": "English title, <= 16 words",
-  "notes": "brief operational summary in French, <= 22 words",
-  "category": "terrorism|military|conflict|protest|cyber|strategic|crisis|incident|discard",
-  "countryCode": "ISO 3166-1 alpha-2 of the country the article is ABOUT (ignore the source domain/TLD), null if unclear or multiple",
-  "relevance": 0
-}
-
-Events:
-${events.map(e => JSON.stringify({
-    id: e.id,
-    title: e.title,
-    url: e.url,
-    domain: e.domain,
-    country: e.country,
-    countryCode: e.countryCode,
-    actor1: e.actor1,
-    actor2: e.actor2,
-    eventCode: e.eventCode,
-    rootCode: e.rootCode,
-    subEventType: e.subEventType,
-    localCategory: e.category,
-  })).join('\n')}`;
-}
-
+// ── Prompt fusionné : filtre + traduction FR/EN en un seul appel ─────────────
 function buildFilterPrompt(events) {
   const lines = events.map(e => JSON.stringify({
     id: e.id,
     title: e.title,
+    url: e.url || null,
     domain: e.domain || null,
     score: Math.round(Number(e.score || 0)),
     category: e.category || null,
-    domain_bucket: e.domain_bucket || 'general',
-    is_strategic: Boolean(e.is_strategic),
+    country: e.country || null,
+    countryCode: e.countryCode || null,
     actor1: e.actor1 || null,
     actor2: e.actor2 || null,
+    eventCode: e.eventCode || null,
+    rootCode: e.rootCode || null,
     fallback_title: Boolean(e.isFallbackTitle),
   })).join('\n');
 
-  return `You are an OSINT military intelligence analyst reviewing news events for a geopolitical security dashboard.
+  return `You are an OSINT military intelligence analyst. For each event, decide keep/discard AND translate the title.
 
 KEEP if the event is about:
 - Armed conflict, airstrikes, shelling, military operations
@@ -253,21 +139,34 @@ DISCARD if the event is about:
 - Routine police operations, drug busts, local arrests unrelated to terrorism
 - Accidents: industrial, construction, factory, workplace
 
-DISCARD examples (routine diplomacy misclassified by GDELT):
-- "Country recalls ambassador over visa policy disagreement"
-- "Trade talks postponed due to scheduling conflict"
-- "Port workers end strike after wage agreement"
-- "Hotel gave room key to wrong guest"
-- "Workers clash with management over contract"
+Reply ONLY with a JSON object {"events":[...]} — one object per input:
+{"id":"<same id>","keep":true,"fr":"French title <= 16 words","en":"English headline <= 16 words","notes":"French operational summary <= 22 words","category":"terrorism|military|conflict|protest|cyber|strategic|crisis|incident","countryCode":"ISO 3166-1 alpha-2 of the country the article is ABOUT (ignore the source domain/TLD), null if unclear"}
 
-Reply ONLY with a valid JSON array, one object per input, in the same order:
-[{"id":"<same id>","keep":true},{"id":"<same id>","keep":false},...]
+For discarded events, only return: {"id":"<same id>","keep":false}
 
 Events:
 ${lines}`;
 }
 
-// ── OpenAI ────────────────────────────────────────────────────────────────────
+function mergeFilterResult(event, result) {
+  if (!result || result.keep === false) return null;
+  const category = VALID_CATEGORIES.has(result.category) ? result.category : event.category;
+  if (category === 'discard') return null;
+  const countryCode = typeof result.countryCode === 'string' && result.countryCode.length === 2
+    ? result.countryCode.toUpperCase()
+    : event.countryCode;
+  return {
+    ...event,
+    originalTitle: event.originalTitle || event.title,
+    title: result.fr || event.title,
+    headline: result.en || event.headline || null,
+    notes: result.notes || event.notes || null,
+    category,
+    countryCode,
+  };
+}
+
+// ── API clients ──────────────────────────────────────────────────────────────
 async function requestJsonArrayFromOpenAI(messages, model, timeoutMs = 45000) {
   if (!openaiClient) {
     const err = new Error('OPENAI_API_KEY missing');
@@ -296,59 +195,6 @@ async function requestJsonArrayFromOpenAI(messages, model, timeoutMs = 45000) {
   return extractJsonArray(text);
 }
 
-async function translateTitleWithOpenAI(event) {
-  if (!openaiClient) {
-    const err = new Error('OPENAI_API_KEY missing');
-    err.status = 503;
-    throw err;
-  }
-  let completion;
-  try {
-    completion = await openaiClient.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [
-        { role: 'system', content: 'Translate OSINT/geopolitical article titles into concise French. Return JSON only.' },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            title: event.title,
-            domain: event.domain || '',
-            country: event.country || '',
-            category: event.category || 'incident',
-            eventCode: event.eventCode || '',
-            rootCode: event.rootCode || '',
-            output: { fr: 'French title <= 16 words', en: 'English title <= 16 words', notes: 'French summary <= 22 words', language: 'detected language' },
-          }),
-        },
-      ],
-      temperature: 0,
-      response_format: { type: 'json_object' },
-    }, { timeout: 45000 });
-  } catch (e) {
-    const status = e?.status || e?.response?.status || 500;
-    const err = new Error(`OpenAI HTTP_${status} ${(e?.message || '').slice(0, 180)}`);
-    err.status = status >= 500 ? 502 : 503;
-    throw err;
-  }
-  const text = completion.choices?.[0]?.message?.content || '';
-  const result = extractJsonObject(text) || {};
-  const output = result.output && typeof result.output === 'object' ? result.output : {};
-  const fr = result.fr || result.title_fr || result.french || result.translation || output.fr || output.french || output.translation;
-  const en = result.en || result.headline || result.english || output.en || output.headline;
-  const notes = result.notes || result.summary || output.notes || output.summary;
-  const language = result.language || result.detected_language || output.language;
-  return {
-    id: event.id, keep: true,
-    originalTitle: event.title, title: fr || event.title,
-    fr: fr || event.title, headline: en || null, notes: notes || null,
-    category: VALID_CATEGORIES.has(event.category) ? event.category : 'incident',
-    relevance: Number(event.relevance || 0),
-    language: language || null, isRomanized: false, nativeTitle: null,
-    provider: 'openai',
-  };
-}
-
-// ── DeepSeek (fallback Groq — API OpenAI-compatible) ──────────────────────────
 async function requestJsonArrayFromDeepSeek(messages) {
   if (!deepseekClient) {
     const err = new Error('DEEPSEEK_API_KEY missing');
@@ -377,16 +223,26 @@ async function requestJsonArrayFromDeepSeek(messages) {
   return extractJsonArray(text);
 }
 
-async function translateTitleWithDeepSeek(event) {
-  if (!deepseekClient) {
-    const err = new Error('DEEPSEEK_API_KEY missing');
+// ── Traduction unitaire (endpoint /translate-title — Google News RSS seulement)
+async function translateTitleSingle(event) {
+  const title = String(event?.title || '').trim();
+  if (!title) {
+    const err = new Error('title required');
+    err.status = 400;
+    throw err;
+  }
+  const client = deepseekClient || openaiClient;
+  const model  = deepseekClient ? DEEPSEEK_MODEL : OPENAI_MODEL;
+  if (!client) {
+    const err = new Error('No API key available (DEEPSEEK_API_KEY or OPENAI_API_KEY required)');
     err.status = 503;
     throw err;
   }
+
   let completion;
   try {
-    completion = await deepseekClient.chat.completions.create({
-      model: DEEPSEEK_MODEL,
+    completion = await client.chat.completions.create({
+      model,
       messages: [
         { role: 'system', content: 'Translate OSINT/geopolitical article titles into concise French. Return JSON only.' },
         {
@@ -396,8 +252,6 @@ async function translateTitleWithDeepSeek(event) {
             domain: event.domain || '',
             country: event.country || '',
             category: event.category || 'incident',
-            eventCode: event.eventCode || '',
-            rootCode: event.rootCode || '',
             output: { fr: 'French title <= 16 words', en: 'English title <= 16 words', notes: 'French summary <= 22 words', language: 'detected language' },
           }),
         },
@@ -407,7 +261,7 @@ async function translateTitleWithDeepSeek(event) {
     }, { timeout: 45000 });
   } catch (e) {
     const status = e?.status || e?.response?.status || 500;
-    const err = new Error(`DeepSeek HTTP_${status} ${(e?.message || '').slice(0, 180)}`);
+    const err = new Error(`${deepseekClient ? 'DeepSeek' : 'OpenAI'} HTTP_${status} ${(e?.message || '').slice(0, 180)}`);
     err.status = status >= 500 ? 502 : 503;
     throw err;
   }
@@ -425,11 +279,11 @@ async function translateTitleWithDeepSeek(event) {
     category: VALID_CATEGORIES.has(event.category) ? event.category : 'incident',
     relevance: Number(event.relevance || 0),
     language: language || null, isRomanized: false, nativeTitle: null,
-    provider: 'deepseek',
+    provider: deepseekClient ? 'deepseek' : 'openai',
   };
 }
 
-// ── Filtre IA (DeepSeek prioritaire, fallback OpenAI) ─────────────────────────
+// ── Filtre + traduction fusionnés (une seule passe IA) — avec cache inter-refresh
 async function filterEventsWithAI(events) {
   if (!AI_FILTER_ENABLED) {
     console.log('[ai-filter] disabled via AI_FILTER_ENABLED=false');
@@ -440,18 +294,51 @@ async function filterEventsWithAI(events) {
     return events;
   }
 
-  const guaranteedIds = new Set(events.filter(shouldBypassAiFilter).map(e => String(e.id)));
-  const candidates = events.filter(e => !guaranteedIds.has(String(e.id))).slice(0, AI_FILTER_LIMIT);
+  const allIds = new Set(events.map(e => String(e.id)));
+  pruneCache(filterCache, allIds);
+
+  // Séparer events déjà cachés vs nouveaux
+  const enrichedById = new Map();
   const discardedIds = new Set();
-  let aiProcessed = 0;
+  const uncached = [];
+  let cacheHits = 0;
+
+  for (const e of events) {
+    const id = String(e.id);
+    if (filterCache.has(id)) {
+      cacheHits++;
+      const cached = filterCache.get(id);
+      if (cached) {
+        enrichedById.set(e.id, {
+          ...e,
+          originalTitle: e.originalTitle || e.title,
+          title: cached.fr || e.title,
+          headline: cached.en || e.headline || null,
+          notes: cached.notes || e.notes || null,
+          category: cached.category || e.category,
+          countryCode: cached.countryCode || e.countryCode,
+        });
+      } else {
+        discardedIds.add(id);
+      }
+    } else {
+      uncached.push(e);
+    }
+  }
+
+  const candidates = uncached.slice(0, AI_FILTER_LIMIT);
 
   if (!candidates.length) {
-    console.log(`[ai-filter] skipped: ${events.length} events kept locally`);
-    return events;
+    const filtered = events
+      .map(e => enrichedById.get(e.id) || e)
+      .filter(e => !discardedIds.has(String(e.id)));
+    console.log(`[ai-filter] all cached — ${filtered.length}/${events.length} kept (${cacheHits} cache hits)`);
+    return filtered;
   }
 
   const filterModel = DEEPSEEK_API_KEY ? DEEPSEEK_MODEL : OPENAI_MODEL;
   const provider    = DEEPSEEK_API_KEY ? 'deepseek' : 'openai';
+  let aiProcessed = 0;
 
   for (let i = 0; i < candidates.length; i += AI_FILTER_BATCH) {
     const batch = candidates.slice(i, i + AI_FILTER_BATCH);
@@ -461,7 +348,7 @@ async function filterEventsWithAI(events) {
     for (let attempt = 1; attempt <= AI_FILTER_MAX_RETRIES; attempt++) {
       try {
         const messages = [
-          { role: 'system', content: 'You are an OSINT analyst. Return JSON only.' },
+          { role: 'system', content: 'You are an OSINT military intelligence analyst. Return JSON only.' },
           { role: 'user', content: `Return a JSON object with an "events" array.\n${buildFilterPrompt(batch)}` },
         ];
         const results = DEEPSEEK_API_KEY
@@ -471,8 +358,28 @@ async function filterEventsWithAI(events) {
         let kept = 0;
         for (const result of results) {
           if (!result?.id) continue;
-          if (result.keep === false) discardedIds.add(String(result.id));
-          else kept++;
+          const id = String(result.id);
+          const original = batch.find(e => String(e.id) === id);
+          if (!original) continue;
+
+          if (result.keep === false) {
+            filterCache.set(id, null);
+            discardedIds.add(id);
+          } else {
+            const cacheEntry = {
+              fr: result.fr || null,
+              en: result.en || null,
+              notes: result.notes || null,
+              category: VALID_CATEGORIES.has(result.category) ? result.category : null,
+              countryCode: typeof result.countryCode === 'string' && result.countryCode.length === 2
+                ? result.countryCode.toUpperCase() : null,
+            };
+            filterCache.set(id, cacheEntry);
+            const merged = mergeFilterResult(original, result);
+            if (merged) enrichedById.set(original.id, merged);
+            else { filterCache.set(id, null); discardedIds.add(id); }
+            kept++;
+          }
         }
         aiProcessed += batch.length;
         console.log(`[ai-filter] batch ${batchNum}: ${kept}/${batch.length} kept`);
@@ -491,92 +398,19 @@ async function filterEventsWithAI(events) {
       }
     }
 
-    if (!success) aiProcessed += batch.length;
+    // fail-open : événements non classés gardés tels quels
+    if (!success) {
+      for (const e of batch) filterCache.set(String(e.id), { fr: null, en: null, notes: null, category: null, countryCode: null });
+      aiProcessed += batch.length;
+    }
     if (i + AI_FILTER_BATCH < candidates.length) await sleep(AI_FILTER_DELAY);
   }
 
-  const filtered = events.filter(e => guaranteedIds.has(String(e.id)) || !discardedIds.has(String(e.id)));
-  console.log(`[ai-filter] done: ${discardedIds.size} discarded, ${filtered.length}/${events.length} kept (${aiProcessed} AI-checked, ${guaranteedIds.size} bypassed) [model: ${filterModel}, provider: ${provider}]`);
+  const filtered = events
+    .map(e => enrichedById.get(e.id) || e)
+    .filter(e => !discardedIds.has(String(e.id)));
+  console.log(`[ai-filter] done: ${discardedIds.size} discarded, ${filtered.length}/${events.length} kept (${aiProcessed} AI-sent, ${cacheHits} cached) [model: ${filterModel}, provider: ${provider}]`);
   return filtered;
 }
 
-// ── Normalisation / Traduction (DeepSeek, fallback OpenAI) ───────────────────
-async function normalizeEvents(events) {
-  if (!DEEPSEEK_API_KEY && !OPENAI_API_KEY) {
-    console.log('[normalize] skipped: no API key available');
-    return events;
-  }
-
-  const candidates = events.filter(needsTranslation).slice(0, GEMINI_LIMIT);
-  if (!candidates.length) {
-    console.log('[normalize] skipped: no ambiguous titles');
-    return events;
-  }
-
-  const byId = new Map();
-  const rejectedIds = new Set();
-  let rejected = 0;
-
-  for (let i = 0; i < candidates.length; i += GEMINI_BATCH) {
-    const batch = candidates.slice(i, i + GEMINI_BATCH);
-    try {
-      let results;
-      if (DEEPSEEK_API_KEY) {
-        results = await requestJsonArrayFromDeepSeek([
-          { role: 'system', content: 'You are an OSINT geopolitical analyst. Return JSON only.' },
-          { role: 'user', content: `Return a JSON object with an "events" array.\n${buildPrompt(batch)}` },
-        ]);
-      } else {
-        results = await requestJsonArrayFromOpenAI([
-          { role: 'system', content: 'You are an OSINT geopolitical analyst. Return JSON only.' },
-          { role: 'user', content: `Return a JSON object with an "events" array.\n${buildPrompt(batch)}` },
-        ], OPENAI_MODEL);
-      }
-      for (const result of results) {
-        const original = batch.find(e => e.id === result.id);
-        if (!original) continue;
-        const merged = mergeResult(original, result);
-        if (merged) byId.set(original.id, merged);
-        else { rejectedIds.add(original.id); rejected++; }
-      }
-      const provider = DEEPSEEK_API_KEY ? 'deepseek' : 'openai';
-      console.log(`[normalize:${provider}] batch ${Math.floor(i / GEMINI_BATCH) + 1}: ${results.length}/${batch.length}`);
-    } catch (err) {
-      console.warn('[normalize] batch failed:', err.message);
-    }
-
-    if (i + GEMINI_BATCH < candidates.length) await sleep(350);
-  }
-
-  const normalized = events
-    .map(event => byId.get(event.id) || event)
-    .filter(event => !rejectedIds.has(event.id));
-
-  const provider = DEEPSEEK_API_KEY ? 'deepseek' : 'openai';
-  console.log(`[normalize:${provider}] done: ${byId.size} normalized, ${rejected} rejected, ${candidates.length} checked`);
-  return normalized;
-}
-
-// ── Traduction unitaire (DeepSeek, fallback OpenAI) ──────────────────────────
-async function normalizeTitleWithGemini(event) {
-  const title = String(event?.title || '').trim();
-  if (!title) {
-    const err = new Error('title required');
-    err.status = 400;
-    throw err;
-  }
-  const id = event?.id || `title_${Date.now()}`;
-  const baseEvent = { ...event, id, title, category: event?.category || 'incident' };
-
-  if (DEEPSEEK_API_KEY) {
-    return translateTitleWithDeepSeek(baseEvent);
-  }
-  if (OPENAI_API_KEY) {
-    return translateTitleWithOpenAI(baseEvent);
-  }
-  const err = new Error('No translation API key available (DEEPSEEK_API_KEY or OPENAI_API_KEY required)');
-  err.status = 503;
-  throw err;
-}
-
-module.exports = { normalizeEvents, normalizeTitleWithGemini, filterEventsWithAI };
+module.exports = { normalizeTitleWithGemini: translateTitleSingle, filterEventsWithAI };

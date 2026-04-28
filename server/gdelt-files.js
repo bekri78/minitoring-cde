@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const unzipper = require('unzipper');
-const { normalizeEvents, filterEventsWithAI } = require('./gemini-normalizer');
+const { filterEventsWithAI } = require('./gemini-normalizer');
 
 const MASTERFILELIST_URL = process.env.GDELT_MASTERFILELIST_URL || 'http://data.gdeltproject.org/gdeltv2/masterfilelist.txt';
 const MASTERFILELIST_TRANSLATION_URL = process.env.GDELT_MASTERFILELIST_TRANSLATION_URL || 'http://data.gdeltproject.org/gdeltv2/masterfilelist-translation.txt';
@@ -1627,8 +1627,7 @@ async function fetchTodayEvents(options = {}) {
     logCalibration(state.snapshot || [], selected);
     const withOrig = selected.map(e => ({ ...e, _origCountryCode: e.countryCode }));
     const filtered = await filterEventsWithAI(withOrig);
-    const normalized = await normalizeEvents(filtered);
-    return fixGeoAfterAiCorrection(normalized);
+    return fixGeoAfterAiCorrection(filtered);
   }
 
   const firstTs = toProcess[0]?.ts || toProcessTranslation[0]?.ts;
@@ -1671,8 +1670,7 @@ async function fetchTodayEvents(options = {}) {
   logCalibration(snapshot, selected);
   const withOrig = selected.map(e => ({ ...e, _origCountryCode: e.countryCode }));
   const filtered = await filterEventsWithAI(withOrig);
-  const normalized = await normalizeEvents(filtered);
-  return fixGeoAfterAiCorrection(normalized);
+  return fixGeoAfterAiCorrection(filtered);
 }
 
 function isCameoFallbackTitle(title) {

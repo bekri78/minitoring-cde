@@ -343,64 +343,16 @@ export function WorldMap({
                         : osintD === 'spatial'  ? { icon: '🚀', label: 'SPACE', color: '#b580ff' }
                         : null;
       const rawTitle  = p.title || p.domain || '';
-      const rawTitleFr = p.titleFr || '';
-      const popId = `ev-${p.id || Math.random().toString(36).slice(2)}`;
 
-      // Titre stocké en data-attribute pour éviter les problèmes d'échappement dans onclick
       marker.bindPopup(mono(`
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
-          <button id="${popId}-btn"
-            data-title="${escapeHtml(rawTitle)}"
-            data-title-fr="${escapeHtml(rawTitleFr)}"
-            data-url="${escapeHtml(p.url || '')}"
-            data-domain="${escapeHtml(p.domain || '')}"
-            data-country="${escapeHtml(p.country || '')}"
-            data-category="${escapeHtml(p.category || 'incident')}"
-            data-event-code="${escapeHtml(p.eventCode || '')}"
-            data-root-code="${escapeHtml(p.rootCode || '')}"
-            data-sub-event-type="${escapeHtml(p.subEventType || p.subType || '')}"
-            onclick="(function(){
-              var btn=document.getElementById('${popId}-btn');
-              var box=document.getElementById('${popId}-title');
-              if(!btn||!box)return;
-              var cached=btn.getAttribute('data-title-fr')||'';
-              if(cached){box.textContent=cached;btn.textContent='✓ FR';return;}
-              var q=btn.getAttribute('data-title')||'';
-              btn.textContent='...';btn.disabled=true;
-              fetch('${RAILWAY_URL}/translate-title',{
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({
-                  id:'${escapeHtml(String(p.id || ''))}',
-                  title:q,
-                  url:btn.getAttribute('data-url')||'',
-                  domain:btn.getAttribute('data-domain')||'',
-                  country:btn.getAttribute('data-country')||'',
-                  category:btn.getAttribute('data-category')||'incident',
-                  eventCode:btn.getAttribute('data-event-code')||'',
-                  rootCode:btn.getAttribute('data-root-code')||'',
-                  subEventType:btn.getAttribute('data-sub-event-type')||''
-                })
-              })
-                .then(function(r){
-                  return r.json().then(function(d){
-                    if(!r.ok)throw new Error((d&&d.error)||'translation_failed');
-                    return d;
-                  });
-                })
-                .then(function(d){
-                  var tr=d&&(d.title||d.fr);
-                  if(tr){box.textContent=tr;btn.textContent='✓ FR';}
-                  else{btn.textContent='NO FR';btn.disabled=false;}
-                })
-                .catch(function(err){btn.textContent=String(err&&err.message||'ERR').indexOf('API')>=0?'API':'ERR';btn.disabled=false;});
-            })()"
-            style="padding:1px 6px;font-size:9px;background:#1a2a3a;color:#00d4ff;border:1px solid #1a4a5a;cursor:pointer;font-family:inherit;flex-shrink:0;">FR</button>
           <span style="padding:1px 6px;font-size:9px;background:${catColor}22;color:${catColor};border:1px solid ${catColor}55;">${catLabel}</span>
           ${domainBadge ? `<span style="padding:1px 6px;font-size:9px;background:${domainBadge.color}18;color:${domainBadge.color};border:1px solid ${domainBadge.color}55;">${domainBadge.icon} ${domainBadge.label}</span>` : ''}
           <span style="font-size:9px;color:#4a6a7a;margin-left:auto;white-space:nowrap;">${dateStr}</span>
         </div>
-        <p id="${popId}-title" style="margin:0 0 8px 0;font-size:11px;line-height:1.5;color:#e8f4ff;">${escapeHtml(rawTitle)}</p>
+        <p style="margin:0 0 4px 0;font-size:11px;line-height:1.5;color:#e8f4ff;">${escapeHtml(rawTitle)}</p>
+        ${p.headline ? `<p style="margin:0 0 4px 0;font-size:10px;color:#6a8a9a;">${escapeHtml(p.headline)}</p>` : ''}
+        ${p.notes ? `<p style="margin:0 0 8px 0;font-size:9px;color:#4a7a6a;font-style:italic;">${escapeHtml(p.notes)}</p>` : ''}
         <div style="font-size:9px;border-top:1px solid #0e1a24;padding-top:6px;">
           ${p.url ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener" style="color:#2a5a6a;text-decoration:none;">↗ ${domain}</a>` : `<span style="color:#2a4a5a;">${domain}</span>`}
         </div>
