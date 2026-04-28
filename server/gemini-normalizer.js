@@ -1,5 +1,7 @@
 'use strict';
 
+const fs     = require('fs');
+const path   = require('path');
 const OpenAI = require('openai');
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -9,18 +11,14 @@ const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-// Modèle utilisé pour le filtre AI — DeepSeek par défaut (plus de fine-tuning OpenAI)
-function getFilterModel() {
-  return DEEPSEEK_MODEL;
-}
-
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
-const DEEPSEEK_MODEL   = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+const DEEPSEEK_MODEL   = 'deepseek-v4-flash';
 
 const AI_FILTER_ENABLED        = process.env.AI_FILTER_ENABLED !== 'false';
 const AI_FILTER_BATCH          = Number(process.env.AI_FILTER_BATCH || 20);
 const AI_FILTER_LIMIT          = Number(process.env.AI_FILTER_LIMIT || 1500);
 const AI_FILTER_DELAY          = Number(process.env.AI_FILTER_DELAY || 1200);
+const AI_FILTER_TIMEOUT_MS     = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
 const AI_FILTER_MAX_RETRIES    = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
 const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
 const AI_FILTER_ALWAYS_KEEP_SCORE = Number(process.env.AI_FILTER_ALWAYS_KEEP_SCORE || 88);
@@ -34,11 +32,9 @@ const deepseekClient = DEEPSEEK_API_KEY
   : null;
 
 // Startup diagnostics
-console.log('[normalizer] OPENAI_API_KEY set:  ', !!OPENAI_API_KEY);
 console.log('[normalizer] DEEPSEEK_API_KEY set:', !!DEEPSEEK_API_KEY);
-console.log('[normalizer] OPENAI_MODEL:        ', OPENAI_MODEL);
 console.log('[normalizer] DEEPSEEK_MODEL:      ', DEEPSEEK_MODEL);
-console.log('[normalizer] AI_FILTER_MODEL:     ', getFilterModel());
+console.log('[normalizer] OPENAI_API_KEY set:  ', !!OPENAI_API_KEY);
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const VALID_CATEGORIES = new Set([
@@ -435,14 +431,14 @@ async function translateTitleWithDeepSeek(event) {
   };
 }
 
-// ── Filtre IA (DeepSeek, batch) ──────────────────────────────────────────────
+// ── Filtre IA (DeepSeek prioritaire, fallback OpenAI) ─────────────────────────
 async function filterEventsWithAI(events) {
   if (!AI_FILTER_ENABLED) {
     console.log('[ai-filter] disabled via AI_FILTER_ENABLED=false');
     return events;
   }
-  if (!DEEPSEEK_API_KEY) {
-    console.log('[ai-filter] skipped: DEEPSEEK_API_KEY missing');
+  if (!DEEPSEEK_API_KEY && !OPENAI_API_KEY) {
+    console.log('[ai-filter] skipped: no API key available');
     return events;
   }
 
@@ -456,7 +452,8 @@ async function filterEventsWithAI(events) {
     return events;
   }
 
-  const filterModel = getFilterModel();
+  const filterModel = DEEPSEEK_API_KEY ? DEEPSEEK_MODEL : OPENAI_MODEL;
+  const provider    = DEEPSEEK_API_KEY ? 'deepseek' : 'openai';
 
   for (let i = 0; i < candidates.length; i += AI_FILTER_BATCH) {
     const batch = candidates.slice(i, i + AI_FILTER_BATCH);
@@ -465,10 +462,13 @@ async function filterEventsWithAI(events) {
 
     for (let attempt = 1; attempt <= AI_FILTER_MAX_RETRIES; attempt++) {
       try {
-        const results = await requestJsonArrayFromDeepSeek([
+        const messages = [
           { role: 'system', content: 'You are an OSINT analyst. Return JSON only.' },
           { role: 'user', content: `Return a JSON object with an "events" array.\n${buildFilterPrompt(batch)}` },
-        ]);
+        ];
+        const results = DEEPSEEK_API_KEY
+          ? await requestJsonArrayFromDeepSeek(messages)
+          : await requestJsonArrayFromOpenAI(messages, filterModel, AI_FILTER_TIMEOUT_MS);
 
         let kept = 0;
         for (const result of results) {
@@ -498,7 +498,7 @@ async function filterEventsWithAI(events) {
   }
 
   const filtered = events.filter(e => guaranteedIds.has(String(e.id)) || !discardedIds.has(String(e.id)));
-  console.log(`[ai-filter] done: ${discardedIds.size} discarded, ${filtered.length}/${events.length} kept (${aiProcessed} AI-checked, ${guaranteedIds.size} bypassed) [model: ${filterModel}]`);
+  console.log(`[ai-filter] done: ${discardedIds.size} discarded, ${filtered.length}/${events.length} kept (${aiProcessed} AI-checked, ${guaranteedIds.size} bypassed) [model: ${filterModel}, provider: ${provider}]`);
   return filtered;
 }
 

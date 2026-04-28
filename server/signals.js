@@ -19,7 +19,7 @@ const DISK_PATH   = path.join(CACHE_DIR, 'signals-cache.json');
 const OpenAI = require('openai');
 
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
-const DEEPSEEK_MODEL   = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const DEEPSEEK_MODEL   = 'deepseek-v4-flash';
 const deepseekClient   = DEEPSEEK_API_KEY
   ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com/v1' })
   : null;

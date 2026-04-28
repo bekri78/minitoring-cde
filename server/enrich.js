@@ -6,7 +6,7 @@ const OpenAI = require('openai');
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_API_KEY   = (process.env.OPENAI_API_KEY || '').trim().replace(/^=+/, '') || undefined;
 const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : 'openai')).toLowerCase();
-const ENRICH_MODEL     = process.env.ENRICH_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-chat' : 'gpt-4o');
+const ENRICH_MODEL     = process.env.ENRICH_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-v4-flash' : 'gpt-4o');
 
 const openaiClient = LLM_PROVIDER === 'deepseek'
   ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com/v1' })
@@ -326,8 +326,8 @@ async function enrichEvents(events) {
   const candidates = pickRegionalCandidates(cleaned);
   console.log(`[enrich] OpenAI filter ${AI_FILTER_ENABLED ? 'enabled' : 'disabled'} — ${candidates.length}/${events.length} candidates, target ${TARGET_EVENTS} (${events.length - cleaned.length} civilian noise removed)`);
 
-  if (!AI_FILTER_ENABLED || !OPENAI_API_KEY) {
-    if (!OPENAI_API_KEY) console.warn('[enrich] OPENAI_API_KEY missing; using local regional selection');
+  if (!AI_FILTER_ENABLED || (!DEEPSEEK_API_KEY && !OPENAI_API_KEY)) {
+    if (!DEEPSEEK_API_KEY && !OPENAI_API_KEY) console.warn('[enrich] no AI API key; using local regional selection');
     return selectFinalEvents(candidates);
   }
 

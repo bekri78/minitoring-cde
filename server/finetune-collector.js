@@ -3,7 +3,7 @@
 /**
  * finetune-collector.js
  * ─────────────────────────────────────────────────────────────────────────────
- * Pipeline automatique de génération de dataset OSINT (labélisation Claude, dedup DeepSeek).
+ * Pipeline automatique de génération de dataset fine-tuning OpenAI.
  *
  * Étapes :
  *  1. Fetch  — GET /events (API interne)
@@ -24,7 +24,7 @@ const crypto = require('crypto');
 const CLAUDE_API_KEY   = () => (process.env.CLAUDE_API_KEY || '').trim().replace(/^=+/, '');
 const CLAUDE_MODEL     = process.env.CLAUDE_LABELER_MODEL || 'claude-sonnet-4-6';
 const DEEPSEEK_API_KEY = () => (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '');
-const DEEPSEEK_DEDUP_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+const DEEPSEEK_DEDUP_MODEL = 'deepseek-v4-flash';
 const PROMPT_VERSION   = 'v2.0';
 const AGENT_VERSION    = 2;
 const INTERNAL_PORT    = process.env.PORT || 3000;
@@ -276,7 +276,7 @@ async function deduplicateCandidatesWithAI(candidates) {
     duplicateCandidateIndices.add(p.i);
   }
 
-  // Zone grise — LLM
+  // Zone grise — LLM DeepSeek
   const grayPairs = allPairs.filter(p => !p.obvious);
   for (let b = 0; b < grayPairs.length; b += DEDUP_AI_BATCH) {
     const batch = grayPairs.slice(b, b + DEDUP_AI_BATCH);
@@ -547,17 +547,17 @@ async function runFinetuneCollector(directEvents = null) {
     } else {
       try {
         let body, attempts = 0;
-        while (attempts < 5) {
+        while (attempts < 10) {
           const res = await fetch(`${INTERNAL_URL}/events`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           body = await res.json();
           if (body.status !== 'refreshing') break;
           attempts++;
-          console.log(`[finetune] /events en cours de refresh — attente 30s (tentative ${attempts}/5)`);
-          await sleep(30000);
+          console.log(`[finetune] /events en cours de refresh — attente 60s (tentative ${attempts}/10)`);
+          await sleep(60000);
         }
         if (body.status === 'refreshing') {
-          console.warn('[finetune] /events toujours en refresh après 5 tentatives — cycle annulé');
+          console.warn('[finetune] /events toujours en refresh après 10 tentatives — cycle annulé');
           return;
         }
         events = body.events || body || [];
@@ -592,6 +592,19 @@ async function runFinetuneCollector(directEvents = null) {
     if (finalCandidates.length === 0) {
       console.log('[finetune] Aucun événement à labéliser');
       _state.lastRunProcessed = 0;
+      // Vérifier quand même l'auto-upload (le seuil peut être atteint sans nouveaux events)
+      try {
+        const { runFinetuneUpload, AUTO_THRESHOLD } = require('./finetune-uploader');
+        const approvedCount = countJsonlLines(APPROVED_FILE);
+        if (approvedCount >= AUTO_THRESHOLD) {
+          console.log(`[finetune] Seuil ${AUTO_THRESHOLD} atteint (${approvedCount}) — lancement upload automatique`);
+          runFinetuneUpload(approvedCount).catch(err =>
+            console.error('[finetune-upload] Erreur auto-upload:', err.message)
+          );
+        }
+      } catch (uploadErr) {
+        console.error('[finetune] Impossible de charger finetune-uploader:', uploadErr.message);
+      }
       return;
     }
 
@@ -648,6 +661,19 @@ async function runFinetuneCollector(directEvents = null) {
       `[finetune] Dataset : raw=${countJsonlLines(RAW_FILE)} ` +
       `| approved=${approvedCount}`
     );
+
+    // ── Auto-upload si seuil atteint ─────────────────────────────────────
+    try {
+      const { runFinetuneUpload, AUTO_THRESHOLD } = require('./finetune-uploader');
+      if (approvedCount >= AUTO_THRESHOLD) {
+        console.log(`[finetune] Seuil ${AUTO_THRESHOLD} atteint (${approvedCount}) — lancement upload automatique`);
+        runFinetuneUpload(approvedCount).catch(err =>
+          console.error('[finetune-upload] Erreur auto-upload:', err.message)
+        );
+      }
+    } catch (uploadErr) {
+      console.error('[finetune] Impossible de charger finetune-uploader:', uploadErr.message);
+    }
 
   } finally {
     _state.running = false;

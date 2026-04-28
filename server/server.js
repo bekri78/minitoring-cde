@@ -18,8 +18,6 @@ const { attachNearbyEvents }                                         = require('
 const { refreshSignals, getSignalsCache, isStale }                   = require('./signals');
 const { normalizeTitleWithGemini }                                   = require('./gemini-normalizer');
 const { fetchSignalMarkers, getCache: getSignalMarkersCache }        = require('./signalMarkers');
-const { runFinetuneCollector, getDatasetStats, getReviewEntries, approveEntry, rejectEntry } = require('./finetune-collector');
-const { runFinetuneUpload, checkJobStatus, loadJobStatus, exportForOpenAI } = require('./finetune-uploader');
 const { fetchWorldEvents, getCache: getWorldEventsCache }            = require('./worldEvents');
 const { getMaritimeEvents, getMaritimeAnomalies, getNavalActivity }  = require('./maritime-osint');
 const { fetchMaritimeAnomalies }                                     = require('./maritime-anomalies');
@@ -149,8 +147,6 @@ async function refresh(force = false) {
     console.log(`[refresh] done — ${events.length} events`);
     // Lancer la synthèse Groq en arrière-plan (pas besoin d'attendre)
     refreshSignals(events).catch(err => console.error('[signals]', err.message));
-    // Lancer le collector finetune avec les events frais (évite le problème de status 'refreshing')
-    runFinetuneCollector(events).catch(err => console.error('[finetune-post-refresh]', err.message));
   } catch (err) {
     cache.status = 'error';
     console.error('[refresh] failed:', err.message);
@@ -771,94 +767,6 @@ app.get('/api/news/raw', (_req, res) => {
   });
 });
 
-// ── Fine-tuning dataset monitoring ───────────────────────────────────────────
-app.get('/api/finetune/stats', (_req, res) => {
-  try {
-    res.json(getDatasetStats());
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Statut du job de fine-tuning en cours
-app.get('/api/finetune/job', async (_req, res) => {
-  try {
-    const status = loadJobStatus();
-    if (!status) return res.json({ job: null, message: 'Aucun job lancé' });
-    // Rafraîchir le statut si job actif (statuts OpenAI en minuscules)
-    if (['running', 'queued', 'validating_files'].includes(status.status)) {
-      const updated = await checkJobStatus(status.id);
-      return res.json({ job: updated });
-    }
-    res.json({ job: status });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Lancer manuellement le pipeline upload → fine-tune
-app.post('/api/finetune/upload', async (_req, res) => {
-  try {
-    const stats = getDatasetStats();
-    if (stats.total_approved === 0) {
-      return res.status(400).json({ error: 'Aucune entrée approuvée à exporter' });
-    }
-    res.json({ status: 'started', approved: stats.total_approved, message: 'Upload et création du job en cours' });
-    runFinetuneUpload(stats.total_approved).catch(err =>
-      console.error('[finetune-upload-manual]', err.message)
-    );
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Export seul (sans upload) — pour télécharger le fichier converti
-app.get('/api/finetune/export', (_req, res) => {
-  try {
-    const { count, filePath } = exportForOpenAI();
-    res.download(filePath, `finetune-openai-export-${count}ex.jsonl`);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Liste des entrées en attente de review
-app.get('/api/finetune/review', (_req, res) => {
-  try {
-    const entries = getReviewEntries();
-    res.json({ count: entries.length, entries });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Approuver une entrée
-app.post('/api/finetune/review/:id/approve', (req, res) => {
-  try {
-    res.json(approveEntry(req.params.id));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Rejeter une entrée
-app.post('/api/finetune/review/:id/reject', (req, res) => {
-  try {
-    res.json(rejectEntry(req.params.id));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Déclenchement manuel — répond immédiatement, tourne en fond
-app.post('/api/finetune/run', (_req, res) => {
-  const stats = getDatasetStats();
-  if (stats.pipeline_running) {
-    return res.status(409).json({ status: 'already_running', message: 'Un cycle est déjà en cours' });
-  }
-  res.json({ status: 'started', message: 'Cycle de collecte lancé en arrière-plan' });
-  runFinetuneCollector().catch(err => console.error('[finetune-manual]', err.message));
-});
 
 app.get('/diag/ais', async (req, res) => {
   const WebSocket = require('ws');
@@ -956,7 +864,7 @@ app.post('/refresh/rss', (req, res) => {
   fetchGoogleNewsEvents().catch(err => console.error('[manual-rss-refresh] failed:', err.message));
 });
 
-// ── Cron 30min — GDELT + finetune (finetune se déclenche après le refresh) ───────────
+// ── Cron 30min — GDELT ────────────────────────────────────────────
 cron.schedule('*/30 * * * *', () => {
   console.log('[cron] triggered');
   refresh();
@@ -1038,10 +946,6 @@ app.listen(PORT, () => {
   fetchMaritimeAnomalies().catch(err => console.error('[startup-maritime-anomalies]', err.message));
   refreshOpenSkyCache().catch(err => console.error('[startup-opensky]', err.message));
   fetchGoogleNewsEvents().catch(err => console.error('[startup-google-news]', err.message));
-  // Fine-tuning collector : premier run 5min après démarrage (laisser le pipeline se stabiliser)
-  setTimeout(() => {
-    runFinetuneCollector().catch(err => console.error('[startup-finetune]', err.message));
-  }, 5 * 60 * 1000);
 });
 
 
