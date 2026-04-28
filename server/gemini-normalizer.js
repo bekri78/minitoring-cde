@@ -1,7 +1,5 @@
 'use strict';
 
-const fs     = require('fs');
-const path   = require('path');
 const OpenAI = require('openai');
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -11,25 +9,18 @@ const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-// Lecture dynamique du modèle fine-tuné : priorité env var, sinon finetune-job-status.json
-const FINETUNE_STATUS_FILE = path.join(process.env.FINETUNE_DATA_DIR || '/data', 'finetune-job-status.json');
+// Modèle utilisé pour le filtre AI — DeepSeek par défaut (plus de fine-tuning OpenAI)
 function getFilterModel() {
-  if (process.env.FINETUNE_MODEL) return process.env.FINETUNE_MODEL;
-  try {
-    const status = JSON.parse(fs.readFileSync(FINETUNE_STATUS_FILE, 'utf8'));
-    if (status?.status === 'succeeded' && status?.fine_tuned_model) return status.fine_tuned_model;
-  } catch { /* fichier absent ou invalide → fallback */ }
-  return OPENAI_MODEL;
+  return DEEPSEEK_MODEL;
 }
 
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
-const DEEPSEEK_MODEL   = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const DEEPSEEK_MODEL   = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 
 const AI_FILTER_ENABLED        = process.env.AI_FILTER_ENABLED !== 'false';
 const AI_FILTER_BATCH          = Number(process.env.AI_FILTER_BATCH || 20);
 const AI_FILTER_LIMIT          = Number(process.env.AI_FILTER_LIMIT || 1500);
 const AI_FILTER_DELAY          = Number(process.env.AI_FILTER_DELAY || 1200);
-const AI_FILTER_TIMEOUT_MS     = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
 const AI_FILTER_MAX_RETRIES    = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
 const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
 const AI_FILTER_ALWAYS_KEEP_SCORE = Number(process.env.AI_FILTER_ALWAYS_KEEP_SCORE || 88);
@@ -47,7 +38,7 @@ console.log('[normalizer] OPENAI_API_KEY set:  ', !!OPENAI_API_KEY);
 console.log('[normalizer] DEEPSEEK_API_KEY set:', !!DEEPSEEK_API_KEY);
 console.log('[normalizer] OPENAI_MODEL:        ', OPENAI_MODEL);
 console.log('[normalizer] DEEPSEEK_MODEL:      ', DEEPSEEK_MODEL);
-console.log('[normalizer] FINETUNE_MODEL:      ', getFilterModel());
+console.log('[normalizer] AI_FILTER_MODEL:     ', getFilterModel());
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const VALID_CATEGORIES = new Set([
@@ -444,14 +435,14 @@ async function translateTitleWithDeepSeek(event) {
   };
 }
 
-// ── Filtre IA (OpenAI gpt-4o-mini, batch) ─────────────────────────────────────
+// ── Filtre IA (DeepSeek, batch) ──────────────────────────────────────────────
 async function filterEventsWithAI(events) {
   if (!AI_FILTER_ENABLED) {
     console.log('[ai-filter] disabled via AI_FILTER_ENABLED=false');
     return events;
   }
-  if (!OPENAI_API_KEY) {
-    console.log('[ai-filter] skipped: OPENAI_API_KEY missing');
+  if (!DEEPSEEK_API_KEY) {
+    console.log('[ai-filter] skipped: DEEPSEEK_API_KEY missing');
     return events;
   }
 
@@ -474,10 +465,10 @@ async function filterEventsWithAI(events) {
 
     for (let attempt = 1; attempt <= AI_FILTER_MAX_RETRIES; attempt++) {
       try {
-        const results = await requestJsonArrayFromOpenAI([
+        const results = await requestJsonArrayFromDeepSeek([
           { role: 'system', content: 'You are an OSINT analyst. Return JSON only.' },
           { role: 'user', content: `Return a JSON object with an "events" array.\n${buildFilterPrompt(batch)}` },
-        ], filterModel, AI_FILTER_TIMEOUT_MS);
+        ]);
 
         let kept = 0;
         for (const result of results) {
