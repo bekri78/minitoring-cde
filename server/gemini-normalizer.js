@@ -11,7 +11,9 @@ const GEMINI_BATCH   = Number(process.env.GEMINI_NORMALIZE_BATCH || 20);
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
+const _rawDeepseek = process.env.DEEPSEEK_API_KEY || '';
+console.log('[normalizer] DEEPSEEK_API_KEY raw length:', _rawDeepseek.length, '| first4:', JSON.stringify(_rawDeepseek.slice(0, 4)));
+const DEEPSEEK_API_KEY = _rawDeepseek.trim().replace(/^=+/, '') || undefined;
 const DEEPSEEK_MODEL   = 'deepseek-v4-flash';
 
 const AI_FILTER_ENABLED        = process.env.AI_FILTER_ENABLED !== 'false';
