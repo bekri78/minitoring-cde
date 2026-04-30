@@ -215,7 +215,9 @@ Rules: max 5 key_points, English only, factual and concise, no speculation.`;
       max_tokens: 400,
       response_format: { type: 'json_object' },
     }, { timeout: 30000 });
-    const text = completion.choices?.[0]?.message?.content || '';
+    const choice = completion.choices?.[0];
+    const text = choice?.message?.content || '';
+    if (!text) throw new Error(`empty response from DeepSeek (finish_reason: ${choice?.finish_reason}, id: ${completion.id})`);
     return parseSignalResponse(text);
   }
 
