@@ -212,7 +212,7 @@ Rules: max 5 key_points, English only, factual and concise, no speculation.`;
       model: DEEPSEEK_MODEL,
       messages,
       temperature: 0,
-      max_tokens: 400,
+      max_tokens: 800,
       response_format: { type: 'json_object' },
     }, { timeout: 30000 });
     const choice = completion.choices?.[0];
