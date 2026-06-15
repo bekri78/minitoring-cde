@@ -110,8 +110,8 @@ function saveCache() {
   try {
     const list = [...ships.values()].filter(s => s.milVerified);
     // Règle absolue : ne jamais écrire un fichier vide ou inférieur à 10 navires
-    if (list.length < 10) {
-      console.log(`[military-ships] saveCache ignoré — seulement ${list.length} navires (min 10)`);
+    if (list.length < 1) {
+      console.log(`[military-ships] saveCache ignoré — seulement ${list.length} navires (min 1)`);
       return;
     }
     // Lire le cache existant pour ne pas rétrograder
@@ -202,6 +202,8 @@ function wsConnect() {
 
   ws.on('message', (raw) => {
     msgCount++;
+    if (msgCount === 1 || msgCount % 500 === 0)
+      console.log(`[military-ships] msgs reçus: ${msgCount}, navires: ${ships.size}, militaires détectés: ${milCount}`);
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
