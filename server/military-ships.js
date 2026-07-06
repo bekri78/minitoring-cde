@@ -81,6 +81,7 @@ let reconnectTimer = null;
 let pingTimer      = null;
 let msgCount       = 0;
 let milCount       = 0;
+let lastMsgTime    = 0;  // timestamp du dernier message AIS reçu
 
 // ── Persistance disque ────────────────────────────────────────────────────
 function loadCache() {
@@ -148,7 +149,14 @@ function updateTrail(ship, lon, lat) {
   if (ship.trail.length > TRAIL_MAX_PTS) ship.trail.shift();
 }
 
+function isReceivingData() {
+  // WS considéré actif si on a reçu un message dans les 5 dernières minutes
+  return lastMsgTime > 0 && (Date.now() - lastMsgTime) < 5 * 60 * 1000;
+}
+
 function purgeOld() {
+  // Ne purge que si le flux AIS est actif — conserve le dernier état connu sinon
+  if (!isReceivingData()) return;
   const cutoff = Date.now() - SHIP_EXPIRE;
   for (const [mmsi, s] of ships) {
     if (s.lastSeen < cutoff) ships.delete(mmsi);
@@ -173,6 +181,7 @@ function wsConnect() {
 
   ws.on('open', () => {
     msgCount = 0;
+    console.log(`[military-ships] WS connecté — ${ships.size} navires en mémoire`);
     ws.send(JSON.stringify({
       APIKey:             key,
       BoundingBoxes:      [[[-90, -180], [90, 180]]],
@@ -202,6 +211,7 @@ function wsConnect() {
 
   ws.on('message', (raw) => {
     msgCount++;
+    lastMsgTime = Date.now();
     if (msgCount === 1 || msgCount % 500 === 0)
       console.log(`[military-ships] msgs reçus: ${msgCount}, navires: ${ships.size}, militaires détectés: ${milCount}`);
     let msg;
@@ -289,6 +299,7 @@ function wsConnect() {
   ws.on('close', (code, reason) => {
     clearInterval(pingTimer);
     ws = null;
+    console.log(`[military-ships] WS fermé (code=${code}, msgs=${msgCount}) — ${ships.size} navires conservés en mémoire`);
     saveCache();
     reconnectTimer = setTimeout(wsConnect, RECONNECT_DELAY);
   });
@@ -296,20 +307,26 @@ function wsConnect() {
 
 // ── API ───────────────────────────────────────────────────────────────────
 function getCache() {
-  purgeOld();
+  purgeOld(); // no-op si flux AIS inactif — conserve le dernier état connu
   const list = [...ships.values()];
   return {
     ships:      list,
     count:      list.length,
     lastUpdate: new Date().toISOString(),
     connected:  ws?.readyState === WebSocket.OPEN,
+    stale:      !isReceivingData() && list.length > 0,
   };
 }
 
 function startMilitaryShips() {
   loadCache();
   wsConnect();
-  setInterval(() => { purgeOld(); saveCache(); }, 60 * 1000); // sauvegarde toutes les minutes
+  setInterval(() => {
+    purgeOld(); // no-op si flux AIS inactif
+    saveCache();
+    if (!isReceivingData() && ships.size > 0)
+      console.log(`[military-ships] flux AIS inactif — ${ships.size} navires conservés (dernier msg: ${lastMsgTime ? new Date(lastMsgTime).toISOString() : 'jamais'})`);
+  }, 60 * 1000);
   setTimeout(() => saveCache(), 90 * 1000); // première sauvegarde forcée à 90s
 }
 
