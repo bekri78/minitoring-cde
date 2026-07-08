@@ -259,7 +259,9 @@ async function resolveGoogleLink(googleUrl) {
 
 // ── REGEX classification (gratuit, 0 token) ───────────────────────────────────
 
-// Zones stratégiques non-urbaines (mers, détroits, régions — absentes de all-the-cities)
+// Zones stratégiques non-urbaines (mers, détroits, bases, régions — absentes de all-the-cities)
+// Pays exclus : ils vivent dans COUNTRY_COORDS et ne sont utilisés qu'en dernier recours,
+// pour que "Russian strike on Kharkiv" épingle Kharkiv, pas Moscou.
 const STRATEGIC_ZONES = new Map([
   ['south china sea',       { lat: 12.00, lon: 114.00 }],
   ['red sea',               { lat: 20.00, lon: 38.50  }],
@@ -279,10 +281,26 @@ const STRATEGIC_ZONES = new Map([
   ['arabian sea',           { lat: 15.00, lon: 65.00  }],
   ['north sea',             { lat: 56.00, lon: 3.00   }],
   ['bering strait',         { lat: 65.60, lon: -168.00}],
+  ['strait of malacca',     { lat: 4.00,  lon: 100.00 }],
+  ['suez canal',            { lat: 30.45, lon: 32.35  }],
+  ['bab el-mandeb',         { lat: 12.58, lon: 43.33  }],
+  ['strait of gibraltar',   { lat: 35.96, lon: -5.60  }],
+  ['english channel',       { lat: 50.20, lon: -0.70  }],
+  ['korean peninsula',      { lat: 38.32, lon: 127.24 }],
+  ['horn of africa',        { lat: 8.00,  lon: 48.00  }],
+  ['sahel',                 { lat: 14.50, lon: 0.00   }],
+  ['senkaku',               { lat: 25.75, lon: 123.50 }],
+  ['spratly',               { lat: 8.64,  lon: 111.92 }],
+  ['paracel',               { lat: 16.50, lon: 112.00 }],
+  ['kuril islands',         { lat: 46.83, lon: 151.75 }],
+  ['guam',                  { lat: 13.44, lon: 144.79 }],
+  ['diego garcia',          { lat: -7.31, lon: 72.41  }],
   ['cape canaveral',        { lat: 28.39, lon: -80.60 }],
   ['vandenberg',            { lat: 34.74, lon: -120.57}],
   ['vandenberg sfb',        { lat: 34.74, lon: -120.57}],
   ['pentagon',              { lat: 38.87, lon: -77.06 }],
+  ['white house',           { lat: 38.90, lon: -77.04 }],
+  ['kremlin',               { lat: 55.75, lon: 37.62  }],
   ['plesetsk',              { lat: 62.93, lon: 40.58  }],
   ['vostochny',             { lat: 51.88, lon: 128.33 }],
   ['baikonur',              { lat: 45.96, lon: 63.31  }],
@@ -292,62 +310,97 @@ const STRATEGIC_ZONES = new Map([
   ['crimea',                { lat: 44.95, lon: 34.10  }],
   ['donbas',                { lat: 48.20, lon: 38.00  }],
   ['donbass',               { lat: 48.20, lon: 38.00  }],
-  ['north korea',           { lat: 39.04, lon: 125.76 }],
-  ['south korea',           { lat: 35.91, lon: 127.77 }],
-  ['united states',         { lat: 38.90, lon: -77.04 }],
-  ['taiwan',                { lat: 23.70, lon: 120.96 }],
-  // Major countries (English)
-  ['china',                 { lat: 39.90, lon: 116.40 }],
-  ['russia',                { lat: 55.75, lon: 37.62  }],
-  ['ukraine',               { lat: 50.45, lon: 30.52  }],
-  ['iran',                  { lat: 35.69, lon: 51.39  }],
-  ['israel',                { lat: 31.77, lon: 35.22  }],
-  ['india',                 { lat: 28.61, lon: 77.21  }],
-  ['pakistan',              { lat: 33.69, lon: 73.04  }],
-  ['turkey',                { lat: 39.93, lon: 32.85  }],
-  ['japan',                 { lat: 35.68, lon: 139.69 }],
-  ['syria',                 { lat: 33.51, lon: 36.29  }],
-  ['yemen',                 { lat: 15.37, lon: 44.19  }],
-  ['libya',                 { lat: 32.90, lon: 13.18  }],
-  ['sudan',                 { lat: 15.60, lon: 32.53  }],
-  ['somalia',               { lat: 2.05,  lon: 45.32  }],
-  ['iraq',                  { lat: 33.34, lon: 44.40  }],
-  ['saudi arabia',          { lat: 24.71, lon: 46.68  }],
-  ['egypt',                 { lat: 30.04, lon: 31.24  }],
-  ['france',                { lat: 48.86, lon: 2.35   }],
-  ['germany',               { lat: 52.52, lon: 13.41  }],
-  ['united kingdom',        { lat: 51.51, lon: -0.13  }],
-  ['myanmar',               { lat: 16.87, lon: 96.20  }],
-  ['philippines',           { lat: 14.60, lon: 120.98 }],
-  ['vietnam',               { lat: 21.03, lon: 105.85 }],
-  ['afghanistan',           { lat: 34.53, lon: 69.17  }],
-  ['brazil',                { lat: -15.79, lon: -47.88}],
-  // French country names — France 24, RFI, Le Monde, TV5 coverage
-  ['liban',                 { lat: 33.89, lon: 35.50  }],
-  ['syrie',                 { lat: 34.80, lon: 38.90  }],
-  ['irak',                  { lat: 33.34, lon: 44.40  }],
-  ['russie',                { lat: 55.75, lon: 37.62  }],
-  ['chine',                 { lat: 39.91, lon: 116.39 }],
-  ['yémen',                 { lat: 15.55, lon: 44.21  }],
-  ['libye',                 { lat: 32.90, lon: 13.18  }],
-  ['soudan',                { lat: 15.55, lon: 32.53  }],
-  ['corée du nord',         { lat: 39.04, lon: 125.76 }],
-  ['corée du sud',          { lat: 35.91, lon: 127.77 }],
-  ['birmanie',              { lat: 16.87, lon: 96.19  }],
-  ['mali',                  { lat: 12.65, lon: -8.00  }],
-  ['niger',                 { lat: 13.51, lon:  2.12  }],
   ['gaza',                  { lat: 31.35, lon: 34.31  }],
+  ['gaza strip',            { lat: 31.35, lon: 34.31  }],
+  ['west bank',             { lat: 31.95, lon: 35.30  }],
   ['cisjordanie',           { lat: 31.95, lon: 35.30  }],
+  ['golan heights',         { lat: 33.00, lon: 35.75  }],
+]);
+
+// Bâtiments-acteurs : résolvables comme lieux ("at the Pentagon") mais jamais
+// prioritaires au scan du titre — "Pentagon confirms strike in Somalia" ≠ Washington.
+const ACTOR_PLACES = new Set(['pentagon', 'white house', 'kremlin']);
+
+// Pays (toutes langues des flux) → capitale/centroïde. Utilisés :
+//  - en résolution locative ("in Lebanon" — et jamais Lebanon, Pennsylvanie)
+//  - en fallback pays quand aucun lieu spécifique n'est trouvé dans le titre
+const COUNTRY_COORDS = new Map([
+  // English
+  ['north korea',    { lat: 39.04, lon: 125.76 }], ['south korea',   { lat: 35.91, lon: 127.77 }],
+  ['united states',  { lat: 38.90, lon: -77.04 }], ['usa',           { lat: 38.90, lon: -77.04 }],
+  ['taiwan',         { lat: 23.70, lon: 120.96 }], ['china',         { lat: 39.90, lon: 116.40 }],
+  ['russia',         { lat: 55.75, lon: 37.62  }], ['ukraine',       { lat: 50.45, lon: 30.52  }],
+  ['iran',           { lat: 35.69, lon: 51.39  }], ['israel',        { lat: 31.77, lon: 35.22  }],
+  ['india',          { lat: 28.61, lon: 77.21  }], ['pakistan',      { lat: 33.69, lon: 73.04  }],
+  ['turkey',         { lat: 39.93, lon: 32.85  }], ['japan',         { lat: 35.68, lon: 139.69 }],
+  ['syria',          { lat: 33.51, lon: 36.29  }], ['yemen',         { lat: 15.37, lon: 44.19  }],
+  ['libya',          { lat: 32.90, lon: 13.18  }], ['sudan',         { lat: 15.60, lon: 32.53  }],
+  ['somalia',        { lat: 2.05,  lon: 45.32  }], ['iraq',          { lat: 33.34, lon: 44.40  }],
+  ['saudi arabia',   { lat: 24.71, lon: 46.68  }], ['egypt',         { lat: 30.04, lon: 31.24  }],
+  ['france',         { lat: 48.86, lon: 2.35   }], ['germany',       { lat: 52.52, lon: 13.41  }],
+  ['united kingdom', { lat: 51.51, lon: -0.13  }], ['myanmar',       { lat: 16.87, lon: 96.20  }],
+  ['philippines',    { lat: 14.60, lon: 120.98 }], ['vietnam',       { lat: 21.03, lon: 105.85 }],
+  ['afghanistan',    { lat: 34.53, lon: 69.17  }], ['brazil',        { lat: -15.79, lon: -47.88}],
+  ['lebanon',        { lat: 33.89, lon: 35.50  }], ['palestine',     { lat: 31.90, lon: 35.20  }],
+  ['jordan',         { lat: 31.95, lon: 35.93  }], ['georgia',       { lat: 41.72, lon: 44.79  }],
+  ['armenia',        { lat: 40.18, lon: 44.51  }], ['azerbaijan',    { lat: 40.41, lon: 49.87  }],
+  ['belarus',        { lat: 53.90, lon: 27.56  }], ['moldova',       { lat: 47.01, lon: 28.86  }],
+  ['poland',         { lat: 52.23, lon: 21.01  }], ['romania',       { lat: 44.43, lon: 26.10  }],
+  ['finland',        { lat: 60.17, lon: 24.94  }], ['sweden',        { lat: 59.33, lon: 18.07  }],
+  ['norway',         { lat: 59.91, lon: 10.75  }], ['estonia',       { lat: 59.44, lon: 24.75  }],
+  ['latvia',         { lat: 56.95, lon: 24.11  }], ['lithuania',     { lat: 54.69, lon: 25.28  }],
+  ['greece',         { lat: 37.98, lon: 23.73  }], ['cyprus',        { lat: 35.17, lon: 33.36  }],
+  ['qatar',          { lat: 25.29, lon: 51.53  }], ['kuwait',        { lat: 29.38, lon: 47.99  }],
+  ['bahrain',        { lat: 26.23, lon: 50.59  }], ['oman',          { lat: 23.59, lon: 58.41  }],
+  ['united arab emirates', { lat: 24.45, lon: 54.38 }], ['uae',      { lat: 24.45, lon: 54.38  }],
+  ['ethiopia',       { lat: 9.01,  lon: 38.75  }], ['eritrea',       { lat: 15.34, lon: 38.93  }],
+  ['nigeria',        { lat: 9.06,  lon: 7.49   }], ['algeria',       { lat: 36.75, lon: 3.06   }],
+  ['morocco',        { lat: 34.02, lon: -6.84  }], ['tunisia',       { lat: 36.81, lon: 10.18  }],
+  ['kenya',          { lat: -1.29, lon: 36.82  }], ['venezuela',     { lat: 10.49, lon: -66.88 }],
+  ['colombia',       { lat: 4.71,  lon: -74.07 }], ['mexico',        { lat: 19.43, lon: -99.13 }],
+  ['cuba',           { lat: 23.11, lon: -82.37 }], ['canada',        { lat: 45.42, lon: -75.70 }],
+  ['australia',      { lat: -35.28, lon: 149.13}], ['indonesia',     { lat: -6.21, lon: 106.85 }],
+  ['malaysia',       { lat: 3.14,  lon: 101.69 }], ['thailand',      { lat: 13.76, lon: 100.50 }],
+  ['cambodia',       { lat: 11.55, lon: 104.92 }], ['bangladesh',    { lat: 23.81, lon: 90.41  }],
+  ['sri lanka',      { lat: 6.93,  lon: 79.85  }], ['nepal',         { lat: 27.72, lon: 85.32  }],
+  ['kazakhstan',     { lat: 51.13, lon: 71.43  }], ['uzbekistan',    { lat: 41.30, lon: 69.24  }],
+  ['tajikistan',     { lat: 38.56, lon: 68.79  }], ['kyrgyzstan',    { lat: 42.87, lon: 74.59  }],
+  ['turkmenistan',   { lat: 37.95, lon: 58.38  }], ['mongolia',      { lat: 47.89, lon: 106.91 }],
+  ['italy',          { lat: 41.90, lon: 12.50  }], ['spain',         { lat: 40.42, lon: -3.70  }],
+  ['portugal',       { lat: 38.72, lon: -9.14  }], ['netherlands',   { lat: 52.37, lon: 4.90   }],
+  ['belgium',        { lat: 50.85, lon: 4.35   }], ['denmark',       { lat: 55.68, lon: 12.57  }],
+  ['serbia',         { lat: 44.79, lon: 20.45  }], ['kosovo',        { lat: 42.66, lon: 21.17  }],
+  ['hungary',        { lat: 47.50, lon: 19.04  }], ['bulgaria',      { lat: 42.70, lon: 23.32  }],
+  ['croatia',        { lat: 45.81, lon: 15.98  }], ['albania',       { lat: 41.33, lon: 19.82  }],
+  ['slovakia',       { lat: 48.15, lon: 17.11  }], ['czech republic',{ lat: 50.08, lon: 14.44  }],
+  ['austria',        { lat: 48.21, lon: 16.37  }], ['switzerland',   { lat: 46.95, lon: 7.45   }],
+  ['ireland',        { lat: 53.35, lon: -6.26  }], ['iceland',       { lat: 64.15, lon: -21.94 }],
+  ['greenland',      { lat: 64.18, lon: -51.72 }], ['panama',        { lat: 8.98,  lon: -79.52 }],
+  ['haiti',          { lat: 18.54, lon: -72.34 }], ['argentina',     { lat: -34.60, lon: -58.38}],
+  ['chile',          { lat: -33.45, lon: -70.67}], ['peru',          { lat: -12.05, lon: -77.04}],
+  ['ecuador',        { lat: -0.18, lon: -78.47 }], ['bolivia',       { lat: -16.50, lon: -68.15}],
+  ['guyana',         { lat: 6.80,  lon: -58.16 }], ['south africa',  { lat: -25.75, lon: 28.19 }],
+  ['angola',         { lat: -8.84, lon: 13.23  }], ['mozambique',    { lat: -25.97, lon: 32.57 }],
+  ['uganda',         { lat: 0.35,  lon: 32.58  }], ['tanzania',      { lat: -6.79, lon: 39.21  }],
+  ['rwanda',         { lat: -1.94, lon: 30.06  }], ['burkina faso',  { lat: 12.37, lon: -1.52  }],
+  ['senegal',        { lat: 14.72, lon: -17.47 }], ['cameroon',      { lat: 3.87,  lon: 11.52  }],
+  ['chad',           { lat: 12.13, lon: 15.06  }], ['djibouti',      { lat: 11.59, lon: 43.15  }],
+  ['south sudan',    { lat: 4.85,  lon: 31.58  }], ['new zealand',   { lat: -41.29, lon: 174.78}],
+  ['mali',           { lat: 12.65, lon: -8.00  }], ['niger',         { lat: 13.51, lon: 2.12   }],
+  // French country names — France 24, RFI, Le Monde, TV5 coverage
+  ['liban',          { lat: 33.89, lon: 35.50  }], ['syrie',         { lat: 34.80, lon: 38.90  }],
+  ['irak',           { lat: 33.34, lon: 44.40  }], ['russie',        { lat: 55.75, lon: 37.62  }],
+  ['chine',          { lat: 39.91, lon: 116.39 }], ['yémen',         { lat: 15.55, lon: 44.21  }],
+  ['libye',          { lat: 32.90, lon: 13.18  }], ['soudan',        { lat: 15.55, lon: 32.53  }],
+  ['corée du nord',  { lat: 39.04, lon: 125.76 }], ['corée du sud',  { lat: 35.91, lon: 127.77 }],
+  ['birmanie',       { lat: 16.87, lon: 96.19  }],
   // Arabic romanized
-  ['lubnan',                { lat: 33.89, lon: 35.50  }],
-  ['suriya',                { lat: 34.80, lon: 38.90  }],
-  ['al-yaman',              { lat: 15.55, lon: 44.21  }],
+  ['lubnan',         { lat: 33.89, lon: 35.50  }], ['suriya',        { lat: 34.80, lon: 38.90  }],
+  ['al-yaman',       { lat: 15.55, lon: 44.21  }],
   // Spanish / Portuguese
-  ['líbano',                { lat: 33.89, lon: 35.50  }],
-  ['siria',                 { lat: 34.80, lon: 38.90  }],
-  ['irán',                  { lat: 35.69, lon: 51.39  }],
-  ['ucrania',               { lat: 48.38, lon: 31.17  }],
-  ['corea del norte',       { lat: 39.04, lon: 125.76 }],
+  ['líbano',         { lat: 33.89, lon: 35.50  }], ['siria',         { lat: 34.80, lon: 38.90  }],
+  ['irán',           { lat: 35.69, lon: 51.39  }], ['ucrania',       { lat: 48.38, lon: 31.17  }],
+  ['corea del norte',{ lat: 39.04, lon: 125.76 }],
 ]);
 
 // ── Index mondial de villes (all-the-cities, 135k entrées) ───────────────────
@@ -362,22 +415,28 @@ function getCityIndex() {
     // Trier par population décroissante pour que les villes importantes
     // gagnent en cas de conflit de noms (ex: "Springfield" → USA, pop max)
     cities.sort((a, b) => (b.population || 0) - (a.population || 0));
+    // Garde-fous anti-faux-positifs : les petits villages homonymes de mots
+    // courants ("Of" en Turquie, "Along" en Inde) polluent la géolocalisation.
+    const acceptName = (name, population) => {
+      if (!name) return false;
+      const key = name.toLowerCase();
+      if (LOCATION_STOPWORDS.has(key)) return false;
+      if (name.length < 4 && population < 500000) return false; // garde Qom/Ufa, vire "Of"
+      if (population < 5000) return false;
+      return true;
+    };
     for (const c of cities) {
+      const pop = c.population || 0;
+      const coords = { lat: c.loc.coordinates[1], lon: c.loc.coordinates[0] };
       const key = c.name.toLowerCase();
-      if (!_cityIndex.has(key)) {
-        _cityIndex.set(key, {
-          lat: c.loc.coordinates[1],
-          lon: c.loc.coordinates[0],
-        });
+      if (acceptName(c.name, pop) && !_cityIndex.has(key)) {
+        _cityIndex.set(key, coords);
       }
       // Indexer aussi l'altName si présent
-      if (c.altName) {
+      if (c.altName && acceptName(c.altName, pop)) {
         const altKey = c.altName.toLowerCase();
         if (!_cityIndex.has(altKey)) {
-          _cityIndex.set(altKey, {
-            lat: c.loc.coordinates[1],
-            lon: c.loc.coordinates[0],
-          });
+          _cityIndex.set(altKey, coords);
         }
       }
     }
@@ -401,6 +460,22 @@ const LOCATION_STOPWORDS = new Set([
   'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
   'january', 'february', 'march', 'april', 'may', 'june',
   'july', 'august', 'september', 'october', 'november', 'december',
+  // Titraille / tournures fréquentes ("At Least 5 Killed", "In Pictures")
+  'least', 'pictures', 'photos', 'photo', 'video', 'videos', 'watch', 'live',
+  'alert', 'edge', 'terror', 'terrorism', 'crisis', 'peace', 'talks', 'deal',
+  'agreement', 'summit', 'second', 'third', 'fourth', 'fifth', 'final', 'next',
+  'last', 'day', 'days', 'week', 'weeks', 'month', 'year', 'years', 'state',
+  'south', 'north', 'east', 'west', 'western', 'eastern', 'northern', 'southern',
+  'central', 'strikes', 'attacks', 'forces', 'troops', 'weapons', 'drone', 'drones',
+  // Agences / médias / organisations — jamais des lieux d'événement
+  'reuters', 'bloomberg', 'associated press', 'afp', 'cnn', 'bbc', 'fox',
+  'nato', 'un', 'eu', 'european union', 'united nations',
+  'spacex', 'nasa', 'boeing', 'lockheed', 'lockheed martin', 'raytheon',
+  'northrop', 'northrop grumman', 'airbus', 'starlink', 'roscosmos',
+  'congress', 'senate', 'parliament', 'president', 'minister', 'ministry',
+  // Dirigeants — "Austin says", "Biden warns" ne sont pas Austin TX / Biden ND
+  'biden', 'trump', 'putin', 'zelensky', 'zelenskyy', 'netanyahu', 'khamenei',
+  'erdogan', 'macron', 'modi', 'austin', 'hegseth', 'lavrov', 'wang',
 ]);
 
 // ── Spatial noise: civil/tourism/entertainment space content ──────────────────
@@ -518,64 +593,221 @@ const TITLE_COUNTRY_MAP = new Map([
   ['myanmar',       'myanmar'],
   ['philippines',   'philippines'],  ['philippine',    'philippines'],
   ['vietnam',       'vietnam'],      ['vietnamese',    'vietnam'],
-  ['afghanistan',   'afghanistan'],
+  ['afghanistan',   'afghanistan'],  ['afghan',        'afghanistan'],
+  ['lebanon',       'lebanon'],      ['lebanese',      'lebanon'],
+  ['hezbollah',     'lebanon'],      ['hamas',         'gaza'],
+  ['palestine',     'palestine'],    ['palestinian',   'palestine'],
+  ['jordan',        'jordan'],       ['jordanian',     'jordan'],
+  ['armenia',       'armenia'],      ['armenian',      'armenia'],
+  ['azerbaijan',    'azerbaijan'],   ['azerbaijani',   'azerbaijan'],
+  ['georgia',       'georgia'],
+  ['belarus',       'belarus'],      ['belarusian',    'belarus'],
+  ['moldova',       'moldova'],      ['moldovan',      'moldova'],
+  ['poland',        'poland'],       ['polish',        'poland'],
+  ['romania',       'romania'],      ['romanian',      'romania'],
+  ['finland',       'finland'],      ['finnish',       'finland'],
+  ['sweden',        'sweden'],       ['swedish',       'sweden'],
+  ['norway',        'norway'],       ['norwegian',     'norway'],
+  ['estonia',       'estonia'],      ['estonian',      'estonia'],
+  ['latvia',        'latvia'],       ['latvian',       'latvia'],
+  ['lithuania',     'lithuania'],    ['lithuanian',    'lithuania'],
+  ['greece',        'greece'],       ['greek',         'greece'],
+  ['cyprus',        'cyprus'],
+  ['qatar',         'qatar'],        ['qatari',        'qatar'],
+  ['kuwait',        'kuwait'],       ['kuwaiti',       'kuwait'],
+  ['bahrain',       'bahrain'],      ['oman',          'oman'],
+  ['emirati',       'united arab emirates'], ['uae',   'united arab emirates'],
+  ['ethiopia',      'ethiopia'],     ['ethiopian',     'ethiopia'],
+  ['eritrea',       'eritrea'],      ['eritrean',      'eritrea'],
+  ['nigeria',       'nigeria'],      ['nigerian',      'nigeria'],
+  ['algeria',       'algeria'],      ['algerian',      'algeria'],
+  ['morocco',       'morocco'],      ['moroccan',      'morocco'],
+  ['tunisia',       'tunisia'],      ['tunisian',      'tunisia'],
+  ['kenya',         'kenya'],        ['kenyan',        'kenya'],
+  ['mali',          'mali'],         ['malian',        'mali'],
+  ['niger',         'niger'],        ['chad',          'chad'],
+  ['venezuela',     'venezuela'],    ['venezuelan',    'venezuela'],
+  ['colombia',      'colombia'],     ['colombian',     'colombia'],
+  ['mexico',        'mexico'],       ['mexican',       'mexico'],
+  ['cuba',          'cuba'],         ['cuban',         'cuba'],
+  ['canada',        'canada'],       ['canadian',      'canada'],
+  ['australia',     'australia'],    ['australian',    'australia'],
+  ['indonesia',     'indonesia'],    ['indonesian',    'indonesia'],
+  ['malaysia',      'malaysia'],     ['malaysian',     'malaysia'],
+  ['thailand',      'thailand'],     ['thai',          'thailand'],
+  ['cambodia',      'cambodia'],     ['cambodian',     'cambodia'],
+  ['bangladesh',    'bangladesh'],   ['bangladeshi',   'bangladesh'],
+  ['sri lanka',     'sri lanka'],    ['nepal',         'nepal'],
+  ['kazakhstan',    'kazakhstan'],   ['kazakh',        'kazakhstan'],
+  ['uzbekistan',    'uzbekistan'],   ['uzbek',         'uzbekistan'],
+  ['tajikistan',    'tajikistan'],   ['kyrgyzstan',    'kyrgyzstan'],
+  ['mongolia',      'mongolia'],     ['mongolian',     'mongolia'],
+  ['italy',         'italy'],        ['italian',       'italy'],
+  ['spain',         'spain'],        ['portugal',      'portugal'],
+  ['netherlands',   'netherlands'],  ['dutch',         'netherlands'],
+  ['belgium',       'belgium'],      ['belgian',       'belgium'],
+  ['denmark',       'denmark'],      ['danish',        'denmark'],
+  ['serbia',        'serbia'],       ['serbian',       'serbia'],
+  ['kosovo',        'kosovo'],       ['hungary',       'hungary'],
+  ['hungarian',     'hungary'],      ['bulgaria',      'bulgaria'],
+  ['bulgarian',     'bulgaria'],     ['croatia',       'croatia'],
+  ['albania',       'albania'],      ['albanian',      'albania'],
+  ['slovakia',      'slovakia'],     ['czech republic','czech republic'],
+  ['czech',         'czech republic'], ['austria',     'austria'],
+  ['switzerland',   'switzerland'],  ['swiss',         'switzerland'],
+  ['ireland',       'ireland'],      ['irish',         'ireland'],
+  ['iceland',       'iceland'],      ['greenland',     'greenland'],
+  ['panama',        'panama'],       ['haiti',         'haiti'],
+  ['argentina',     'argentina'],    ['argentine',     'argentina'],
+  ['chile',         'chile'],        ['chilean',       'chile'],
+  ['peru',          'peru'],         ['peruvian',      'peru'],
+  ['ecuador',       'ecuador'],      ['bolivia',       'bolivia'],
+  ['guyana',        'guyana'],       ['south africa',  'south africa'],
+  ['angola',        'angola'],       ['mozambique',    'mozambique'],
+  ['uganda',        'uganda'],       ['tanzania',      'tanzania'],
+  ['rwanda',        'rwanda'],       ['burkina faso',  'burkina faso'],
+  ['senegal',       'senegal'],      ['cameroon',      'cameroon'],
+  ['djibouti',      'djibouti'],     ['south sudan',   'south sudan'],
+  ['new zealand',   'new zealand'],
 ]);
 
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Regex pays précompilées, triées multi-mots d'abord ("North Korea" avant "Korea")
+let _countryMatchers = null;
+function getCountryMatchers() {
+  if (!_countryMatchers) {
+    _countryMatchers = [...TITLE_COUNTRY_MAP.entries()]
+      .sort((a, b) => b[0].length - a[0].length)
+      .map(([name, canonical]) => ({ re: new RegExp(`\\b${escapeRe(name)}\\b`, 'i'), canonical }));
+  }
+  return _countryMatchers;
+}
+
 function detectCountryFromTitle(title) {
-  const t = title.toLowerCase();
-  // Multi-word entries first (e.g. "North Korea" before "Korea")
-  const sorted = [...TITLE_COUNTRY_MAP.entries()].sort((a, b) => b[0].length - a[0].length);
-  for (const [name, canonical] of sorted) {
-    const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-    if (re.test(t)) return canonical;
+  for (const { re, canonical } of getCountryMatchers()) {
+    if (re.test(title)) return canonical;
   }
   return null;
+}
+
+// Regex zones précompilées, plus longues d'abord ; bâtiments-acteurs exclus
+// (le Pentagone qui *parle* d'une frappe en Somalie n'est pas le lieu de la frappe)
+let _zoneMatchers = null;
+function getZoneMatchers() {
+  if (!_zoneMatchers) {
+    _zoneMatchers = [...STRATEGIC_ZONES.keys()]
+      .filter(name => !ACTOR_PLACES.has(name))
+      .sort((a, b) => b.length - a.length)
+      .map(name => ({ name, re: new RegExp(`\\b${escapeRe(name)}\\b`, 'i') }));
+  }
+  return _zoneMatchers;
+}
+
+// Modifieurs minuscules tolérés entre préposition/verbe et le nom propre
+const LOC_MODIFIERS = `(?:(?:the|a|an|its|his|her|their|southern|northern|eastern|western|central|occupied|rebel-held|war-torn|coastal|northwestern|northeastern|southwestern|southeastern)\\s+){0,2}`;
+const PROPER_NAME   = `([A-ZÀ-ÿ][a-zA-ZÀ-ÿ'’-]+(?:\\s+[A-ZÀ-ÿ][a-zA-ZÀ-ÿ'’-]+){0,3})`;
+
+// Contexte LOCATIF : le lieu capturé est celui de l'ÉVÉNEMENT.
+// C'est la seule source autorisée à interroger l'index villes et Nominatim.
+const LOCATIVE_PATTERNS = [
+  // "in Kharkiv", "near Odesa", "strike on Kharkiv", "into Poland"
+  new RegExp(`\\b(?:in|near|over|off|at|around|across|inside|outside|on|onto|into|toward|towards)\\s+${LOC_MODIFIERS}${PROPER_NAME}`, 'g'),
+  // Verbe → cible : "hits Moscow", "strikes Beirut", "captures Pokrovsk"
+  new RegExp(`\\b(?:hits?|struck|strikes?|attack(?:s|ed)?|bomb(?:s|ed)?|shell(?:s|ed)?|pound(?:s|ed)?|target(?:s|ed)?|captures?|captured|seizes?|seized|liberates?|liberated|enters?|entered|invades?|invaded|reaches?|reached)\\s+${LOC_MODIFIERS}${PROPER_NAME}`, 'g'),
+  // Prépositions FR : "en Syrie", "au Liban", "dans le Donbass", "sur Kharkiv"
+  new RegExp(`\\b(?:en|au|aux|dans\\s+le|dans\\s+la|depuis|vers|sur)\\s+${PROPER_NAME}`, 'g'),
+  // ES : "en el Líbano", "en la frontera"
+  new RegExp(`\\b(?:en\\s+el|en\\s+la)\\s+${PROPER_NAME}`, 'g'),
+];
+
+// Contexte SUJET/ACTEUR : "China launches…", "Israel's military…". L'acteur n'est
+// le lieu que s'il est un pays/zone — jamais résolu contre l'index villes,
+// pour éviter "SpaceX launches" → ville, "Austin says" → Texas.
+const SUBJECT_PATTERNS = [
+  new RegExp(`\\b${PROPER_NAME}\\s+(?:launches?|tests?|fires?|deploys?|strikes?|attacks?|warns?|conducts?|holds?|begins?|masses?)`, 'g'),
+  new RegExp(`\\b${PROPER_NAME}(?:'s|’s)?\\s+(?:military|navy|air\\s+force|army|defen[cs]e|missile|satellite|forces|troops)`, 'g'),
+  // Article FR : "le Liban", "la Syrie" — trop ambigu pour l'index villes
+  new RegExp(`\\b(?:le|la|les)\\s+${PROPER_NAME}`, 'g'),
+];
+
+function extractCandidates(title, patterns) {
+  const out = [];
+  for (const re of patterns) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(title)) !== null) {
+      const loc = m[1].replace(/['’]s$/i, '').trim();
+      if (loc.length >= 3 && !LOCATION_STOPWORDS.has(loc.toLowerCase())) {
+        out.push(loc);
+      }
+    }
+  }
+  return out;
+}
+
+// Résout un candidat en essayant des préfixes décroissants :
+// "Kharkiv Amid Fierce Fighting" → "Kharkiv" ; "South China Sea Dispute" → "South China Sea"
+function resolveCandidate(candidate) {
+  const words = candidate.split(/\s+/);
+  for (let n = Math.min(words.length, 4); n >= 1; n--) {
+    const sub = words.slice(0, n).join(' ');
+    if (LOCATION_STOPWORDS.has(sub.toLowerCase())) continue;
+    if (lookupKnown(sub)) return sub;
+  }
+  return null;
+}
+
+// Résolution restreinte aux pays + zones (candidats sujets)
+function matchZoneOrCountry(candidate) {
+  const words = candidate.toLowerCase().split(/\s+/);
+  for (let n = Math.min(words.length, 3); n >= 1; n--) {
+    const key = words.slice(0, n).join(' ');
+    if (LOCATION_STOPWORDS.has(key)) continue;
+    if (STRATEGIC_ZONES.has(key) || COUNTRY_COORDS.has(key)) return key;
+  }
+  return null;
+}
+
+// Filtre de sécurité avant l'envoi d'un candidat non validé à Nominatim
+function isSafeForGeocoding(candidate) {
+  const words = candidate.split(/\s+/);
+  if (candidate.length < 4 || words.length > 3) return false;
+  return words.every(w => !LOCATION_STOPWORDS.has(w.toLowerCase().replace(/[^\wà-ÿ'-]/gi, '')));
 }
 
 function detectLocationFromTitle(title) {
   const t = title;
 
-  // 1. Zones stratégiques multi-mots (priorité : "South China Sea" avant "China")
-  for (const [name] of STRATEGIC_ZONES) {
-    const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+  // 1. Zones stratégiques spécifiques (mers, détroits, bases, régions contestées)
+  for (const { name, re } of getZoneMatchers()) {
     if (re.test(t)) return name;
   }
 
-  // 2. Country detection from content (e.g. "China launches satellite" → "china")
+  // 2. Candidats LOCATIFS — le lieu réel de l'événement prime sur le pays de
+  //    l'acteur : "Russian missile strike on Kharkiv" → Kharkiv, pas Moscou
+  const locative = extractCandidates(t, LOCATIVE_PATTERNS);
+  for (const cand of locative) {
+    const resolved = resolveCandidate(cand);
+    if (resolved) return resolved;
+  }
+
+  // 3. Candidats SUJETS — pays/zones uniquement ("China launches satellite" → china)
+  const subject = extractCandidates(t, SUBJECT_PATTERNS);
+  for (const cand of subject) {
+    const key = matchZoneOrCountry(cand);
+    if (key) return key;
+  }
+
+  // 4. Mention de pays n'importe où, adjectifs inclus ("Russian", "Chinese")
   const country = detectCountryFromTitle(t);
   if (country && lookupKnown(country)) return country;
 
-  // 3. Patterns syntaxiques : extraire candidats lieux depuis le titre
-  const candidates = [];
-  const patterns = [
-    // English prepositions
-    /\b(?:in|from|near|over|off|at|around)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,3})/g,
-    /\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)\s+(?:launches?|tests?|fires?|deploys?|strikes?|attacks?)/g,
-    /\b([A-Z][a-zA-Z]+(?:'s)?)\s+(?:military|navy|air force|army|defense|missile|satellite)/g,
-    // French prepositions: "en Syrie", "au Liban", "aux Philippines", "dans le Donbass"
-    /\b(?:en|au|aux|dans\s+le|dans\s+la|depuis)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+(?:\s+[A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+)?)/g,
-    // Spanish prepositions: "en Siria", "en el Líbano"
-    /\b(?:en\s+el|en\s+la|en)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+(?:\s+[A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+)?)/g,
-    // "frappent le Liban", "touche le Yémen" — article + capitalized noun
-    /\b(?:le|la|les)\s+([A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+(?:\s+[A-ZÀ-ÿ][a-zA-ZÀ-ÿ-]+)?)/g,
-  ];
-  for (const re of patterns) {
-    let m;
-    while ((m = re.exec(t)) !== null) {
-      const loc = m[1].replace(/'s$/i, '').trim();
-      if (loc.length >= 3 && !LOCATION_STOPWORDS.has(loc.toLowerCase())) {
-        candidates.push(loc);
-      }
-    }
-  }
-
-  // 4. Valider chaque candidat contre l'index mondial
-  for (const loc of candidates) {
-    if (lookupKnown(loc)) return loc;
-  }
-
-  // 5. Retourner le premier candidat non validé (sera géocodé par Nominatim)
-  return candidates[0] || '';
+  // 5. Dernier recours : premier candidat locatif plausible — Nominatim le
+  //    validera (classe + importance). Jamais un candidat sujet.
+  return locative.find(isSafeForGeocoding) || '';
 }
 
 function computeConfidence(title, domain, feedDomain, location) {
@@ -670,14 +902,18 @@ function lookupKnown(location) {
   // 1. Zones stratégiques (mers, détroits, bases — priorité absolue)
   if (STRATEGIC_ZONES.has(key)) return STRATEGIC_ZONES.get(key);
 
-  // 2. Index mondial all-the-cities
+  // 2. Pays (avant l'index villes : "Lebanon" = le pays, pas Lebanon, Pennsylvanie)
+  if (COUNTRY_COORDS.has(key)) return COUNTRY_COORDS.get(key);
+
+  // 3. Index mondial all-the-cities
   const idx = getCityIndex();
   if (idx.has(key)) return idx.get(key);
 
-  // 3. Suppression des suffixes administratifs : "Sumy Region" → "Sumy"
+  // 4. Suppression des suffixes administratifs : "Sumy Region" → "Sumy"
   const stripped = key.replace(ADMIN_SUFFIXES, '').trim();
   if (stripped !== key) {
     if (STRATEGIC_ZONES.has(stripped)) return STRATEGIC_ZONES.get(stripped);
+    if (COUNTRY_COORDS.has(stripped)) return COUNTRY_COORDS.get(stripped);
     if (idx.has(stripped)) return idx.get(stripped);
   }
 
@@ -697,23 +933,45 @@ async function geocodeLocation(location) {
 
   // 3. Nominatim — dernier recours (zones inconnues, bases, régions exotiques)
   try {
-    const url = `${NOMINATIM_URL}?q=${encodeURIComponent(location)}&format=json&limit=1`;
+    const url = `${NOMINATIM_URL}?q=${encodeURIComponent(location)}&format=json&limit=3&accept-language=en`;
     const resp = await fetch(url, {
       headers: { 'User-Agent': 'OSINT-Monitor/1.0 (monitoring-cde)' },
       signal:  AbortSignal.timeout(8000),
     });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
-    if (data.length && data[0].lat && data[0].lon) {
-      const result = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+    const pick = Array.isArray(data) ? data.find(isTrustedGeocodeResult) : null;
+    if (pick) {
+      const result = { lat: parseFloat(pick.lat), lon: parseFloat(pick.lon) };
       geocodeCache.set(key, result);
       return result;
+    }
+    if (Array.isArray(data) && data.length) {
+      console.log(`[google-news] geocode "${location}" rejected (${data[0].class}/${data[0].type}, importance=${data[0].importance})`);
     }
   } catch (err) {
     console.warn(`[google-news] geocode "${location}" failed:`, err.message);
   }
   geocodeCache.set(key, null);
   return null;
+}
+
+// N'accepte que des résultats géographiques crédibles : sans ce filtre, Nominatim
+// "trouve" un village obscur pour presque n'importe quelle chaîne (nom de société,
+// personne, fragment de titre) et l'article atterrit au mauvais endroit.
+function isTrustedGeocodeResult(r) {
+  if (!r || !r.lat || !r.lon) return false;
+  const cls  = String(r.class || '');
+  const type = String(r.type || '');
+  // Bases militaires / installations aériennes : noms spécifiques, toujours fiables
+  if (cls === 'military' || cls === 'aeroway') return true;
+  if (!['place', 'boundary', 'natural', 'water'].includes(cls)) return false;
+  const importance = Number(r.importance || 0);
+  // Entités administratives majeures : seuil bas ; le reste doit être notable
+  if (['country', 'state', 'region', 'administrative', 'city', 'sea', 'ocean'].includes(type)) {
+    return importance >= 0.25;
+  }
+  return importance >= 0.35;
 }
 
 function sleep(ms) {
@@ -1001,8 +1259,11 @@ async function fetchGoogleNewsEvents() {
         for (const r of aiResults) {
           const idx = doubtIndices[r.index ?? 0];
           if (idx === undefined) continue;
-          if (r.location && !classified[idx].location) {
+          // L'IA écrase le hintLocation du flux : c'est précisément pour corriger
+          // les articles hors du pays du flux qu'ils lui ont été soumis.
+          if (r.location && (!classified[idx].location || classified[idx].hasHintOnly)) {
             classified[idx].location = r.location;
+            classified[idx].hasHintOnly = false;
           }
           if (typeof r.confidence === 'number') {
             // Moyenne entre regex et IA
@@ -1140,4 +1401,7 @@ module.exports = {
   getNewsEventsForMap,
   RSS_FEEDS,
   DOMAIN_CONFIG,
+  // exposés pour les tests
+  detectLocationFromTitle,
+  lookupKnown,
 };
