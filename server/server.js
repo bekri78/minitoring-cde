@@ -816,6 +816,7 @@ app.get('/diag/ais', async (req, res) => {
 app.get('/health', (req, res) => {
   res.json({
     ok:         cache.status === 'ok',
+    version:    process.env.RAILWAY_GIT_COMMIT_SHA || null,
     status:     cache.status,
     events:     cache.events.length,
     lastUpdate: cache.lastUpdate,

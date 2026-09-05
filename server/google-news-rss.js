@@ -20,12 +20,13 @@ const path = require('path');
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const OpenAI = require('openai');
+const { createDeepSeekClient } = require('./ai-cost-control');
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
 const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'none')).toLowerCase();
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-v4-flash' : 'gpt-4o');
 const openaiClient     = LLM_PROVIDER === 'deepseek'
-  ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com/v1' })
+  ? createDeepSeekClient(OpenAI, DEEPSEEK_API_KEY, 'rss')
   : LLM_PROVIDER === 'openai'
   ? new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: 'https://api.openai.com/v1' })
   : null;

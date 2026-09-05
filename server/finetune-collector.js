@@ -1,4 +1,5 @@
 'use strict';
+const { logUsage } = require('./ai-cost-control');
 
 /**
  * finetune-collector.js
@@ -289,6 +290,8 @@ async function deduplicateCandidatesWithAI(candidates) {
         headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: DEEPSEEK_DEDUP_MODEL,
+          thinking: { type: 'disabled' },
+          max_tokens: 4000,
           messages: [
             { role: 'system', content: 'You are an OSINT news deduplication expert.\nGiven pairs of headlines, decide if each pair covers the SAME real-world event.\nSame event = same incident/operation/announcement, even if worded differently or from different sources.\nDifferent event = different incident, different day, different location, or only thematically similar.\nReturn ONLY a JSON object: {"pairs":[{"pair":0,"same":true},{"pair":1,"same":false},...]}' },
             { role: 'user', content: prompt },
@@ -300,6 +303,8 @@ async function deduplicateCandidatesWithAI(candidates) {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      logUsage('finetune-dedup', data);
+      if (data.choices?.[0]?.finish_reason === 'length') throw new Error('AI output truncated');
       const text = data.choices?.[0]?.message?.content || '';
       const parsed = JSON.parse(text);
       const results = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.pairs) ? parsed.pairs : []);

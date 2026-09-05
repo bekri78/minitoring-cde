@@ -1,6 +1,7 @@
 'use strict';
 
 const OpenAI = require('openai');
+const { createDeepSeekClient, persistentCache, cacheKey } = require('./ai-cost-control');
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
@@ -14,7 +15,7 @@ const AI_FILTER_BATCH          = Number(process.env.AI_FILTER_BATCH || 50);
 const AI_FILTER_LIMIT          = Number(process.env.AI_FILTER_LIMIT || 1500);
 const AI_FILTER_DELAY          = Number(process.env.AI_FILTER_DELAY || 1200);
 const AI_FILTER_TIMEOUT_MS     = Number(process.env.AI_FILTER_TIMEOUT_MS || 60000);
-const AI_FILTER_MAX_RETRIES    = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 4));
+const AI_FILTER_MAX_RETRIES    = Math.max(1, Number(process.env.AI_FILTER_MAX_RETRIES || 2));
 const AI_FILTER_RETRY_DELAY_MS = Number(process.env.AI_FILTER_RETRY_DELAY_MS || 20000);
 
 const openaiClient = OPENAI_API_KEY
@@ -22,7 +23,7 @@ const openaiClient = OPENAI_API_KEY
   : null;
 
 const deepseekClient = DEEPSEEK_API_KEY
-  ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com/v1' })
+  ? createDeepSeekClient(OpenAI, DEEPSEEK_API_KEY, 'filter-translation')
   : null;
 
 // Startup diagnostics
@@ -32,15 +33,9 @@ console.log('[normalizer] OPENAI_API_KEY set:  ', !!OPENAI_API_KEY);
 
 // ── Cache inter-refresh (clé = event.id) ─────────────────────────────────────
 // filterCache: id → { keep, fr, en, notes, category, countryCode } | null (discard)
-const filterCache = new Map();
-const CACHE_MAX_SIZE = 5000;
-
-function pruneCache(cache, currentIds) {
-  if (cache.size <= CACHE_MAX_SIZE) return;
-  for (const key of cache.keys()) {
-    if (!currentIds.has(key)) cache.delete(key);
-  }
-}
+const filterCache = persistentCache('ai-filter-v2');
+const translationCache = persistentCache('ai-translation-v2');
+const pendingTranslations = new Map();
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const VALID_CATEGORIES = new Set([
@@ -63,7 +58,7 @@ function parseChatTextContent(content) {
 }
 
 function getRetryableStatus(status) {
-  return status === 429 || status === 503;
+  return status === 429 || status >= 500;
 }
 
 function isRetryableNetworkError(err) {
@@ -212,7 +207,7 @@ async function requestJsonArrayFromDeepSeek(messages) {
   } catch (e) {
     const status = e?.status || e?.response?.status || 500;
     const err = new Error(`DeepSeek HTTP_${status} ${(e?.message || '').slice(0, 180)}`);
-    err.status = status >= 500 ? 502 : 503;
+    err.status = status;
     throw err;
   }
   const text = parseChatTextContent(completion.choices?.[0]?.message?.content);
@@ -243,6 +238,7 @@ async function translateTitleSingle(event) {
   try {
     completion = await client.chat.completions.create({
       model,
+      max_tokens: 500,
       messages: [
         { role: 'system', content: 'Translate OSINT/geopolitical article titles into concise French. Return JSON only.' },
         {
@@ -262,13 +258,14 @@ async function translateTitleSingle(event) {
   } catch (e) {
     const status = e?.status || e?.response?.status || 500;
     const err = new Error(`${deepseekClient ? 'DeepSeek' : 'OpenAI'} HTTP_${status} ${(e?.message || '').slice(0, 180)}`);
-    err.status = status >= 500 ? 502 : 503;
+    err.status = status;
     throw err;
   }
   const text = completion.choices?.[0]?.message?.content || '';
   const result = extractJsonObject(text) || {};
   const output = result.output && typeof result.output === 'object' ? result.output : {};
   const fr = result.fr || result.title_fr || result.french || result.translation || output.fr || output.french || output.translation;
+  if (!fr) throw new Error('AI translation missing French title');
   const en = result.en || result.headline || result.english || output.en || output.headline;
   const notes = result.notes || result.summary || output.notes || output.summary;
   const language = result.language || result.detected_language || output.language;
@@ -293,9 +290,6 @@ async function filterEventsWithAI(events) {
     console.log('[ai-filter] skipped: no API key available');
     return events;
   }
-
-  const allIds = new Set(events.map(e => String(e.id)));
-  pruneCache(filterCache, allIds);
 
   // Séparer events déjà cachés vs nouveaux
   const enrichedById = new Map();
@@ -392,15 +386,16 @@ async function filterEventsWithAI(events) {
           await sleep(retryDelay);
           continue;
         }
-        if (attempt === AI_FILTER_MAX_RETRIES) {
+        if (attempt === AI_FILTER_MAX_RETRIES || !getRetryableStatus(err?.status)) {
           console.warn(`[ai-filter] batch ${batchNum} failed (fail-open):`, err.message);
         }
+        break;
       }
     }
 
     // fail-open : événements non classés gardés tels quels
     if (!success) {
-      for (const e of batch) filterCache.set(String(e.id), { fr: null, en: null, notes: null, category: null, countryCode: null });
+      // Failed requests must not enter the persistent success cache.
       aiProcessed += batch.length;
     }
     if (i + AI_FILTER_BATCH < candidates.length) await sleep(AI_FILTER_DELAY);
@@ -413,4 +408,17 @@ async function filterEventsWithAI(events) {
   return filtered;
 }
 
-module.exports = { normalizeTitleWithGemini: translateTitleSingle, filterEventsWithAI };
+async function cachedTranslateTitle(event) {
+  const key = cacheKey([event?.title, event?.domain || '', event?.country || '', event?.category || 'incident']);
+  if (translationCache.has(key)) return { ...translationCache.get(key), id: event.id };
+  if (!pendingTranslations.has(key)) {
+    const pending = translateTitleSingle(event).then(result => {
+      translationCache.set(key, result);
+      return result;
+    }).finally(() => pendingTranslations.delete(key));
+    pendingTranslations.set(key, pending);
+  }
+  return { ...await pendingTranslations.get(key), id: event.id };
+}
+
+module.exports = { normalizeTitleWithGemini: cachedTranslateTitle, filterEventsWithAI };

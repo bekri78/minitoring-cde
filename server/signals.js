@@ -17,11 +17,12 @@ const CACHE_DIR   = process.env.CACHE_DIR || '/data';
 const DISK_PATH   = path.join(CACHE_DIR, 'signals-cache.json');
 
 const OpenAI = require('openai');
+const { createDeepSeekClient } = require('./ai-cost-control');
 
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
 const DEEPSEEK_MODEL   = 'deepseek-v4-flash';
 const deepseekClient   = DEEPSEEK_API_KEY
-  ? new OpenAI({ apiKey: DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com/v1' })
+  ? createDeepSeekClient(OpenAI, DEEPSEEK_API_KEY, 'signals')
   : null;
 
 const CACHE_TTL_MS    = 4 * 60 * 60 * 1000; // 4h
@@ -266,7 +267,7 @@ async function buildSignals(events) {
 
 // ── Refresh du cache ───────────────────────────────────────────────────────
 async function refreshSignals(events) {
-  if (isRunning) return;
+  if (isRunning || !isStale()) return;
   isRunning = true;
   try {
     const signals = await buildSignals(events);
