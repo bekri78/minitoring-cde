@@ -28,6 +28,7 @@ const { fetchTodayEvents: fetchTodayEventsFromFiles, isCameoFallbackTitle, purge
 const { enrichEvents }                                                       = require('./enrich');
 const { createSnapshotHandler }                                              = require('./sharepoint-snapshot');
 const { computeRuptures, loadBaselineCounts, computeConvergences }           = require('./insights');
+const { collectLeads, createArchiveHandler }                                 = require('./archive');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -700,6 +701,13 @@ publicRouter.get('/insights', (_req, res) => {
   }
 });
 
+// Archive quotidienne enrichie des chapeaux d'articles (analyste OGMA)
+publicRouter.get('/sharepoint/archive', createArchiveHandler({
+  cacheDir:    CACHE_DIR,
+  todayEvents: () => cache.events || [],
+  news:        () => getNewsEventsForMap(),
+}));
+
 app.use('/api/public', publicRouter);
 
 // ── Proxy image (base64) ──────────────────────────────────────────────────────
@@ -971,6 +979,12 @@ cron.schedule('0 3,9,15,21 * * *', () => {
 });
 
 // ── Cron 15min — Séismes USGS ─────────────────────────────────────────────────
+// Chapeaux d'articles : 120 au plus toutes les 10 min, jamais deux fois le même
+cron.schedule('3,13,23,33,43,53 * * * *', () => {
+  collectLeads({ cacheDir: CACHE_DIR, todayEvents: cache.events || [], news: getNewsEventsForMap() })
+    .catch(err => console.error('[archive-cron]', err.message));
+});
+
 cron.schedule('*/15 * * * *', () => {
   fetchQuakes().catch(err => console.error('[earthquakes-cron]', err.message));
 });

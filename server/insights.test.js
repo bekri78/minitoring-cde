@@ -88,3 +88,19 @@ test('ruptures : total pays gardé quand la hausse est répartie entre catégori
   const r = computeRuptures(today, baseline);
   assert.ok(r.some(x => x.id === 'rupture-IR-all'));
 });
+
+test('convergences : moyens militaires sur leur territoire national ignorés', () => {
+  const { isAtHome } = require('./insights');
+  assert.ok(isAtHome({ country: 'USA', lat: 36.9, lon: -76.3 }));          // Norfolk
+  assert.ok(isAtHome({ country: 'United Kingdom', lat: 50.8, lon: -1.1 })); // Portsmouth
+  assert.ok(!isAtHome({ country: 'USA', lat: 35.3, lon: 35.9 }));          // au large de la Syrie
+  assert.ok(!isAtHome({ country: 'XXX', lat: 0, lon: 10 }));
+  const mk = (country, lat, lon) => ({
+    tracks: [{ id: 't1', domain: 'air', milTier: 'confirmed_military', country, lat, lon },
+             { id: 't2', domain: 'sea', milTier: 'confirmed_military', country, lat: lat + 0.2, lon: lon + 0.2 }],
+    events: [{ id: 'e1', category: 'military', lat: lat + 0.1, lon: lon + 0.1, country: 'X' }],
+    news: [{ id: 'n1', title: 'n', lat: lat + 0.3, lon: lon + 0.1 }],
+  });
+  assert.strictEqual(computeConvergences(mk('USA', 36.9, -76.3)).length, 0, 'Norfolk : pas une alerte');
+  assert.strictEqual(computeConvergences(mk('USA', 35.3, 35.9)).length, 1, 'Méditerranée orientale : alerte');
+});
