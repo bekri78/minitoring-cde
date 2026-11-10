@@ -153,6 +153,7 @@ function theatreContains(lat, lon) {
     // ── Liste déroulante ────────────────────────────────────────────
     const PIN = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6"/></svg>';
     const DOT = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>';
+    const SPARK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>';
     const AREA = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="12" height="12" stroke-dasharray="2 2"/></svg>';
 
     function render(q, list, note) {
@@ -160,6 +161,14 @@ function theatreContains(lat, lon) {
         items = list; active = list.length ? 0 : -1;
         let html = '', lastGroup = '';
         list.forEach(function (it, i) {
+            if (it.source === 'ai') {
+                html += '<div class="ogma-search-item ogma-search-ai' + (i === active ? ' active' : '') + '" data-i="' + i + '">'
+                    + '<span class="ogma-search-ico ogma-search-orb">' + SPARK + '</span>'
+                    + '<span class="ogma-search-txt"><span>Demander à OGMA</span><small>« ' + esc(it.label) + ' »</small></span>'
+                    + '<span class="ogma-search-kbd">' + (i === 0 ? 'Entrée' : '') + '</span></div>';
+                lastGroup = 'ai';
+                return;
+            }
             const group = it.source === 'zone' ? 'ZONES PRÉDÉFINIES' : it.source === 'ogma' ? 'DANS LES DONNÉES OGMA' : 'GÉOCODEUR';
             if (group !== lastGroup) { html += '<div class="ogma-search-group">' + group + '</div>'; lastGroup = group; }
             html += '<div class="ogma-search-item' + (i === active ? ' active' : '') + '" data-i="' + i + '">'
@@ -197,6 +206,12 @@ function theatreContains(lat, lon) {
         });
     }
 
+    function withAi(q, list) {
+        if (!window.OgmaAgent || q.length < 3) return list;
+        const ai = { source: 'ai', label: q };
+        return OgmaAgent.looksLikeQuestion(q) || !list.length ? [ai].concat(list) : list.concat([ai]);
+    }
+
     function presets() {
         return OGMA_ZONES.map(function (z) { return { source: 'zone', label: z.label, bounds: z.bounds }; });
     }
@@ -209,13 +224,13 @@ function theatreContains(lat, lon) {
         if (q.length < 2) { render('', presets(), null); return; }
         const zones = presets().filter(function (z) { return norm(z.label).indexOf(norm(q)) >= 0; });
         const local = zones.concat(searchLocal(q));
-        if (!geocodeUrl() || q.length < 3) { render(q, local, null); return; }
-        loading(q, local);
+        if (!geocodeUrl() || q.length < 3 || (window.OgmaAgent && OgmaAgent.looksLikeQuestion(q))) { render(q, withAi(q, local), null); return; }
+        loading(q, withAi(q, local));
         const my = ++seq;
         timer = setTimeout(function () {
             suggestGeocoder(q).then(function (res) {
                 if (my !== seq) return;
-                render(q, local.concat(res.list), res.error);
+                render(q, withAi(q, local.concat(res.list)), res.error);
             });
         }, 300);
     }
@@ -227,6 +242,12 @@ function theatreContains(lat, lon) {
         const input = $('ogma-search-input');
         input.value = it.label;
         input.blur();
+        if (it.source === 'ai') {
+            $('ogma-search-clear').style.display = 'flex';
+            OgmaAgent.ask(it.label);
+            return;
+        }
+        if (window.OgmaAgent) OgmaAgent.close();
         if (it.source === 'geo') {
             input.classList.add('ogma-search-busy');
             resolveGeocoder(it)
@@ -311,12 +332,25 @@ function theatreContains(lat, lon) {
             else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
             else if (e.key === 'Escape') { close(); input.blur(); }
         }, true);
-        const form = input.closest('form');
+        const form = input.closest('form');   // formulaire de la page SharePoint
         if (form) form.addEventListener('submit', function (e) { if (document.activeElement === input) e.preventDefault(); });
         input.addEventListener('input', onInput);
-        input.addEventListener('focus', function () { input.select(); onInput(); });
+        input.addEventListener('focus', function () {
+            if (document.body.classList.contains('og-answer-open')) return;   // la réponse reste lisible
+            input.select(); onInput();
+        });
         input.addEventListener('blur', function () { setTimeout(close, 150); });
-        $('ogma-search-clear').addEventListener('mousedown', function (e) { e.preventDefault(); clearZone(); });
+        $('ogma-search-clear').addEventListener('mousedown', function (e) {
+            e.preventDefault();
+            // Réponse ouverte : la croix ferme la réponse et garde la zone
+            if (document.body.classList.contains('og-answer-open')) {
+                OgmaAgent.close();
+                input.value = _zone ? _zone.label : '';
+                $('ogma-search-clear').style.display = _zone ? 'flex' : 'none';
+                return;
+            }
+            clearZone();
+        });
 
         if (_zone) {
             input.value = _zone.label;

@@ -1,6 +1,7 @@
 ﻿// ══════════════════════════════════════════════════════════════
 //  ogma-ui.js — Interface : barre de calques, barre de droite
-//  (état, « À surveiller », fiches) et assistant flottant.
+//  (état, « À surveiller », fiches). L'assistant est dans la barre de
+//  recherche (ogma-agent.js).
 //  Les données viennent des couches (ruptures, convergences, zones
 //  de tension) ; ce fichier ne fait que les présenter.
 // ══════════════════════════════════════════════════════════════
@@ -247,44 +248,19 @@
             + '<div class="og-d-types">' + types + '</div></div>');
     };
 
-    // ── Assistant flottant (branché à l'étape suivante) ──────
-    function setAi(open) {
-        document.body.classList.toggle('og-ai-open', open);
-        const ask = $('og-ask');
-        if (ask) ask.setAttribute('aria-expanded', open ? 'true' : 'false');
-        if (open) {
-            const snap = APP.Sync && APP.Sync.current;
-            const when = $('og-ai-when');
-            if (when && snap && snap.generatedAt) {
-                const d = new Date(snap.generatedAt);
-                when.textContent = 'snapshot ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-            }
-            const input = $('og-ai-input');
-            setTimeout(function () { (input && !input.disabled ? input : $('og-ai-close')).focus(); }, 30);
-        } else if (ask) {
-            ask.focus();
-        }
-    }
-
-    function initAi() {
-        const ask = $('og-ask');
-        if (!ask) return;
-        ask.addEventListener('click', function () { setAi(true); });
-        $('og-ai-close').addEventListener('click', function () { setAi(false); });
-        $('og-ai-wide').addEventListener('click', function () {
-            const wide = document.body.classList.toggle('og-ai-wide');
-            $('og-ai-wide').setAttribute('aria-pressed', wide ? 'true' : 'false');
-        });
-        const form = $('og-ai-form');
-        if (form) form.addEventListener('submit', function (e) { e.preventDefault(); });
+    // ── Touche « / » : la barre de recherche (lieu ou question) ──
+    function initShortcut() {
         document.addEventListener('keydown', function (e) {
             const t = e.target;
             const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
             if (e.key === '/' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                const input = $('ogma-search-input');
+                if (!input) return;
                 e.preventDefault();
-                setAi(true);
-            } else if (e.key === 'Escape' && document.body.classList.contains('og-ai-open') && (!typing || t.id === 'og-ai-input')) {
-                setAi(false);
+                input.focus();
+                input.select();
+            } else if (e.key === 'Escape' && !typing && document.body.classList.contains('og-answer-open') && window.OgmaAgent) {
+                OgmaAgent.close();
             }
         });
     }
@@ -301,7 +277,7 @@
         initPanel();
         initState();
         initWatch();
-        initAi();
+        initShortcut();
         const back = $('og-back');
         if (back) back.addEventListener('click', closeDetail);
         const about = $('og-about');
@@ -309,7 +285,7 @@
         renderAlerts();
     }
 
-    APP.UI = { afterRender: afterRender, renderAlerts: renderAlerts, showDetail: showDetail, closeDetail: closeDetail, setPanel: setPanel, setAi: setAi };
+    APP.UI = { afterRender: afterRender, renderAlerts: renderAlerts, showDetail: showDetail, closeDetail: closeDetail, setPanel: setPanel };
     document.addEventListener('DOMContentLoaded', init);
     console.log('✓ ogma-ui.js chargé');
 })();
