@@ -605,6 +605,15 @@ function buildRecentFileList(lastupdateText, windows = RECENT_WINDOWS) {
   return lines.join('\n');
 }
 
+// Le CDN GDELT annonce parfois un lot avant que tous ses fichiers soient servis
+// (404 temporaires). Un lot récent en échec est retenté au cycle suivant au lieu
+// d'être sauté ; au-delà de BATCH_RETRY_HOURS, il est considéré perdu et ignoré.
+const BATCH_RETRY_HOURS = Number(process.env.GDELT_BATCH_RETRY_HOURS || 2);
+
+function isRecentBatch(ts) {
+  return Date.now() - tsToDate(ts).getTime() < BATCH_RETRY_HOURS * 3600 * 1000;
+}
+
 async function fetchText(url, label) {
   const resp = await fetch(url, {
     signal: AbortSignal.timeout(20000),
@@ -1687,7 +1696,12 @@ async function fetchTodayEvents(options = {}) {
       snapshot = mergeSnapshot(snapshot, fresh);
       state.lastBatchTs = batch.ts;
     } catch (err) {
+      if (isRecentBatch(batch.ts)) {
+        console.warn(`[gdelt-files] English batch ${batch.ts} not ready, retry next run:`, err.message);
+        break;
+      }
       console.warn(`[gdelt-files] English batch ${batch.ts} failed (skipping):`, err.message);
+      state.lastBatchTs = batch.ts;
     }
   }
 
@@ -1699,7 +1713,12 @@ async function fetchTodayEvents(options = {}) {
       snapshot = mergeSnapshot(snapshot, fresh);
       state.lastBatchTsTranslation = batch.ts;
     } catch (err) {
-      console.warn(`[gdelt-files] translation batch ${batch.ts} failed:`, err.message);
+      if (isRecentBatch(batch.ts)) {
+        console.warn(`[gdelt-files] translation batch ${batch.ts} not ready, retry next run:`, err.message);
+        break;
+      }
+      console.warn(`[gdelt-files] translation batch ${batch.ts} failed (skipping):`, err.message);
+      state.lastBatchTsTranslation = batch.ts;
     }
   }
 
@@ -1737,4 +1756,4 @@ function purgeSnapshot(cacheDir) {
   }
 }
 
-module.exports = { fetchTodayEvents, isCameoFallbackTitle, purgeSnapshot, buildRecentFileList, groupEntries };
+module.exports = { fetchTodayEvents, isCameoFallbackTitle, purgeSnapshot, buildRecentFileList, groupEntries, isRecentBatch };
