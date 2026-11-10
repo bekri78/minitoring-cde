@@ -1,0 +1,19 @@
+﻿*, ::after, ::before { box-sizing: border-box; }
+
+/* ── SharePoint : masquer le chrome inutile ─────────── */
+.ms-core-pageTitle,
+.ms-core-pageTitle a          { text-decoration: none !important; display: none !important; }
+#s4-ribbonrow,
+#s4-titlerow,
+#s4-statusbarcontainer,
+#sideNavBox,
+#suiteBarTop,
+.ms-quicklaunchMain,
+.ms-globalbreadcrumb              { display: none !important; }
+#s4-workspace, #contentRow, #contentBox                      { overflow-y: scroll !important; margin: 0 !important; padding: 0 !important; border: none !important; }
+#s4-bodyContainer, body,
+.ms-dialogBody                     { background: #0b0b0f !important; padding: 0 !important; margin: 0 !important; }
+.ms-rte-layoutszone-inner{ 
+    margin: 0 !important; padding:  0 !important; border: 0px !important;
+}
+.leaflet-control-attribution { display: none !important; }

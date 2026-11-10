@@ -1,3 +1,6 @@
 .claude/
 node_modules/
 *.env
+
+# Vitrine : données générées par la GitHub Action
+vitrine/data/

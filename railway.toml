@@ -1,4 +1,6 @@
 [build]
+# Ne redéployer le serveur que si son code change (pas pour la vitrine)
+watchPatterns = ["server/**", "package.json", "package-lock.json", "railway.toml"]
 builder = "NIXPACKS"
 buildCommand = "npm install --omit=dev && npm install --prefix server --omit=dev"
 

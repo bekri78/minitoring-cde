@@ -1,0 +1,11 @@
+/* Vitrine publique : pas de traduction IA dans les popups */
+button[onclick*="Translate"] { display: none !important; }
+
+/* Attribution du fond de carte, discrète et lisible sur fond sombre */
+.leaflet-control-attribution {
+    background: rgba(10, 15, 22, 0.7) !important;
+    color: #4a6a7a !important;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+}
+.leaflet-control-attribution a { color: #4a8aaa !important; }

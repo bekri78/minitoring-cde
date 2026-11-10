@@ -1,0 +1,168 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+
+  <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OGMA</title>
+  <meta name="description" content="OGMA — veille géopolitique en sources ouvertes">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="vitrine.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'"/>
+  <style>
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.35; transform: scale(0.75); }
+    }
+    body { margin: 0; padding: 0; overflow: hidden; }
+    #app-header { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; }
+    #maCarte { position: fixed; top: 44px; left: 0; right: 0; bottom: 0; }
+    .hdr-btn {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 10px;
+      background: transparent;
+      border: 1px solid #1a2a3a;
+      color: #4a6a7a;
+      padding: 4px 10px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    .hdr-btn.active {
+      background: rgba(0,212,255,0.08);
+      border-color: #00d4ff;
+      color: #00d4ff;
+    }
+    .hdr-btn-sm {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      background: transparent;
+      border: 1px solid #1a2a3a;
+      color: #4a6a7a;
+      padding: 4px 12px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    .hdr-btn-sm:hover { border-color: #00d4ff; color: #00d4ff; }
+    .leaflet-popup-content-wrapper {
+      background: #0a0f16;
+      color: #c8d8e8;
+      border: 1px solid #1a2a3a;
+      border-radius: 4px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.7);
+    }
+    .leaflet-popup-tip { background: #0a0f16; }
+    .leaflet-popup-content { margin: 12px 14px; }
+    .leaflet-popup-close-button { color: #4a6a7a !important; font-size: 16px !important; }
+    .leaflet-popup-close-button:hover { color: #00d4ff !important; }
+    /* Fond de carte noir */
+ 
+  </style>
+</head>
+
+<body>
+  <header id="app-header" style="background:#0a0f16;border-bottom:1px solid #1a2a3a;display:flex;align-items:center;padding:0 20px;gap:24px;height:44px;">
+    <div style="font-family:'Share Tech Mono',monospace;font-size:15px;color:#00d4ff;letter-spacing:4px;white-space:nowrap;">
+        OGMA
+    </div>
+    
+    <div style="display:flex;align-items:center;gap:7px;font-family:'Share Tech Mono',monospace;font-size:11px;">
+      <span style="color:#4a6a7a;">EVENTS</span>
+      <span id="hdr-events" style="color:#00d4ff;">0</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:7px;font-family:'Share Tech Mono',monospace;font-size:11px;">
+      <span style="color:#4a6a7a;">DERNIÈRE MAJ</span>
+      <span id="hdr-lastupdate" style="color:#4a6a7a;font-size:10px;">--/-- --:--</span>
+    </div>
+    <select id="theatre-select" title="Théâtre : recadre la carte et filtre les panneaux" style="font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px;background:#0a0f16;color:#00d4ff;border:1px solid #1a2a3a;padding:3px 6px;cursor:pointer;"></select>
+    <div style="display:flex;gap:4px;padding:0 8px;border-left:1px solid #1a2a3a;border-right:1px solid #1a2a3a;">
+     <button type="button" class="hdr-btn active" id="btn-ALL"   onclick="setFilter('ALL')">◉ ALL</button>
+      <button type="button" class="hdr-btn"        id="btn-OSINT" onclick="setFilter('OSINT')">🌐 OSINT</button>
+      <button type="button" class="hdr-btn"        id="btn-AIR"   onclick="setFilter('AIR')">✈ AIR</button>
+      <button type="button" class="hdr-btn"        id="btn-SEA"   onclick="setFilter('SEA')">⚓ SEA</button>
+      <button type="button" class="hdr-btn"        id="btn-SPACE" onclick="setFilter('SPACE')">🚀 SPACE</button>
+    </div>
+   
+    <div style="margin-left:auto;display:flex;gap:8px;">
+      <button type="button" class="hdr-btn-sm" onclick="document.getElementById('about-modal').style.display='flex'" style="border-color:#00d4ff55;color:#00d4ff;display:flex;align-items:center;gap:6px;"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16">
+        <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2"/>
+      </svg> À PROPOS</button>
+    </div>
+  </header>
+<!-- Modal SITREP -->
+<div id="sitrep-modal" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.82);align-items:center;justify-content:center;">
+    <div style="background:#0a0f16;border:1px solid #2a1a0a;border-radius:6px;max-width:700px;width:92%;max-height:85vh;display:flex;flex-direction:column;font-family:'Share Tech Mono',monospace;position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.9);">
+      <div style="padding:20px 24px 14px;border-bottom:1px solid #2a1a0a;flex-shrink:0;">
+        <button type="button" onclick="closeSitrep()" style="position:absolute;top:12px;right:16px;background:transparent;border:none;color:#4a6a7a;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
+        <div style="color:#ff8800;font-size:14px;letter-spacing:4px;margin-bottom:8px;">⚡ POINT DE SITUATION</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span id="sitrep-datetime" style="color:#4a6a7a;font-size:9px;letter-spacing:1px;">--</span>
+          <span style="color:#1a2a3a;">|</span>
+          <span id="sitrep-stats" style="font-size:9px;"></span>
+        </div>
+      </div>
+      <div style="padding:20px 24px;overflow-y:auto;flex:1;">
+        <div id="sitrep-report" style="color:#c8d8e8;font-size:11px;line-height:1.9;"></div>
+      </div>
+      <div style="padding:12px 24px;border-top:1px solid #2a1a0a;display:flex;justify-content:flex-end;flex-shrink:0;">
+        <button type="button" onclick="closeSitrep()" style="font-family:'Share Tech Mono',monospace;font-size:10px;padding:6px 20px;background:rgba(255,136,0,0.08);color:#ff8800;border:1px solid #ff880055;cursor:pointer;letter-spacing:1px;">FERMER</button>
+      </div>
+    </div>
+  </div>
+  <!-- Modal À propos -->
+  <div id="about-modal" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.75);align-items:center;justify-content:center;">
+    <div style="background:#0a0f16;border:1px solid #1a2a3a;border-radius:6px;max-width:560px;width:90%;padding:32px;font-family:'Share Tech Mono',monospace;position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.8);">
+      <!-- Fermeture -->
+      <button type="button" onclick="document.getElementById('about-modal').style.display='none'" style="position:absolute;top:12px;right:16px;background:transparent;border:none;color:#4a6a7a;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
+
+      <!-- Titre -->
+      <div style="color:#00d4ff;font-size:18px;letter-spacing:4px;margin-bottom:4px;">OGMA</div>
+      <div style="color:#4a6a7a;font-size:9px;letter-spacing:2px;margin-bottom:24px;border-bottom:1px solid #1a2a3a;padding-bottom:16px;">Outil de Gestion des Menaces et d’Anticipation</div>
+
+      <!-- Description -->
+      <p style="color:#c8d8e8;font-size:11px;line-height:1.7;margin:0 0 16px 0;">
+        <strong style="color:#00d4ff;">OGMA</strong> est un outil de veille géopolitique en sources ouvertes : il fusionne en continu des données publiques pour repérer les situations inhabituelles et les points où plusieurs signaux se croisent.
+      </p>
+      <div style="color:#4a6a7a;font-size:9px;letter-spacing:1px;margin-bottom:8px;">SOURCES OUVERTES</div>
+      <ul style="color:#c8d8e8;font-size:10px;line-height:1.8;margin:0 0 16px 0;padding-left:20px;">
+        <li>Presse mondiale (GDELT) et actualités (Google Actualités)</li>
+        <li>Trafic aérien et maritime militaire (ADS-B / AIS), anomalies maritimes (Global Fishing Watch)</li>
+        <li>Activité spatiale (Space-Track, The Space Devs), séismes (USGS), météo spatiale (NOAA)</li>
+      </ul>
+      <div style="color:#4a6a7a;font-size:9px;letter-spacing:1px;margin-bottom:8px;">ANALYSES</div>
+      <ul style="color:#c8d8e8;font-size:10px;line-height:1.8;margin:0 0 16px 0;padding-left:20px;">
+        <li><b>Ruptures 24 h</b> : activité d'un pays comparée à sa moyenne des 28 jours précédents</li>
+        <li><b>Convergences</b> : zones où au moins trois types de signaux se croisent</li>
+      </ul>
+      <p style="color:#4a6a7a;font-size:9px;line-height:1.6;margin:0;">
+        Données publiques, mises à jour automatiquement toutes les 30 minutes. Indicateurs d'alerte à recouper : ils ne constituent pas une information validée.
+      </p>
+    </div>
+  </div>
+
+  <div id="maCarte"></div>
+
+  <script charset="utf-8" src="config.js?v=1"></script>
+  <script charset="utf-8" src="vitrine-data.js?v=1"></script>
+  <script charset="utf-8" src="map.js?v=1"></script>
+  <script charset="utf-8" src="ogma-feed.js?v=1"></script>
+  <script charset="utf-8" src="layer-signal.js?v=1"></script>
+  <script charset="utf-8" src="layer-osint.js?v=1"></script>
+  <script charset="utf-8" src="layer-seismic.js?v=1"></script>
+  <script charset="utf-8" src="layer-tracks.js?v=1"></script>
+  <script charset="utf-8" src="layer-space.js?v=1"></script>
+  <script charset="utf-8" src="layer-news.js?v=1"></script>
+  <script charset="utf-8" src="layer-events.js?v=1"></script>
+  <script charset="utf-8" src="layer-signals.js?v=1"></script>
+  <script charset="utf-8" src="layer-insights.js?v=1"></script>
+
+</body>
+
+</html>
