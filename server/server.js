@@ -26,6 +26,7 @@ const { getSpatialEvents }                                           = require('
 const { fetchGoogleNewsEvents, getCache: getNewsCache, getNewsEventsForMap } = require('./google-news-rss');
 const { fetchTodayEvents: fetchTodayEventsFromFiles, isCameoFallbackTitle, purgeSnapshot } = require('./gdelt-files');
 const { enrichEvents }                                                       = require('./enrich');
+const { createSnapshotHandler }                                              = require('./sharepoint-snapshot');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -618,6 +619,63 @@ publicRouter.get('/history', (_req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── Instantané unique pour SharePoint (relais navigateur) ────────────────
+// Un seul appel = toutes les couches, allégées. ?etag=<connu> → 304.
+// Clé via ?key= : requête CORS « simple », sans pré-requête OPTIONS.
+function readHistorySummary() {
+  const files = fs.readdirSync(CACHE_DIR)
+    .filter(f => /^events-\d{8}\.json$/.test(f))
+    .sort();
+  return files.map(file => {
+    try {
+      const raw    = JSON.parse(fs.readFileSync(path.join(CACHE_DIR, file), 'utf8'));
+      const events = raw.events || [];
+      const categories = {};
+      const severities = {};
+      for (const e of events) {
+        categories[e.category || 'incident'] = (categories[e.category || 'incident'] || 0) + 1;
+        severities[e.severity || 'LOW']      = (severities[e.severity || 'LOW'] || 0) + 1;
+      }
+      return {
+        id:         file.replace('events-', '').replace('.json', ''),
+        date:       file.replace('events-', '').replace('.json', ''),
+        count:      events.length,
+        lastUpdate: raw.lastUpdate || null,
+        categories,
+        severities,
+      };
+    } catch { return null; }
+  }).filter(Boolean);
+}
+
+publicRouter.get('/sharepoint/snapshot', createSnapshotHandler({
+  osint:             () => cache,
+  news:              () => ({ events: getNewsEventsForMap(), lastUpdate: getNewsCache().lastUpdate }),
+  signals:           () => getSignalsCache(),
+  signalMarkers:     () => getSignalMarkersCache(),
+  worldEvents:       () => getWorldEventsCache(),
+  tracks:            (events) => {
+    const shipCache = getShipCache();
+    const result = runPipeline({ aircraft: getMilCache().aircraft || [], ships: shipCache.ships || [] });
+    result.tracks = attachNearbyEvents(result.tracks, events, 300);
+    result.meta.shipStream = {
+      status: shipCache.status, stale: shipCache.stale,
+      connected: shipCache.connected, lastUpdate: shipCache.lastUpdate,
+    };
+    return result;
+  },
+  maritimeEvents:    (events) => getMaritimeEvents(events),
+  maritimeAnomalies: () => getMaritimeAnomalies(),
+  aviationEvents:    (events) => getAviationEvents(events),
+  spatialEvents:     (events) => getSpatialEvents(events),
+  earthquakes:       () => getQuakeCache(),
+  spaceWeather:      () => getSwCache(),
+  launches:          () => getLaunchCache(),
+  decay:             () => getDecayCache(),
+  tip:               () => getTipCache(),
+  history:           () => readHistorySummary(),
+}));
 
 app.use('/api/public', publicRouter);
 
