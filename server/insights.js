@@ -181,11 +181,41 @@ function validPoint(o) {
     && !Number.isNaN(o.lat) && !Number.isNaN(o.lon) && !(o.lat === 0 && o.lon === 0);
 }
 
+// Zones nationales (territoire et approches) : [latMin, lonMin, latMax, lonMax].
+// Un avion ou un navire militaire chez lui est une activité normale : il ne compte
+// pas comme signal physique d'une convergence (sinon les bases américaines ou
+// britanniques déclenchent des alertes permanentes). Seule la présence hors du
+// territoire national est significative.
+const HOME_ZONES = {
+  USA: [[24, -126, 50, -66], [51, -170, 72, -129], [18, -161, 23, -154]],
+  CAN: [[41, -141, 84, -52]], GBR: [[49, -9, 61, 3]], FRA: [[41, -6, 51.5, 10]], DEU: [[47, 5.5, 55.5, 15.5]],
+  ITA: [[36, 6, 47.5, 19]], ESP: [[35.5, -10, 44, 4.5]], NLD: [[50.5, 3, 54, 7.5]], BEL: [[49.4, 2.4, 51.6, 6.5]],
+  POL: [[49, 14, 55, 24.5]], NOR: [[57, 4, 72, 32]], SWE: [[55, 10.5, 69.5, 24.5]], DNK: [[54.3, 7.5, 58, 15.5]],
+  FIN: [[59.5, 19, 70.5, 32]], GRC: [[34.5, 19, 42, 29]], TUR: [[35.5, 25.5, 42.5, 45]], PRT: [[36.5, -10, 42.5, -6]],
+  AUS: [[-45, 112, -10, 155]], JPN: [[24, 122, 46, 146]], KOR: [[33, 124.5, 39, 130]], IND: [[6, 68, 36, 97.5]],
+  RUS: [[41, 19, 82, 180]], CHN: [[18, 73, 54, 135]], ISR: [[29.3, 34.2, 33.4, 35.9]], BRA: [[-34, -74, 6, -34]],
+};
+const HOME_ALIASES = {
+  'UNITED STATES': 'USA', 'US': 'USA', 'UNITED KINGDOM': 'GBR', 'UK': 'GBR', 'FRANCE': 'FRA', 'GERMANY': 'DEU',
+  'ITALY': 'ITA', 'SPAIN': 'ESP', 'NETHERLANDS': 'NLD', 'BELGIUM': 'BEL', 'POLAND': 'POL', 'NORWAY': 'NOR',
+  'SWEDEN': 'SWE', 'DENMARK': 'DNK', 'FINLAND': 'FIN', 'GREECE': 'GRC', 'TURKEY': 'TUR', 'PORTUGAL': 'PRT',
+  'CANADA': 'CAN', 'AUSTRALIA': 'AUS', 'JAPAN': 'JPN', 'SOUTH KOREA': 'KOR', 'INDIA': 'IND', 'RUSSIA': 'RUS',
+  'CHINA': 'CHN', 'ISRAEL': 'ISR', 'BRAZIL': 'BRA',
+};
+function isAtHome(track) {
+  const raw = String(track.country || '').toUpperCase().trim();
+  const zones = HOME_ZONES[HOME_ALIASES[raw] || raw];
+  if (!zones) return false;
+  return zones.some(([s, w, n, e]) => track.lat >= s && track.lat <= n && track.lon >= w && track.lon <= e);
+}
+const COUNT_HOME_TRACKS = process.env.INSIGHTS_COUNT_HOME_TRACKS === '1';
+
 function collectSignals({ tracks = [], events = [], news = [], anomalies = [] }) {
   const signals = [];
   for (const t of tracks) {
     if (!validPoint(t)) continue;
     if (!['confirmed_military', 'likely_military'].includes(t.milTier)) continue;
+    if (!COUNT_HOME_TRACKS && isAtHome(t)) continue;
     signals.push({ type: t.domain === 'air' ? 'air' : 'sea', lat: t.lat, lon: t.lon,
       ref: { id: t.id, label: t.callsign || t.name || t.id, country: t.country || null } });
   }
@@ -283,5 +313,5 @@ function computeConvergences(input, opts = {}) {
 
 module.exports = {
   computeRuptures, loadBaselineCounts, countsByKey,
-  computeConvergences, collectSignals, countryNameOf,
+  computeConvergences, collectSignals, countryNameOf, isAtHome,
 };
