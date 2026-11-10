@@ -20,7 +20,7 @@ const path = require('path');
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const OpenAI = require('openai');
-const { createDeepSeekClient } = require('./ai-cost-control');
+const { createDeepSeekClient, persistentCache, cacheKey } = require('./ai-cost-control');
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
 const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'none')).toLowerCase();
@@ -1045,11 +1045,42 @@ function findGrayZonePairs(items) {
   return pairs;
 }
 
+// Les flux renvoient à chaque cycle presque les mêmes articles (48 h) : sans
+// mémoire, les mêmes paires repartaient à l'IA toutes les 3 h. On garde le
+// verdict de chaque paire de titres (3 jours) et on ne questionne que les
+// paires jamais vues.
+const AI_VERDICT_TTL_MS = 3 * 86400000;
+const dedupVerdicts = persistentCache('ai-news-dedup-v1', { ttl: AI_VERDICT_TTL_MS, max: 50000 });
+const doubtVerdicts = persistentCache('ai-news-doubts-v1', { ttl: AI_VERDICT_TTL_MS, max: 20000 });
+
+function normTitleKey(title) {
+  return String(title || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function pairKey(a, b) {
+  return cacheKey([normTitleKey(a), normTitleKey(b)].sort());
+}
+
+function markDuplicate(items, pair, duplicateIndices) {
+  const ti      = Date.parse(items[pair.i].pubDate) || 0;
+  const tj      = Date.parse(items[pair.j].pubDate) || 0;
+  duplicateIndices.add(ti >= tj ? pair.j : pair.i);
+}
+
 async function detectDuplicatePairsWithAI(items, pairs) {
   if (!openaiClient || !pairs.length) return new Set();
   const duplicateIndices = new Set();
-  for (let b = 0; b < pairs.length; b += DEDUP_AI_MAX_PAIRS) {
-    const batch = pairs.slice(b, b + DEDUP_AI_MAX_PAIRS);
+
+  const unknown = [];
+  for (const p of pairs) {
+    const verdict = dedupVerdicts.get(pairKey(items[p.i].title, items[p.j].title));
+    if (verdict === undefined) unknown.push(p);
+    else if (verdict) markDuplicate(items, p, duplicateIndices);
+  }
+  console.log(`[google-news] AI dedup cache: ${pairs.length - unknown.length} paires déjà connues, ${unknown.length} à vérifier`);
+
+  for (let b = 0; b < unknown.length; b += DEDUP_AI_MAX_PAIRS) {
+    const batch = unknown.slice(b, b + DEDUP_AI_MAX_PAIRS);
     const prompt = batch.map((p, idx) =>
       'Pair ' + idx + ':\n  A: "' + items[p.i].title + '"\n  B: "' + items[p.j].title + '"'
     ).join('\n\n');
@@ -1067,13 +1098,10 @@ async function detectDuplicatePairsWithAI(items, pairs) {
       const results = parseJsonArray(text);
       if (!results) continue;
       for (const r of results) {
-        if (!r.same) continue;
         const pair = batch[r.pair];
         if (!pair) continue;
-        const ti      = Date.parse(items[pair.i].pubDate) || 0;
-        const tj      = Date.parse(items[pair.j].pubDate) || 0;
-        const discard = ti >= tj ? pair.j : pair.i;
-        duplicateIndices.add(discard);
+        dedupVerdicts.set(pairKey(items[pair.i].title, items[pair.j].title), !!r.same);
+        if (r.same) markDuplicate(items, pair, duplicateIndices);
       }
     } catch (err) {
       if (isRetryableNetworkError(err)) {
@@ -1136,7 +1164,7 @@ function isRetryableNetworkError(err) {
   return msg.includes('ECONNRESET') || msg.includes('ETIMEDOUT') || msg.includes('ECONNREFUSED') || msg.includes('socket hang up');
 }
 
-async function analyzeDoubts(titles, attempt = 0) {
+async function analyzeDoubtsUncached(titles, attempt = 0) {
   try {
     const r = await analyzeDoubtsWithOpenAI(titles);
     if (r?.length) return r;
@@ -1145,11 +1173,36 @@ async function analyzeDoubts(titles, attempt = 0) {
       const delay = (attempt + 1) * 5000;
       console.warn(`[google-news] OpenAI doubt-analysis network error, retry in ${delay / 1000}s: ${err.message.slice(0, 80)}`);
       await new Promise(r => setTimeout(r, delay));
-      return analyzeDoubts(titles, attempt + 1);
+      return analyzeDoubtsUncached(titles, attempt + 1);
     }
     console.warn('[google-news] OpenAI doubt-analysis failed:', err.message);
   }
   return null;
+}
+
+// Même principe que pour les paires : un titre déjà analysé n'est pas renvoyé.
+// Renvoie des résultats indexés sur `titles`, comme l'analyse directe.
+async function analyzeDoubts(titles) {
+  const results = [];
+  const unknownTitles = [];
+  const unknownIndex  = [];
+  titles.forEach((t, i) => {
+    const cached = doubtVerdicts.get(cacheKey(normTitleKey(t)));
+    if (cached) results.push({ index: i, ...cached });
+    else { unknownTitles.push(t); unknownIndex.push(i); }
+  });
+  console.log(`[google-news] doubts cache: ${results.length} titres déjà analysés, ${unknownTitles.length} à analyser`);
+  if (unknownTitles.length) {
+    const fresh = await analyzeDoubtsUncached(unknownTitles);
+    for (const r of fresh || []) {
+      const i = unknownIndex[r.index ?? -1];
+      if (i === undefined) continue;
+      const verdict = { location: r.location || '', confidence: r.confidence };
+      doubtVerdicts.set(cacheKey(normTitleKey(titles[i])), verdict);
+      results.push({ index: i, ...verdict });
+    }
+  }
+  return results.length ? results : null;
 }
 
 // ── Main pipeline ─────────────────────────────────────────────────────────────
@@ -1405,4 +1458,6 @@ module.exports = {
   // exposés pour les tests
   detectLocationFromTitle,
   lookupKnown,
+  detectDuplicatePairsWithAI,
+  analyzeDoubts,
 };

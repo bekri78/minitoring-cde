@@ -563,13 +563,60 @@ function parseMasterLine(line) {
   return { ts: tsMatch[1], kind, url, filename };
 }
 
-async function fetchMasterFileList() {
-  const resp = await fetch(MASTERFILELIST_URL, {
+// ── Liste des lots récents ────────────────────────────────────────────────
+// Avant : téléchargement de masterfilelist.txt (≈130 Mo) et de sa version
+// traduite (≈140 Mo) toutes les 30 min, soit ~270 Mo de texte en mémoire pour
+// ne garder que les derniers lots. Les lots GDELT ont un pas fixe de 15 min et
+// des noms prévisibles : on lit lastupdate.txt (3 lignes) et on reconstruit les
+// URL des RECENT_WINDOWS derniers lots. Un lot absent renvoie 404 : il est
+// simplement ignoré par la boucle de traitement, comme avant.
+const LASTUPDATE_URL             = process.env.GDELT_LASTUPDATE_URL || 'http://data.gdeltproject.org/gdeltv2/lastupdate.txt';
+const LASTUPDATE_TRANSLATION_URL = process.env.GDELT_LASTUPDATE_TRANSLATION_URL || 'http://data.gdeltproject.org/gdeltv2/lastupdate-translation.txt';
+const RECENT_WINDOWS             = Number(process.env.GDELT_RECENT_WINDOWS || Math.max(BOOTSTRAP_WINDOWS, 96)); // 96 × 15 min = 24 h
+const USE_FULL_MASTERLIST        = process.env.GDELT_USE_FULL_MASTERLIST === 'true'; // ancien mode, secours
+
+function tsToDate(ts) {
+  return new Date(Date.UTC(+ts.slice(0, 4), +ts.slice(4, 6) - 1, +ts.slice(6, 8), +ts.slice(8, 10), +ts.slice(10, 12), +ts.slice(12, 14)));
+}
+
+function dateToTs(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`;
+}
+
+// Construit un texte au format masterfilelist (taille md5 url) pour les derniers lots
+function buildRecentFileList(lastupdateText, windows = RECENT_WINDOWS) {
+  const latest = String(lastupdateText || '')
+    .split(/\r?\n/)
+    .map(parseMasterLine)
+    .filter(Boolean);
+  if (!latest.length) throw new Error('lastupdate vide ou illisible');
+  const sample = latest[0];
+  const base = sample.url.slice(0, sample.url.lastIndexOf('/') + 1);
+  const infix = /\.translation\./i.test(sample.filename) ? 'translation.' : '';
+  const start = tsToDate(sample.ts);
+  const lines = [];
+  for (let i = windows - 1; i >= 0; i--) {
+    const ts = dateToTs(new Date(start.getTime() - i * 15 * 60 * 1000));
+    lines.push(`0 0 ${base}${ts}.${infix}export.CSV.zip`);
+    lines.push(`0 0 ${base}${ts}.${infix}mentions.CSV.zip`);
+    lines.push(`0 0 ${base}${ts}.${infix}gkg.csv.zip`);
+  }
+  return lines.join('\n');
+}
+
+async function fetchText(url, label) {
+  const resp = await fetch(url, {
     signal: AbortSignal.timeout(20000),
     headers: { Accept: 'text/plain' },
   });
-  if (!resp.ok) throw new Error(`masterfilelist HTTP ${resp.status}`);
+  if (!resp.ok) throw new Error(`${label} HTTP ${resp.status}`);
   return resp.text();
+}
+
+async function fetchMasterFileList() {
+  if (USE_FULL_MASTERLIST) return fetchText(MASTERFILELIST_URL, 'masterfilelist');
+  return buildRecentFileList(await fetchText(LASTUPDATE_URL, 'lastupdate'));
 }
 
 function groupEntries(text) {
@@ -1582,12 +1629,8 @@ async function processBatch(batch) {
 }
 
 async function fetchTranslationMasterFileList() {
-  const resp = await fetch(MASTERFILELIST_TRANSLATION_URL, {
-    signal: AbortSignal.timeout(20000),
-    headers: { Accept: 'text/plain' },
-  });
-  if (!resp.ok) throw new Error(`masterfilelist-translation HTTP ${resp.status}`);
-  return resp.text();
+  if (USE_FULL_MASTERLIST) return fetchText(MASTERFILELIST_TRANSLATION_URL, 'masterfilelist-translation');
+  return buildRecentFileList(await fetchText(LASTUPDATE_TRANSLATION_URL, 'lastupdate-translation'));
 }
 
 async function fetchTodayEvents(options = {}) {
@@ -1694,4 +1737,4 @@ function purgeSnapshot(cacheDir) {
   }
 }
 
-module.exports = { fetchTodayEvents, isCameoFallbackTitle, purgeSnapshot };
+module.exports = { fetchTodayEvents, isCameoFallbackTitle, purgeSnapshot, buildRecentFileList, groupEntries };
