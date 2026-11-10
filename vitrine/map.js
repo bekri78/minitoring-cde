@@ -18,7 +18,7 @@ var _hasSpAuth   = true;
 
 // ── Utilitaires popup ────────────────────────────────────────
 function mono(content) {
-    return `<div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:280px;max-width:340px;">${content}</div>`;
+    return `<div class="og-pop" style="min-width:280px;max-width:340px;">${content}</div>`;
 }
 
 function escapeHtml(value) {
@@ -29,7 +29,38 @@ function escapeHtml(value) {
 }
 
 function badge(label, color) {
-    return `<span style="padding:2px 8px;font-size:9px;background:${color}22;color:${color};border:1px solid ${color}55;text-transform:uppercase;">${escapeHtml(label)}</span>`;
+    return `<span class="og-badge" style="color:${color};background:${color}1f;">${escapeHtml(label)}</span>`;
+}
+
+// Noms de pays affichés en français (les sources les donnent en anglais)
+const OGMA_FR = {
+    'Afghanistan': 'Afghanistan', 'Algeria': 'Algérie', 'Argentina': 'Argentine', 'Armenia': 'Arménie', 'Australia': 'Australie',
+    'Azerbaijan': 'Azerbaïdjan', 'Bahrain': 'Bahreïn', 'Bangladesh': 'Bangladesh', 'Belarus': 'Biélorussie', 'Belgium': 'Belgique',
+    'Bosnia and Herzegovina': 'Bosnie-Herzégovine', 'Brazil': 'Brésil', 'Bulgaria': 'Bulgarie', 'Burkina Faso': 'Burkina Faso',
+    'Burundi': 'Burundi', 'Cameroon': 'Cameroun', 'Canada': 'Canada', 'Central African Republic': 'Centrafrique', 'Chad': 'Tchad',
+    'China': 'Chine', 'Colombia': 'Colombie', 'Congo': 'Congo', 'Democratic Republic of the Congo': 'RD Congo', 'Cuba': 'Cuba',
+    'Cyprus': 'Chypre', 'Czech Republic': 'Tchéquie', 'Denmark': 'Danemark', 'Djibouti': 'Djibouti', 'Egypt': 'Égypte',
+    'Eritrea': 'Érythrée', 'Estonia': 'Estonie', 'Ethiopia': 'Éthiopie', 'Finland': 'Finlande', 'France': 'France', 'Georgia': 'Géorgie',
+    'Germany': 'Allemagne', 'Greece': 'Grèce', 'Greenland': 'Groenland', 'Haiti': 'Haïti', 'Hungary': 'Hongrie', 'India': 'Inde',
+    'Indonesia': 'Indonésie', 'Iran': 'Iran', 'Iraq': 'Irak', 'Ireland': 'Irlande', 'Israel': 'Israël', 'Italy': 'Italie', 'Japan': 'Japon',
+    'Jordan': 'Jordanie', 'Kazakhstan': 'Kazakhstan', 'Kenya': 'Kenya', 'Kosovo': 'Kosovo', 'Kuwait': 'Koweït', 'Latvia': 'Lettonie',
+    'Lebanon': 'Liban', 'Libya': 'Libye', 'Lithuania': 'Lituanie', 'Mali': 'Mali', 'Mauritania': 'Mauritanie', 'Mexico': 'Mexique',
+    'Moldova': 'Moldavie', 'Morocco': 'Maroc', 'Mozambique': 'Mozambique', 'Myanmar': 'Birmanie', 'Netherlands': 'Pays-Bas',
+    'Niger': 'Niger', 'Nigeria': 'Nigéria', 'North Korea': 'Corée du Nord', 'Norway': 'Norvège', 'Oman': 'Oman', 'Pakistan': 'Pakistan',
+    'Palestine': 'Palestine', 'Philippines': 'Philippines', 'Poland': 'Pologne', 'Portugal': 'Portugal', 'Qatar': 'Qatar',
+    'Romania': 'Roumanie', 'Russia': 'Russie', 'Rwanda': 'Rwanda', 'Saudi Arabia': 'Arabie saoudite', 'Senegal': 'Sénégal',
+    'Serbia': 'Serbie', 'Somalia': 'Somalie', 'South Africa': 'Afrique du Sud', 'South Korea': 'Corée du Sud', 'South Sudan': 'Soudan du Sud',
+    'Spain': 'Espagne', 'Sudan': 'Soudan', 'Sweden': 'Suède', 'Switzerland': 'Suisse', 'Syria': 'Syrie', 'Taiwan': 'Taïwan',
+    'Thailand': 'Thaïlande', 'Tunisia': 'Tunisie', 'Turkey': 'Turquie', 'Uganda': 'Ouganda', 'Ukraine': 'Ukraine',
+    'United Arab Emirates': 'Émirats arabes unis', 'United Kingdom': 'Royaume-Uni', 'United States': 'États-Unis',
+    'Venezuela': 'Venezuela', 'Vietnam': 'Viêt Nam', 'Yemen': 'Yémen', 'West Bank': 'Cisjordanie', 'Gaza Strip': 'Gaza'
+};
+// « Tehran, Iran » → « Tehran, Iran » ; « United States » → « États-Unis »
+function ogmaFr(name) {
+    const parts = String(name == null ? '' : name).split(',').map(function (x) { return x.trim(); });
+    const last = parts.length - 1;
+    if (OGMA_FR[parts[last]]) parts[last] = OGMA_FR[parts[last]];
+    return parts.join(', ');
 }
 
 // Intensité sur une échelle 1-5
@@ -41,13 +72,14 @@ function intensityColor(level) {
     return '#00d4ff';
 }
 
+// Point discret (V2) : la couleur porte la gravité, sans halo
 function dotIcon(color) {
     return L.divIcon({
-        html: `<div style="width:20px;height:20px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.6);box-shadow:0 0 6px ${color};"></div>`,
-        iconSize: [20, 20],
-        iconAnchor: [10, 10],
-        popupAnchor: [0, -12],
-        className: ''
+        html: `<span class="og-pt" style="width:8px;height:8px;background:${color};opacity:.9"></span>`,
+        iconSize: [12, 12],
+        iconAnchor: [6, 6],
+        popupAnchor: [0, -8],
+        className: 'og-pt-wrap'
     });
 }
 
@@ -75,10 +107,11 @@ const allModeCluster = L.markerClusterGroup({
     showCoverageOnHover: false,
     iconCreateFunction: function (cluster) {
         const count = cluster.getChildCount();
+        const w = count < 10 ? 26 : count < 100 ? 32 : 38;
         return L.divIcon({
-            html: `<div style="width:36px;height:36px;border-radius:50%;background:#ff440033;border:1px solid #ff4400;display:flex;align-items:center;justify-content:center;font-family:'Share Tech Mono',monospace;font-size:12px;color:#ff8800;">${count}</div>`,
-            iconSize: [36, 36],
-            iconAnchor: [18, 18],
+            html: `<div class="og-cluster" style="width:${w}px">${count}</div>`,
+            iconSize: [w, 22],
+            iconAnchor: [w / 2, 11],
             className: ''
         });
     }
@@ -138,23 +171,50 @@ function _rebuildAllMode() {
     });
 
     allModeCluster.addLayers(markers);
-    if (!maCarte.hasLayer(allModeCluster)) allModeCluster.addTo(maCarte);
+    if (!_focusLayer && !maCarte.hasLayer(allModeCluster)) allModeCluster.addTo(maCarte);
+}
+
+// Mode « focus » : une fiche ouverte limite la carte à ses propres éléments
+let _focusLayer = null;
+function setMapFocus(layer, label) {
+    _focusLayer = layer;
+    document.body.classList.add('og-focus');
+    const l = document.getElementById('og-focus-label');
+    if (l) l.textContent = label || '';
+    applyLayers();
+}
+function clearMapFocus() {
+    if (_focusLayer && maCarte && maCarte.hasLayer(_focusLayer)) maCarte.removeLayer(_focusLayer);
+    _focusLayer = null;
+    document.body.classList.remove('og-focus');
+    applyLayers();
 }
 
 // Affiche exactement les couches des catégories actives
 function applyLayers() {
     if (!maCarte) return;
+    if (_focusLayer) {
+        const others = [allModeCluster, signalCluster, osintCluster, seismicLayer, newsOsintCluster, newsAirCluster, newsSeaCluster,
+            newsSpaceCluster, tracksLayer, tracksSeaLayer, aviationEvtCluster, maritimeEvtCluster, spaceLayer, convergenceLayer,
+            typeof ruptureLayer !== 'undefined' ? ruptureLayer : null];
+        others.forEach(function (layer) { if (layer && maCarte.hasLayer(layer)) maCarte.removeLayer(layer); });
+        if (!maCarte.hasLayer(_focusLayer)) _focusLayer.addTo(maCarte);
+        _hdrRefreshCount();
+        return;
+    }
     const visible = [allModeCluster];
     if (layerOn('osint')) visible.push(seismicLayer);
     if (layerOn('air'))   visible.push(tracksLayer);
     if (layerOn('sea'))   visible.push(tracksSeaLayer);
     if (layerOn('space')) visible.push(spaceLayer);
     if (layerOn('conv'))  visible.push(convergenceLayer);
+    if (typeof ruptureLayer !== 'undefined') visible.push(ruptureLayer);   // alertes : toujours visibles
     const allKnown = [
         allModeCluster,
         signalCluster, osintCluster, seismicLayer,
         newsOsintCluster, newsAirCluster, newsSeaCluster, newsSpaceCluster,
-        tracksLayer, tracksSeaLayer, aviationEvtCluster, maritimeEvtCluster, spaceLayer, convergenceLayer
+        tracksLayer, tracksSeaLayer, aviationEvtCluster, maritimeEvtCluster, spaceLayer, convergenceLayer,
+        typeof ruptureLayer !== 'undefined' ? ruptureLayer : null
     ];
     allKnown.forEach(function (layer) {
         if (!layer) return;
@@ -247,6 +307,10 @@ async function initializeMap() {
     }).addTo(maCarte);
 
     L.control.zoom({ position: 'bottomright', zoomInTitle: 'Zoomer', zoomOutTitle: 'Dézoomer' }).addTo(maCarte);
+    // Avions et navires : simples points de loin, silhouettes à partir du zoom 6
+    const nearClass = function () { maCarte.getContainer().classList.toggle('og-near', maCarte.getZoom() >= 6); };
+    maCarte.on('zoomend', nearClass);
+    nearClass();
     L.control.scale({ imperial: false, maxWidth: 160, position: 'bottomright' }).addTo(maCarte);
 
     // Redimensionnement automatique

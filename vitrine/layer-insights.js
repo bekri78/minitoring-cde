@@ -28,15 +28,31 @@ function _injectInsightsCSS() {
     document.head.appendChild(s);
 }
 
+// Convergence : anneau indigo discret (V2)
 function convergenceIcon(c) {
-    const size = Math.min(40, 18 + c.types.length * 4);
     return L.divIcon({
-        html: '<div style="position:relative;width:' + size + 'px;height:' + size + 'px;">'
-            + '<div style="position:absolute;inset:0;border-radius:50%;border:2px solid ' + CONV_COLOR + ';animation:conv-pulse 2.2s ease-out infinite;"></div>'
-            + '<div style="position:absolute;inset:25%;border-radius:50%;background:' + CONV_COLOR + '33;border:2px solid ' + CONV_COLOR + ';'
-            + 'display:flex;align-items:center;justify-content:center;color:#fff;font:bold 10px \'Share Tech Mono\',monospace;">' + c.types.length + '</div>'
-            + '</div>',
-        iconSize: [size, size], iconAnchor: [size / 2, size / 2], popupAnchor: [0, -size / 2], className: ''
+        html: '<span class="og-conv" title="' + c.types.length + ' types de signaux"></span>',
+        iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -8], className: ''
+    });
+}
+
+// Ruptures : point rouge (forte) ou orange (notable) avec halo, sur la carte en permanence
+const ruptureLayer = L.layerGroup();
+function renderRuptureMarkers(list) {
+    ruptureLayer.clearLayers();
+    (list || []).forEach(function (r) {
+        if (typeof r.lat !== 'number' || typeof r.lon !== 'number') return;
+        const color = r.level === 'forte' ? '#f2555a' : '#f2994a';
+        const chip = r.level === 'forte' ? '<span class="og-rupt-chip">' + escapeHtml(ogmaFr(r.country)) + ' ' + (r.ratio ? '×' + String(r.ratio).replace('.', ',') : '') + '</span>' : '';
+        const m = L.marker([r.lat, r.lon], {
+            icon: L.divIcon({
+                html: '<span class="og-rupt"><span class="og-rupt-halo" style="background:' + color + '"></span><span class="og-rupt-dot" style="background:' + color + '"></span>' + chip + '</span>',
+                iconSize: [0, 0], className: ''
+            }),
+            zIndexOffset: 900
+        });
+        m.on('click', function () { showRupture(r); });
+        ruptureLayer.addLayer(m);
     });
 }
 
@@ -94,6 +110,7 @@ function _fmtRatio(r) {
 // La liste est présentée par la barre de droite (« À surveiller », ogma-ui.js)
 function renderRuptures(list) {
     _lastRuptures = list || [];
+    renderRuptureMarkers(_lastRuptures);
     if (APP.UI) APP.UI.renderAlerts();
 }
 
@@ -116,7 +133,14 @@ function _distKm(aLat, aLon, bLat, bLon) {
 
 function _fr(n) { return String(n).replace('.', ','); }
 
-function _ruptureExplain(r, events) {
+function _ruptureExplain(r, events, siblings) {
+    siblings = siblings || [];
+    const also = siblings.length
+        ? '<div class="og-d-label">Autres ruptures dans ce pays</div><ul class="og-d-sources">' + siblings.map(function (o) {
+              return '<li>' + escapeHtml(RUPTURE_CATEGORY_LABEL[o.category] || o.category) + ' — ' + o.today + ' signaux contre ' + _fr(o.baseline)
+                  + '/j <b class="' + (o.level === 'forte' ? 'og-d-crit-t' : 'og-d-warn-t') + '">' + (o.ratio ? '×' + _fr(o.ratio) : 'nouveau') + '</b></li>';
+          }).join('') + '</ul>'
+        : '';
     const cat = RUPTURE_CATEGORY_LABEL[r.category] || r.category;
     const strong = r.level === 'forte';
     const emergence = r.kind === 'emergence' || r.ratio == null;
@@ -132,7 +156,7 @@ function _ruptureExplain(r, events) {
         ? '<p class="og-d-muted">Lieux cités : <span class="og-d-text">' + r.places.map(function (p) { return escapeHtml(p.name) + ' (' + p.count + ')'; }).join(', ') + '</span></p>'
         : '';
     const list = events.length
-        ? '<div class="og-d-label">PRINCIPAUX SIGNAUX</div><ul class="og-d-sources">'
+        ? '<div class="og-d-label">Principaux signaux</div><ul class="og-d-sources">'
           + events.slice(0, 6).map(function (e) {
                 const t = escapeHtml(e.titleFr || e.title || '(sans titre)');
                 const src = e.domain ? '<span class="og-d-muted"> — ' + escapeHtml(e.domain) + '</span>' : '';
@@ -140,8 +164,8 @@ function _ruptureExplain(r, events) {
             }).join('') + '</ul>'
         : '<p class="og-d-muted">Détail des signaux indisponible dans ce snapshot.</p>';
     return '<div class="og-d">'
-        + '<div class="og-d-tags"><span class="og-d-tag ' + (strong ? 'og-d-crit' : 'og-d-warn') + '">' + (strong ? 'CRITIQUE' : 'À SURVEILLER') + '</span><span class="og-d-kind">RUPTURE 24 H</span></div>'
-        + '<h3 class="og-d-title">' + escapeHtml(r.country) + ' · ' + escapeHtml(cat) + '</h3>'
+        + '<div class="og-d-tags"><span class="og-d-tag ' + (strong ? 'og-d-crit' : 'og-d-warn') + '">' + (strong ? 'Rupture critique' : 'Rupture à surveiller') + ' · 24 h</span></div>'
+        + '<h3 class="og-d-title">' + escapeHtml(ogmaFr(r.country)) + ' — ' + escapeHtml(cat) + '</h3>'
         + '<p class="og-d-text">' + why + '</p>'
         + '<div class="og-d-kpis">'
         +   '<div><b>' + r.today + '</b><span>signaux 24 h</span></div>'
@@ -149,42 +173,51 @@ function _ruptureExplain(r, events) {
         +   '<div><b class="' + (strong ? 'og-d-crit-t' : 'og-d-warn-t') + '">' + (emergence ? 'nouveau' : '×' + _fr(r.ratio)) + '</b><span>écart</span></div>'
         + '</div>'
         + '<p class="og-d-muted">' + strength + '</p>'
-        + places + list
-        + '<p class="og-d-hint">Les cercles sur la carte montrent où ces signaux sont localisés.</p>'
+        + places + also + list
+        + '<p class="og-d-hint">La carte n\u2019affiche plus que les signaux de cette rupture. « Tout afficher » rétablit les autres.</p>'
+        + '<button type="button" class="og-d-ask" data-ask="' + escapeHtml('Pourquoi ' + ogmaFr(r.country) + ' ressort-il en rupture « ' + cat + ' » aujourd\u2019hui ?') + '">'
+        + '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"/></svg>Demander à OGMA d\u2019expliquer</button>'
         + '</div>';
 }
 
-function showRupture(r) {
-    const events = _ruptureEvents(r);
+// Fiche d'une rupture : pas de déplacement de la carte. Tous les autres marqueurs
+// disparaissent ; seuls restent la rupture et les événements du jour qui la
+// composent (même pays, même catégorie). « Tout afficher » ou le retour rétablit la carte.
+function _ruptureRelated(r, siblings) {
+    const all = (window.APP && APP.Sync && APP.Sync.current && APP.Sync.current.data && APP.Sync.current.data.osint) || [];
+    const cats = [r].concat(siblings || []).map(function (x) { return x.category; });
+    const whole = cats.indexOf('all') !== -1;
+    const related = all.filter(function (e) {
+        return e.countryCode === r.countryCode && (whole || cats.indexOf(e.category) !== -1);
+    });
+    // Repli : les identifiants cités par le serveur (anciens snapshots sans countryCode)
+    return related.length ? related : _ruptureEvents(r);
+}
+
+function showRupture(r, siblings) {
+    siblings = siblings || [];
+    const events = _ruptureRelated(r, siblings);
+    const color = r.level === 'forte' ? '#f2555a' : '#f2994a';
     ruptureFocusLayer.clearLayers();
-    if (!maCarte.hasLayer(ruptureFocusLayer)) ruptureFocusLayer.addTo(maCarte);
-
-    // On garde les signaux proches du centre de la rupture (un article mal géolocalisé
-    // à l'autre bout du monde ne doit pas faire dézoomer la carte)
-    const hasCenter = typeof r.lat === 'number' && typeof r.lon === 'number';
-    const pts = events.filter(function (e) {
-        return typeof e.lat === 'number' && typeof e.lon === 'number'
-            && (!hasCenter || _distKm(r.lat, r.lon, e.lat, e.lon) < 1500);
+    events.forEach(function (e) {
+        if (typeof e.lat !== 'number' || typeof e.lon !== 'number') return;
+        const m = L.marker([e.lat, e.lon], { icon: dotIcon(color) });
+        if (typeof buildOsintContent === 'function') m.bindPopup(buildOsintContent(e), { maxWidth: 340 });
+        ruptureFocusLayer.addLayer(m);
     });
-    const color = r.level === 'forte' ? '#ff2244' : '#ffaa00';
-    pts.forEach(function (e) {
-        ruptureFocusLayer.addLayer(L.circleMarker([e.lat, e.lon], { radius: 9, color: color, weight: 2, fillOpacity: 0.15, interactive: false }));
-    });
-
-    const center = hasCenter ? [r.lat, r.lon] : (pts.length ? [pts[0].lat, pts[0].lon] : null);
-    if (!center) return;
-    if (pts.length >= 2) {
-        const b = L.latLngBounds(pts.map(function (e) { return [e.lat, e.lon]; })).extend(center);
-        maCarte.flyToBounds(b.pad(0.3), { maxZoom: 7, duration: 0.8 });
-    } else {
-        maCarte.flyTo(center, 6, { duration: 0.8 });
+    if (typeof r.lat === 'number') {
+        ruptureFocusLayer.addLayer(L.marker([r.lat, r.lon], {
+            icon: L.divIcon({ html: '<span class="og-rupt"><span class="og-rupt-halo" style="background:' + color + '"></span><span class="og-rupt-dot" style="background:' + color + '"></span></span>', iconSize: [0, 0], className: '' }),
+            zIndexOffset: 900, interactive: false
+        }));
     }
-    // La fiche s'ouvre dans la barre de droite ; les cercles disparaissent à sa fermeture
-    const html = _ruptureExplain(r, events);
-    if (APP.UI && APP.UI.showDetail(html, function () { ruptureFocusLayer.clearLayers(); })) return;
-    const popup = L.popup({ maxWidth: 340, autoPan: true }).setLatLng(center).setContent(html);
-    maCarte.once('moveend', function () { popup.openOn(maCarte); });
-    popup.on('remove', function () { ruptureFocusLayer.clearLayers(); });
+    const cat = RUPTURE_CATEGORY_LABEL[r.category] || r.category;
+    const label = ogmaFr(r.country || r.countryCode) + (siblings.length ? '' : ' — ' + cat) + ' (' + events.length + (events.length > 1 ? ' signaux' : ' signal') + ')';
+    if (typeof setMapFocus === 'function') setMapFocus(ruptureFocusLayer, label);
+    const html = _ruptureExplain(r, events, siblings);
+    const close = function () { ruptureFocusLayer.clearLayers(); if (typeof clearMapFocus === 'function') clearMapFocus(); };
+    if (APP.UI && APP.UI.showDetail(html, close)) return;
+    L.popup({ maxWidth: 340 }).setLatLng([r.lat, r.lon]).setContent(html).openOn(maCarte).on('remove', close);
 }
 
 // ── Point d'entrée appelé par ogma-feed.js ───────────────────

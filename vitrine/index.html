@@ -25,82 +25,65 @@
 </head>
 
 <body>
-  <!-- Barre de calques -->
-  <nav class="og-rail" aria-label="Calques de la carte">
-    <span class="og-logo" title="OGMA — veille géopolitique">OG</span>
-    <button type="button" class="og-layer" data-layer="osint" aria-pressed="true" title="OSINT : événements, alertes, séismes, articles">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a13 13 0 0 0 0 18a13 13 0 0 0 0-18"/><path d="M3 12h18"/></svg>
-      <span class="og-layer-count" data-layer-count="osint">0</span><span class="og-sr">OSINT</span>
-    </button>
-    <button type="button" class="og-layer" data-layer="air" aria-pressed="true" title="Air : aéronefs militaires et événements aériens">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M21 15.5 13.5 11V5a1.5 1.5 0 0 0-3 0v6L3 15.5V17l7.5-2.5V19L8 20.5V22l4-1 4 1v-1.5L13.5 19v-4.5L21 17z"/></svg>
-      <span class="og-layer-count" data-layer-count="air">0</span><span class="og-sr">Air</span>
-    </button>
-    <button type="button" class="og-layer" data-layer="sea" aria-pressed="true" title="Mer : navires militaires et événements maritimes">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><path d="M12 7.5V21"/><path d="M5 12H3a9 9 0 0 0 18 0h-2"/></svg>
-      <span class="og-layer-count" data-layer-count="sea">0</span><span class="og-sr">Mer</span>
-    </button>
-    <button type="button" class="og-layer" data-layer="space" aria-pressed="true" title="Espace : lancements et rentrées atmosphériques">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="3"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-25 12 12)"/></svg>
-      <span class="og-layer-count" data-layer-count="space">0</span><span class="og-sr">Espace</span>
-    </button>
-    <button type="button" class="og-layer" data-layer="conv" aria-pressed="true" title="Convergences : foyers où plusieurs types de signaux se croisent">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
-      <span class="og-layer-count" data-layer-count="conv">0</span><span class="og-sr">Convergences</span>
-    </button>
-    <span class="og-rail-spacer"></span>
-    <button type="button" class="og-layer" id="og-about" title="À propos d'OGMA">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.5" r=".6" fill="currentColor"/></svg>
-      <span class="og-sr">À propos</span>
-    </button>
-  </nav>
-
-  <!-- Recherche de lieu, flottante -->
+  <!-- Barre de commande : un lieu ou une question -->
   <div class="og-search-wrap">
     <div class="ogma-search" id="ogma-search">
       <div class="ogma-search-box">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <label for="ogma-search-input" class="og-sr">Rechercher un lieu</label>
-        <input id="ogma-search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Rechercher un lieu, un pays…" title="Recadre la carte et filtre « À surveiller » sur le lieu choisi">
-        <button type="button" class="ogma-search-clear" id="ogma-search-clear" title="Revenir au monde entier" aria-label="Effacer la recherche">✕</button>
+        <svg class="og-search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span class="og-ia-chip" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"/></svg>OGMA</span>
+        <label for="ogma-search-input" class="og-sr">Rechercher un lieu ou poser une question</label>
+        <input id="ogma-search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Rechercher un lieu, un pays…" title="Recadre la carte et filtre les alertes sur le lieu choisi (touche /)">
+        <button type="button" class="ogma-search-clear" id="ogma-search-clear" title="Effacer" aria-label="Effacer la recherche">✕</button>
       </div>
       <div class="ogma-search-dropdown" id="ogma-search-dropdown"></div>
+      <section class="og-answer" id="og-answer" aria-live="polite" aria-label="Réponse de l'analyste OGMA" hidden></section>
     </div>
   </div>
 
-  <!-- Barre de droite : état et alertes -->
-  <button type="button" class="og-panel-toggle" id="og-panel-toggle" aria-controls="og-panel" aria-expanded="true" title="Masquer la barre d'état">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+  <!-- Filtre actif sur la carte (fiche d'une rupture) -->
+  <div class="og-focus-chip og-glass" id="og-focus-chip" role="status">
+    <span>Carte limitée à <strong id="og-focus-label"></strong></span>
+    <button type="button" id="og-focus-clear">Tout afficher</button>
+  </div>
+
+  <!-- Calques -->
+  <nav class="og-layers og-glass" aria-label="Calques de la carte">
+    <button type="button" class="og-layer" data-layer="osint" aria-pressed="true" title="Événements, alertes, séismes et articles"><span class="og-layer-dot" style="background:#9aa0aa"></span>Événements <span class="og-layer-count" data-layer-count="osint">0</span></button>
+    <button type="button" class="og-layer" data-layer="air" aria-pressed="true" title="Aéronefs militaires et événements aériens"><span class="og-layer-dot" style="background:#7c8db5"></span>Air <span class="og-layer-count" data-layer-count="air">0</span></button>
+    <button type="button" class="og-layer" data-layer="sea" aria-pressed="true" title="Navires militaires et événements maritimes"><span class="og-layer-dot" style="background:#5f8fa8"></span>Mer <span class="og-layer-count" data-layer-count="sea">0</span></button>
+    <button type="button" class="og-layer" data-layer="space" aria-pressed="true" title="Lancements et rentrées atmosphériques"><span class="og-layer-dot" style="background:#c9ccd3"></span>Espace <span class="og-layer-count" data-layer-count="space">0</span></button>
+    <button type="button" class="og-layer" data-layer="conv" aria-pressed="true" title="Foyers où plusieurs types de signaux se croisent"><span class="og-layer-dot og-ring"></span>Convergences <span class="og-layer-count" data-layer-count="conv">0</span></button>
+  </nav>
+
+  <!-- Panneau d'état et d'alertes -->
+  <button type="button" class="og-panel-pill og-glass" id="og-panel-pill" aria-controls="og-panel" title="Afficher le panneau">
+    <span class="og-dot" style="background:var(--og-crit)"></span><span class="og-num" id="og-pill-count">Alertes</span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg>
   </button>
   <aside class="og-panel" id="og-panel" aria-label="État et alertes">
-    <section class="og-state">
-      <h2 class="og-h">ÉTAT</h2>
-      <div class="og-tiles">
-        <div class="og-tile" id="og-state-tile">
-          <div class="og-tile-title"><span class="og-dot" id="og-state-dot"></span><span id="og-state-label">Chargement…</span></div>
-          <div class="og-tile-sub">snapshot <span id="hdr-lastupdate">--/-- --:--</span></div>
-          <div class="og-tile-sub"><span id="hdr-events">0</span> éléments affichés</div>
-        </div>
-      </div>
-    </section>
+    <header class="og-panel-head">
+      <span class="og-brand">OGMA</span>
+      <span class="og-status" id="og-state-tile"><span class="og-dot" id="og-state-dot"></span><span id="og-state-label">Chargement…</span> · <span id="hdr-lastupdate" class="og-num">--:--</span><span class="og-sr"><span id="hdr-events">0</span> éléments affichés</span></span>
+      <span class="og-head-actions">
+        <button type="button" class="og-icon-btn" id="og-about" title="À propos d'OGMA" aria-label="À propos d'OGMA"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r=".6" fill="currentColor"/></svg></button>
+        <button type="button" class="og-icon-btn" id="og-panel-toggle" aria-controls="og-panel" aria-expanded="true" title="Masquer le panneau" aria-label="Masquer le panneau"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg></button>
+      </span>
+    </header>
 
-    <section class="og-watch" id="og-watch">
-      <div class="og-watch-head">
-        <h2 class="og-h">À SURVEILLER</h2>
-        <span class="og-watch-count" id="og-watch-count"></span>
-      </div>
+    <section class="og-watch" id="og-watch" aria-label="À surveiller">
       <div class="og-chips" role="group" aria-label="Filtrer les alertes">
         <button type="button" class="og-chip" data-chip="all" aria-pressed="true">Tout</button>
-        <button type="button" class="og-chip" data-chip="RUPTURE" aria-pressed="false">Ruptures</button>
-        <button type="button" class="og-chip" data-chip="CONVERGENCE" aria-pressed="false">Convergences</button>
-        <button type="button" class="og-chip" data-chip="TENSION" aria-pressed="false">Tensions</button>
+        <button type="button" class="og-chip" data-chip="TENSION" aria-pressed="false">Tensions<span class="og-num" data-chip-count="TENSION"></span></button>
+        <button type="button" class="og-chip" data-chip="RUPTURE" aria-pressed="false">Ruptures<span class="og-num" data-chip-count="RUPTURE"></span></button>
+        <button type="button" class="og-chip" data-chip="CONVERGENCE" aria-pressed="false">Convergences<span class="og-num" data-chip-count="CONVERGENCE"></span></button>
       </div>
+      <span class="og-watch-count" id="og-watch-count"></span>
       <ul class="og-list" id="og-alerts"></ul>
     </section>
 
     <section class="og-detail" id="og-detail" hidden>
       <button type="button" class="og-back" id="og-back">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Toutes les alertes
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>À surveiller
       </button>
       <div class="og-detail-body" id="og-detail-body"></div>
     </section>
@@ -160,21 +143,21 @@
 
   <div id="maCarte"></div>
 
-  <script charset="utf-8" src="config.js?v=4"></script>
-  <script charset="utf-8" src="vitrine-data.js?v=4"></script>
-  <script charset="utf-8" src="map.js?v=4"></script>
-  <script charset="utf-8" src="ogma-ui.js?v=4"></script>
-  <script charset="utf-8" src="ogma-feed.js?v=4"></script>
-  <script charset="utf-8" src="layer-signal.js?v=4"></script>
-  <script charset="utf-8" src="layer-osint.js?v=4"></script>
-  <script charset="utf-8" src="layer-seismic.js?v=4"></script>
-  <script charset="utf-8" src="layer-tracks.js?v=4"></script>
-  <script charset="utf-8" src="layer-space.js?v=4"></script>
-  <script charset="utf-8" src="layer-news.js?v=4"></script>
-  <script charset="utf-8" src="layer-events.js?v=4"></script>
-  <script charset="utf-8" src="layer-signals.js?v=4"></script>
-  <script charset="utf-8" src="ogma-search.js?v=4"></script>
-  <script charset="utf-8" src="layer-insights.js?v=4"></script>
+  <script charset="utf-8" src="config.js?v=5"></script>
+  <script charset="utf-8" src="vitrine-data.js?v=5"></script>
+  <script charset="utf-8" src="map.js?v=5"></script>
+  <script charset="utf-8" src="ogma-ui.js?v=5"></script>
+  <script charset="utf-8" src="ogma-feed.js?v=5"></script>
+  <script charset="utf-8" src="layer-signal.js?v=5"></script>
+  <script charset="utf-8" src="layer-osint.js?v=5"></script>
+  <script charset="utf-8" src="layer-seismic.js?v=5"></script>
+  <script charset="utf-8" src="layer-tracks.js?v=5"></script>
+  <script charset="utf-8" src="layer-space.js?v=5"></script>
+  <script charset="utf-8" src="layer-news.js?v=5"></script>
+  <script charset="utf-8" src="layer-events.js?v=5"></script>
+  <script charset="utf-8" src="layer-signals.js?v=5"></script>
+  <script charset="utf-8" src="ogma-search.js?v=5"></script>
+  <script charset="utf-8" src="layer-insights.js?v=5"></script>
 
 </body>
 

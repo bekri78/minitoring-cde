@@ -25,36 +25,18 @@ function isUpcomingLaunch(net) {
     return t >= now - 3600000 && t <= now + 86400000;
 }
 
+// Lancement : petit losange clair (halo discret si imminent) ; rentrée : anneau gris
 function rocketIcon(color, pulse) {
-    if (pulse) {
-        return L.divIcon({
-            html: `<div style="position:relative;width:22px;height:22px;display:flex;align-items:center;justify-content:center;">` +
-                  `<div style="position:absolute;top:0;left:0;width:22px;height:22px;border-radius:50%;border:1px solid ${color};animation:rocket-pulse 2.4s cubic-bezier(0,.2,.4,1) infinite;transform-origin:center;"></div>` +
-                  `<div style="position:absolute;top:0;left:0;width:22px;height:22px;border-radius:50%;border:1px solid ${color};animation:rocket-pulse 2.4s cubic-bezier(0,.2,.4,1) 1.2s infinite;transform-origin:center;"></div>` +
-                  `<div style="font-size:13px;line-height:1;transform:rotate(-45deg);position:relative;">🚀</div>` +
-                  `</div>`,
-            iconSize: [22, 22],
-            iconAnchor: [11, 11],
-            popupAnchor: [0, -13],
-            className: ''
-        });
-    }
     return L.divIcon({
-        html: `<div style="font-size:13px;line-height:1;transform:rotate(-45deg);display:inline-block;">🚀</div>`,
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
-        popupAnchor: [0, -10],
-        className: ''
+        html: '<span class="og-space' + (pulse ? ' og-space-soon' : '') + '"><span class="og-space-mark"></span></span>',
+        iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -9], className: ''
     });
 }
 
 function debrisIcon() {
     return L.divIcon({
-        html: `<div style="font-size:13px;line-height:1;opacity:0.7;">☄️</div>`,
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
-        popupAnchor: [0, -10],
-        className: ''
+        html: '<span class="og-space"><span class="og-space-ring"></span></span>',
+        iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -9], className: ''
     });
 }
 

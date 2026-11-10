@@ -202,7 +202,7 @@ async function openSignalsReport(zoneId) {
                 .replace(/^#{3,4} (.+)$/gm, '<span style="display:block;color:#66eecc;font-weight:bold;font-size:11px;letter-spacing:1px;margin-top:6px;">$1</span>')
                 .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#00d4ff;letter-spacing:1px;">$1</strong>')
                 .replace(/\n/g, '<br>');
-        });
+        }, null, { profile: 'brief' });
     } catch (e) {
         if (!_signalsModalAbort) {
             reportEl.textContent = '[Erreur : ' + (e.message || e) + ']';

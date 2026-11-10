@@ -1,4 +1,4 @@
-/* Vitrine publique : pas de traduction IA dans les popups */
+﻿/* Vitrine publique : pas de traduction IA dans les popups */
 button[onclick*="Translate"] { display: none !important; }
 
 /* Attribution du fond de carte, discrète et lisible sur fond sombre */
@@ -9,3 +9,6 @@ button[onclick*="Translate"] { display: none !important; }
     font-size: 9px;
 }
 .leaflet-control-attribution a { color: #4a8aaa !important; }
+
+/* Pas d'analyste IA dans la version publique */
+.og-d-ask { display: none !important; }

@@ -17,3 +17,6 @@
     margin: 0 !important; padding:  0 !important; border: 0px !important;
 }
 .leaflet-control-attribution { display: none !important; }
+
+/* SharePoint impose une largeur minimale aux boutons : on la neutralise */
+button { min-width: auto !important; }

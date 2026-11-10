@@ -45,8 +45,11 @@ function trackIcon(t) {
         const rotation = t.heading != null ? t.heading - 90 : 0;
         html = `<div style="font-size:24px;line-height:1;color:${color};transform:rotate(${rotation}deg);display:inline-block;">\u2708</div>`;
     }
+    // Point discret de loin, silhouette de près (classe og-near sur la carte)
+    const far = t.domain === 'sea' ? '#5f8fa8' : '#7c8db5';
+    const adv = ADVERSARY_COUNTRIES.has(t.country);
     return L.divIcon({
-        html: html,
+        html: '<span class="og-trk"><span class="og-trk-dot" style="background:' + (adv ? '#f2994a' : far) + '"></span><span class="og-trk-full">' + html + '</span></span>',
         iconSize: [28, 24],
         iconAnchor: [14, 12],
         popupAnchor: [0, -10],
@@ -257,8 +260,8 @@ function openSitrep() {
             .replace(/^#{3,4} (.+)$/gm, '<span style="display:block;color:#ffcc44;font-weight:bold;font-size:11px;letter-spacing:1px;margin-top:6px;">$1</span>')
             .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#ff8800;letter-spacing:1px;">$1</strong>')
             .replace(/\n/g, '<br>');
-    }).catch(function (e) {
-        if (!_sitrepAbort) reportEl.textContent = '[Erreur : ' + (e.message || e) + ']';
+    }, null, { profile: 'brief' }).catch(function (e) {
+        if (!_sitrepAbort) reportEl.textContent = 'Point de situation indisponible : ' + (e.message || e) + '.';
     });
 }
 

@@ -39,10 +39,9 @@
     function setPanel(open) {
         document.body.classList.toggle('og-panel-closed', !open);
         const t = $('og-panel-toggle');
-        if (t) {
-            t.setAttribute('aria-expanded', open ? 'true' : 'false');
-            t.title = open ? 'Masquer la barre d’état' : 'Afficher la barre d’état';
-        }
+        if (t) t.setAttribute('aria-expanded', open ? 'true' : 'false');
+        const pill = $('og-panel-pill');
+        if (pill) pill.setAttribute('aria-expanded', open ? 'true' : 'false');
         try { localStorage.setItem('ogma-panel', open ? 'open' : 'closed'); } catch (e) { /* confort */ }
         if (typeof maCarte !== 'undefined' && maCarte) setTimeout(function () { maCarte.invalidateSize(); }, 220);
     }
@@ -52,7 +51,9 @@
         try { const v = localStorage.getItem('ogma-panel'); if (v) open = v === 'open'; } catch (e) { /* confort */ }
         setPanel(open);
         const t = $('og-panel-toggle');
-        if (t) t.addEventListener('click', function () { setPanel(document.body.classList.contains('og-panel-closed')); });
+        if (t) t.addEventListener('click', function () { setPanel(false); });
+        const pill = $('og-panel-pill');
+        if (pill) pill.addEventListener('click', function () { setPanel(true); });
     }
 
     // ── État des données (lu dans l'info-bulle tenue par ogma-sync.js) ──
@@ -86,7 +87,7 @@
         syncState();
         const tile = $('og-brief-tile');
         if (tile) {
-            if (typeof openBrief !== 'function') { tile.remove(); const s = $('og-state-tile'); if (s) s.style.gridColumn = '1 / -1'; return; }
+            if (typeof openBrief !== 'function') { const f = $('og-actions'); if (f) f.remove(); return; }
             tile.addEventListener('click', function () { openBrief(false); });
             refreshBrief();
             setInterval(refreshBrief, 10 * 60 * 1000);
@@ -99,12 +100,11 @@
         if (!t || typeof _briefReadToday !== 'function') return;
         try {
             const r = await _briefReadToday();
+            t.textContent = 'Brief du jour';
             if (r && r.at) {
                 const d = new Date(r.at);
-                t.textContent = 'Brief ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-                s.innerHTML = 'partagé · <span class="og-dr">DR</span>';
+                s.innerHTML = '<span class="og-num">' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + '</span> · partagé · <span class="og-dr">DR</span>';
             } else {
-                t.textContent = 'Brief du jour';
                 s.textContent = 'pas encore généré';
             }
         } catch (e) {
@@ -121,17 +121,28 @@
         const out = [];
         const inZone = function (lat, lon) { return typeof theatreContains !== 'function' || theatreContains(lat, lon); };
 
+        // Ruptures : une ligne par pays (la plus forte), les autres catégories en complément
+        const byCountry = {};
         (typeof _lastRuptures !== 'undefined' ? _lastRuptures : []).forEach(function (r) {
             if (!inZone(r.lat, r.lon)) return;
-            const strong = r.level === 'forte';
+            const k = r.countryCode || r.country;
+            (byCountry[k] = byCountry[k] || []).push(r);
+        });
+        const ratio = function (r) { return (r.kind === 'emergence' || r.ratio == null) ? 'nouveau' : '×' + fr(r.ratio); };
+        Object.keys(byCountry).forEach(function (k) {
+            const group = byCountry[k].slice().sort(function (a, b) { return (b.z || 0) - (a.z || 0); });
+            const r = group[0], others = group.slice(1);
+            const strong = group.some(function (x) { return x.level === 'forte'; });
             out.push({
                 kind: 'RUPTURE', sev: strong ? 3 : 2, color: strong ? 'var(--og-crit)' : 'var(--og-warn)',
                 valueColor: strong ? 'var(--og-crit-text)' : 'var(--og-warn-text)',
-                title: (r.country || r.countryCode) + ' · ' + (CAT[r.category] || r.category),
-                meta: r.today + ' signaux en 24 h · normale ' + fr(r.baseline) + '/j',
-                value: (r.kind === 'emergence' || r.ratio == null) ? 'nouveau' : '×' + fr(r.ratio),
+                title: ogmaFr(r.country || r.countryCode) + ' — ' + (CAT[r.category] || r.category),
+                meta: others.length
+                    ? 'aussi : ' + others.map(function (o) { return (CAT[o.category] || o.category) + ' ' + ratio(o); }).join(' · ')
+                    : r.today + ' signaux · normale ' + fr(r.baseline) + '/j',
+                value: ratio(r),
                 rank: r.z || 0,
-                open: function () { showRupture(r); }
+                open: function () { showRupture(r, others); }
             });
         });
 
@@ -140,8 +151,8 @@
             const n = (c.types || []).length;
             const labels = (c.types || []).map(function (t) { return (CONV_TYPE_LABEL[t] || [null, t])[1].toLowerCase(); });
             out.push({
-                kind: 'CONVERGENCE', sev: n >= 4 ? 3 : 2, color: '#ff3dbb', diamond: true, valueColor: '#ff8ad6',
-                title: (c.label || 'Zone') + ' · convergence',
+                kind: 'CONVERGENCE', sev: n >= 4 ? 3 : 2, color: 'var(--og-accent-soft)', diamond: true, valueColor: 'var(--og-accent-text)',
+                title: ogmaFr(c.label || 'Zone'),
                 meta: labels.join(', '),
                 value: n + ' types', rank: n * 10,
                 open: function () { showConvergence(c); }
@@ -151,14 +162,14 @@
         (typeof _signalsZonesCache !== 'undefined' ? _signalsZonesCache : []).forEach(function (z) {
             if (!inZone(z.lat, z.lng)) return;
             const cnt = z.event_count || 0;
-            const lvl = cnt > 100 ? ['CRITIQUE', 3, 'var(--og-crit)', 'var(--og-crit-text)']
-                      : cnt > 50 ? ['ÉLEVÉ', 2, 'var(--og-warn)', 'var(--og-warn-text)']
-                      : cnt > 20 ? ['MOYEN', 1, 'var(--og-accent)', 'var(--og-accent-soft)']
-                      : ['FAIBLE', 0, 'var(--og-faint)', 'var(--og-muted)'];
+            const lvl = cnt > 100 ? ['Critique', 3, 'var(--og-crit)', 'var(--og-crit-text)']
+                      : cnt > 50 ? ['Élevé', 2, 'var(--og-warn)', 'var(--og-warn-text)']
+                      : cnt > 20 ? ['Moyen', 1, '#8a8f98', 'var(--og-text)']
+                      : ['Faible', 0, 'var(--og-faint)', 'var(--og-muted)'];
             const zid = String(z.id || z.location_name || '');
             out.push({
                 kind: 'TENSION', sev: lvl[1], color: lvl[2], valueColor: lvl[3],
-                title: z.location_name || z.country || zid,
+                title: ogmaFr(z.location_name || z.country || zid),
                 meta: cnt + ' signaux' + (z.zone_count > 1 ? ' · ' + z.zone_count + ' zones' : ''),
                 value: lvl[0], rank: cnt / 10,
                 open: function () { if (typeof openSignalsReport === 'function') openSignalsReport(zid); }
@@ -168,30 +179,51 @@
         return out.sort(function (a, b) { return b.sev - a.sev || b.rank - a.rank; });
     }
 
+    // Ordre des groupes dans « Tout » : les tensions d'abord (les plus significatives)
+    const GROUPS = [['TENSION', 'Tensions'], ['RUPTURE', 'Ruptures'], ['CONVERGENCE', 'Convergences']];
+
     function renderAlerts() {
         const list = $('og-alerts');
-        if (!list || detailOpen) return;
+        if (!list) return;
         const all = collect();
-        const shown = all.filter(function (a) { return chip === 'all' || a.kind === chip; });
+        const byKind = {};
+        GROUPS.forEach(function (g) { byKind[g[0]] = all.filter(function (a) { return a.kind === g[0]; }); });
+        const pill = $('og-pill-count');
+        if (pill) pill.textContent = all.length + ' alerte' + (all.length > 1 ? 's' : '');
         const count = $('og-watch-count');
         if (count) count.textContent = '24 h · ' + all.length;
+        Array.prototype.forEach.call(document.querySelectorAll('[data-chip-count]'), function (el) {
+            const n = (byKind[el.getAttribute('data-chip-count')] || []).length;
+            el.textContent = n ? String(n) : '';
+        });
+        if (detailOpen) return;
         Array.prototype.forEach.call(document.querySelectorAll('[data-chip]'), function (c) {
             c.setAttribute('aria-pressed', c.getAttribute('data-chip') === chip ? 'true' : 'false');
+        });
+        const sections = chip === 'all' ? GROUPS.filter(function (g) { return byKind[g[0]].length; })
+                                        : GROUPS.filter(function (g) { return g[0] === chip; });
+        const shown = [];
+        let html = '';
+        sections.forEach(function (g) {
+            const items = byKind[g[0]];
+            if (chip === 'all') html += '<li class="og-group" aria-hidden="true"><span>' + g[1] + '</span><span class="og-num">' + items.length + '</span></li>';
+            items.forEach(function (a) {
+                const i = shown.push(a) - 1;
+                html += '<li><button type="button" class="og-alert" data-alert="' + i + '">'
+                    + '<span class="og-alert-mark' + (a.diamond ? ' og-diamond' : '') + '" style="background:' + a.color + '"></span>'
+                    + '<span class="og-alert-body"><span class="og-alert-title">' + esc(a.title) + '</span>'
+                    + '<span class="og-alert-meta">' + esc(a.meta) + '</span></span>'
+                    + '<span class="og-alert-score"><span class="og-alert-value" style="color:' + a.valueColor + '">' + esc(a.value) + '</span>'
+                    + '<span class="og-alert-kind">' + a.kind + '</span></span>'
+                    + '</button></li>';
+            });
         });
         if (!shown.length) {
             const zone = typeof _zone !== 'undefined' && _zone;
             list.innerHTML = '<li class="og-empty">' + (zone ? 'Rien à signaler dans la zone recherchée.' : 'Aucune activité inhabituelle.') + '</li>';
             return;
         }
-        list.innerHTML = shown.map(function (a, i) {
-            return '<li><button type="button" class="og-alert" data-alert="' + i + '">'
-                + '<span class="og-alert-mark' + (a.diamond ? ' og-diamond' : '') + '" style="background:' + a.color + '"></span>'
-                + '<span class="og-alert-body"><span class="og-alert-title">' + esc(a.title) + '</span>'
-                + '<span class="og-alert-meta">' + esc(a.meta) + '</span></span>'
-                + '<span class="og-alert-score"><span class="og-alert-value" style="color:' + a.valueColor + '">' + esc(a.value) + '</span>'
-                + '<span class="og-alert-kind">' + a.kind + '</span></span>'
-                + '</button></li>';
-        }).join('');
+        list.innerHTML = html;
         Array.prototype.forEach.call(list.querySelectorAll('[data-alert]'), function (b) {
             b.addEventListener('click', function () { shown[Number(b.getAttribute('data-alert'))].open(); });
         });
@@ -238,12 +270,12 @@
             const items = ((c.items && c.items[t]) || []).slice(0, 3).map(function (it) {
                 return '<li>' + esc(String(it.label || it.id || '').substring(0, 110)) + '</li>';
             }).join('');
-            return '<div class="og-d-type"><div class="og-d-type-head"><span>' + lbl[0] + '</span><span>' + esc(lbl[1]) + '</span>'
+            return '<div class="og-d-type"><div class="og-d-type-head"><span>' + esc(lbl[1]) + '</span>'
                 + '<span>× ' + ((c.counts && c.counts[t]) || 0) + '</span></div>' + (items ? '<ul>' + items + '</ul>' : '') + '</div>';
         }).join('');
         showDetail('<div class="og-d">'
-            + '<div class="og-d-tags"><span class="og-d-tag og-d-conv">CONVERGENCE</span><span class="og-d-kind">' + (c.types || []).length + ' TYPES DE SIGNAUX</span></div>'
-            + '<h3 class="og-d-title">' + esc(c.label || 'Zone') + '</h3>'
+            + '<div class="og-d-tags"><span class="og-d-tag og-d-conv">Convergence · ' + (c.types || []).length + ' types de signaux</span></div>'
+            + '<h3 class="og-d-title">' + esc(ogmaFr(c.label || 'Zone')) + '</h3>'
             + '<p class="og-d-text">Plusieurs sources indépendantes se croisent dans un rayon d\u2019environ 200 km : à examiner en priorité.</p>'
             + '<div class="og-d-types">' + types + '</div></div>');
     };
@@ -278,8 +310,27 @@
         initState();
         initWatch();
         initShortcut();
+        // Jeton GeniAL : prévenir 21 jours avant l'expiration (sinon brief et analyste tombent en panne)
+        const actions = $('og-actions');
+        const tok = APP.Genial && APP.Genial.tokenInfo ? APP.Genial.tokenInfo() : null;
+        if (actions && tok && tok.daysLeft != null && tok.daysLeft <= 21) {
+            const warn = document.createElement('div');
+            warn.className = 'og-token-warn';
+            warn.id = 'og-token-warn';
+            warn.textContent = tok.expired
+                ? 'Jeton GeniAL expiré : brief et analyste indisponibles. À renouveler dans config.js.'
+                : 'Le jeton GeniAL expire dans ' + tok.daysLeft + ' jour' + (tok.daysLeft > 1 ? 's' : '') + ' (' + tok.expiresAt.toLocaleDateString('fr-FR') + ').';
+            actions.parentNode.insertBefore(warn, actions);
+        }
         const back = $('og-back');
         if (back) back.addEventListener('click', closeDetail);
+        const focusClear = $('og-focus-clear');
+        if (focusClear) focusClear.addEventListener('click', closeDetail);
+        const body = $('og-detail-body');
+        if (body) body.addEventListener('click', function (e) {
+            const b = e.target.closest('[data-ask]');
+            if (b && window.OgmaAgent) OgmaAgent.ask(b.getAttribute('data-ask'));
+        });
         const about = $('og-about');
         if (about) about.addEventListener('click', function () { const m = $('about-modal'); if (m) m.style.display = 'flex'; });
         renderAlerts();
