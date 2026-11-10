@@ -171,9 +171,99 @@ function renderRuptures(list) {
     Array.prototype.forEach.call(el.querySelectorAll('[data-rupture]'), function (row) {
         row.addEventListener('click', function () {
             const r = shown[Number(row.getAttribute('data-rupture'))];
-            if (r && typeof r.lat === 'number') maCarte.flyTo([r.lat, r.lon], 5, { duration: 0.8 });
+            if (r) showRupture(r);
         });
     });
+}
+
+// ── Détail d'une rupture : on cadre le pays sur ses événements et on explique ──
+const ruptureFocusLayer = L.layerGroup();
+
+function _ruptureEvents(r) {
+    const all = (window.APP && APP.Sync && APP.Sync.current && APP.Sync.current.data && APP.Sync.current.data.osint) || [];
+    const byId = {};
+    all.forEach(function (e) { byId[String(e.id)] = e; });
+    return (r.eventIds || []).map(function (id) { return byId[String(id)]; }).filter(Boolean);
+}
+
+function _distKm(aLat, aLon, bLat, bLon) {
+    const R = 6371, t = Math.PI / 180;
+    const dLat = (bLat - aLat) * t, dLon = (bLon - aLon) * t;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * t) * Math.cos(bLat * t) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function _fr(n) { return String(n).replace('.', ','); }
+
+function _ruptureExplain(r, events) {
+    const cat = RUPTURE_CATEGORY_LABEL[r.category] || r.category;
+    const color = r.level === 'forte' ? '#ff2244' : '#ffaa00';
+    let why;
+    if (r.kind === 'emergence' || r.ratio == null) {
+        why = '<b>' + r.today + '</b> signaux « ' + escapeHtml(cat) + ' » en 24 h, alors que ce pays n\u2019en produit presque jamais (normale : '
+            + _fr(r.baseline) + ' par jour sur les 28 derniers jours).';
+    } else {
+        why = '<b>' + r.today + '</b> signaux « ' + escapeHtml(cat) + ' » en 24 h contre <b>' + _fr(r.baseline)
+            + '</b> par jour en moyenne sur les 28 derniers jours, soit <b>' + _fr(r.ratio) + ' fois</b> la normale.';
+    }
+    const strength = r.level === 'forte'
+        ? 'Écart très au-delà des variations habituelles (' + _fr(r.z) + ' écarts-types).'
+        : 'Écart net par rapport aux variations habituelles (' + _fr(r.z) + ' écarts-types).';
+    const places = (r.places || []).length
+        ? '<div style="margin-top:6px;color:#8aa0b0;">Lieux cités : ' + r.places.map(function (p) { return escapeHtml(p.name) + ' (' + p.count + ')'; }).join(', ') + '</div>'
+        : '';
+    const list = events.length
+        ? '<div style="margin-top:8px;border-top:1px solid #1a2a3a;padding-top:6px;color:#4a6a7a;font-size:8px;letter-spacing:0.1em;">PRINCIPAUX SIGNAUX</div>'
+          + events.slice(0, 6).map(function (e) {
+                const t = escapeHtml(e.titleFr || e.title || '(sans titre)');
+                const src = e.domain ? ' <span style="color:#4a6a7a;">— ' + escapeHtml(e.domain) + '</span>' : '';
+                return '<div style="margin-top:4px;line-height:1.35;">• '
+                    + (e.url ? '<a href="' + escapeHtml(e.url) + '" target="_blank" rel="noopener" style="color:#c8d8e8;">' + t + '</a>' : t) + src + '</div>';
+            }).join('')
+        : '<div style="margin-top:8px;color:#4a6a7a;">Détail des signaux indisponible dans ce snapshot.</div>';
+    return '<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:#c8d8e8;max-width:320px;">'
+        + '<div style="color:' + color + ';font-size:9px;letter-spacing:0.1em;margin-bottom:6px;">▲ RUPTURE ' + (r.level === 'forte' ? 'FORTE' : 'NOTABLE') + '</div>'
+        + '<div style="font-size:12px;margin-bottom:6px;">' + escapeHtml(r.country) + ' · ' + escapeHtml(cat) + '</div>'
+        + '<div style="line-height:1.45;">' + why + '</div>'
+        + '<div style="margin-top:4px;color:#8aa0b0;">' + strength + '</div>'
+        + places + list
+        + '<div style="margin-top:8px;color:#4a6a7a;font-size:8px;">Les cercles sur la carte montrent où ces signaux sont localisés.</div>'
+        + '</div>';
+}
+
+function showRupture(r) {
+    const events = _ruptureEvents(r);
+    ruptureFocusLayer.clearLayers();
+    if (!maCarte.hasLayer(ruptureFocusLayer)) ruptureFocusLayer.addTo(maCarte);
+
+    // On garde les signaux proches du centre de la rupture (un article mal géolocalisé
+    // à l'autre bout du monde ne doit pas faire dézoomer la carte)
+    const hasCenter = typeof r.lat === 'number' && typeof r.lon === 'number';
+    const pts = events.filter(function (e) {
+        return typeof e.lat === 'number' && typeof e.lon === 'number'
+            && (!hasCenter || _distKm(r.lat, r.lon, e.lat, e.lon) < 1500);
+    });
+    const color = r.level === 'forte' ? '#ff2244' : '#ffaa00';
+    pts.forEach(function (e) {
+        ruptureFocusLayer.addLayer(L.circleMarker([e.lat, e.lon], { radius: 9, color: color, weight: 2, fillOpacity: 0.15, interactive: false }));
+    });
+
+    const center = hasCenter ? [r.lat, r.lon] : (pts.length ? [pts[0].lat, pts[0].lon] : null);
+    if (!center) return;
+    const popup = L.popup({ maxWidth: 340, autoPan: true }).setLatLng(center).setContent(_ruptureExplain(r, events));
+    const open = function () { popup.openOn(maCarte); };
+    if (pts.length >= 2) {
+        const b = L.latLngBounds(pts.map(function (e) { return [e.lat, e.lon]; })).extend(center);
+        maCarte.flyToBounds(b.pad(0.3), { maxZoom: 7, duration: 0.8 });
+    } else {
+        maCarte.flyTo(center, 6, { duration: 0.8 });
+    }
+    let opened = false;
+    const openOnce = function () { if (!opened) { opened = true; open(); } };
+    maCarte.once('moveend', openOnce);
+    setTimeout(openOnce, 1500);   // carte déjà cadrée : pas d'événement moveend
+    // les cercles disparaissent à la fermeture de la fiche
+    popup.on && popup.on('remove', function () { ruptureFocusLayer.clearLayers(); });
 }
 
 // ── Point d'entrée appelé par ogma-feed.js ───────────────────

@@ -105,6 +105,12 @@ function buildDecayContent(obj) {
         <div style="font-size:9px;color:${color};border-top:1px solid #1a2a3a;padding-top:6px;margin-top:6px;">
             Rentr\u00e9e estim\u00e9e : ${escapeHtml(whenTxt + window)}
         </div>
+        <div style="font-size:8px;color:#4a6a7a;margin-top:6px;line-height:1.4;">
+            ${obj.highInterest !== undefined
+                ? 'Position : point de rentr\u00e9e calcul\u00e9 (bulletin TIP).'
+                : 'Position : pays propri\u00e9taire de l\u2019objet. Le point de chute n\u2019est pas encore calcul\u00e9.'}
+            ${obj.kind ? '<br>Type : ' + escapeHtml(obj.kind) + (obj.rcsSize ? ' (taille ' + escapeHtml(String(obj.rcsSize).toLowerCase()) + ')' : '') : ''}
+        </div>
     `);
 }
 
@@ -112,7 +118,21 @@ function renderSpace(spaceData) {
     spaceLayer.clearLayers();
     _injectSpaceCSS();
     const launches  = (spaceData.launches  || []).concat(spaceData.previous || []);
-    const decayList = (spaceData.decay     || []).concat(spaceData.tip      || []);
+    // TIP (point de chute calculé) prioritaire ; un objet présent dans les deux n'apparaît qu'une fois
+    // Un objet = un seul point : bulletin le plus récent, TIP prioritaire sur DECAY
+    // (Space-Track renvoie une ligne par mise à jour de la prévision).
+    function latest(list) {
+        const byId = {};
+        (list || []).forEach(function (o) {
+            const k = String(o.id), p = byId[k];
+            if (!p || String(o.msgEpoch || '') > String(p.msgEpoch || '')) byId[k] = o;
+        });
+        return byId;
+    }
+    const tips  = latest(spaceData.tip);
+    const decs  = latest(spaceData.decay);
+    const decayList = Object.keys(tips).map(function (k) { return tips[k]; })
+        .concat(Object.keys(decs).filter(function (k) { return !tips[k]; }).map(function (k) { return decs[k]; }));
 
     launches.forEach(function (lc) {
         const pad = lc.pad || {};
@@ -126,13 +146,12 @@ function renderSpace(spaceData) {
         spaceLayer.addLayer(marker);
     });
 
-    decayList.forEach(function (obj, i) {
-        // Position réelle quand elle existe (TIP : point de rentrée prévu ;
-        // DECAY : pays de lancement), sinon répartition régulière lisible.
-        const hasPos = typeof obj.lat === 'number' && typeof obj.lon === 'number';
-        const lat = hasPos ? obj.lat : ((i % 13) - 6) * 8;
-        const lon = hasPos ? obj.lon : ((i * 37) % 360) - 180;
-        const marker = L.marker([lat, lon], { icon: debrisIcon(), zIndexOffset: -300 });
+    decayList.forEach(function (obj) {
+        // TIP : point de rentrée prévu. DECAY : seulement le pays propriétaire
+        // (indiqué dans la fiche). Sans position connue, l'objet n'est pas placé
+        // au hasard sur la carte.
+        if (typeof obj.lat !== 'number' || typeof obj.lon !== 'number') return;
+        const marker = L.marker([obj.lat, obj.lon], { icon: debrisIcon(), zIndexOffset: -300 });
         marker.bindPopup(buildDecayContent(obj), { maxWidth: 300 });
         spaceLayer.addLayer(marker);
     });
