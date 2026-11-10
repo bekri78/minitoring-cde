@@ -27,7 +27,14 @@ test('ruptures : hausse nette détectée, variation normale ignorée', () => {
   const ir = r.find(x => x.id === 'rupture-IR-conflict');
   assert.strictEqual(ir.today, 15);
   assert.ok(ir.ratio >= 4 && ir.z >= 2);
-  assert.ok(typeof ir.lat === 'number' && ir.eventIds.length === 5);
+  assert.ok(typeof ir.lat === 'number' && ir.eventIds.length === 8);
+  assert.deepStrictEqual(ir.places, [{ name: 'Ville', count: 15 }]);
+});
+
+test('ruptures : un événement mal placé ne déplace pas le point', () => {
+  const today = [...evs('IR', 14), ...evs('IR', 1, 'conflict', { lat: 38.9, lon: -77 })];   // un point à Washington
+  const ir = computeRuptures(today, baseline).find(x => x.id === 'rupture-IR-conflict');
+  assert.ok(Math.abs(ir.lat - 30) < 1 && Math.abs(ir.lon - 50) < 1, ir.lat + ',' + ir.lon);
 });
 
 test('ruptures : émergence d\'un pays absent de la normale, avec seuil plus haut', () => {
