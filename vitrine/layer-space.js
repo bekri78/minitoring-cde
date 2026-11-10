@@ -106,9 +106,7 @@ function buildDecayContent(obj) {
             Rentr\u00e9e estim\u00e9e : ${escapeHtml(whenTxt + window)}
         </div>
         <div style="font-size:8px;color:#4a6a7a;margin-top:6px;line-height:1.4;">
-            ${obj.highInterest !== undefined
-                ? 'Position : point de rentr\u00e9e calcul\u00e9 (bulletin TIP).'
-                : 'Position : pays propri\u00e9taire de l\u2019objet. Le point de chute n\u2019est pas encore calcul\u00e9.'}
+            Position : point de rentr\u00e9e calcul\u00e9 par Space-Track (bulletin TIP).
             ${obj.kind ? '<br>Type : ' + escapeHtml(obj.kind) + (obj.rcsSize ? ' (taille ' + escapeHtml(String(obj.rcsSize).toLowerCase()) + ')' : '') : ''}
         </div>
     `);
@@ -119,20 +117,15 @@ function renderSpace(spaceData) {
     _injectSpaceCSS();
     const launches  = (spaceData.launches  || []).concat(spaceData.previous || []);
     // TIP (point de chute calculé) prioritaire ; un objet présent dans les deux n'apparaît qu'une fois
-    // Un objet = un seul point : bulletin le plus récent, TIP prioritaire sur DECAY
-    // (Space-Track renvoie une ligne par mise à jour de la prévision).
-    function latest(list) {
-        const byId = {};
-        (list || []).forEach(function (o) {
-            const k = String(o.id), p = byId[k];
-            if (!p || String(o.msgEpoch || '') > String(p.msgEpoch || '')) byId[k] = o;
-        });
-        return byId;
-    }
-    const tips  = latest(spaceData.tip);
-    const decs  = latest(spaceData.decay);
-    const decayList = Object.keys(tips).map(function (k) { return tips[k]; })
-        .concat(Object.keys(decs).filter(function (k) { return !tips[k]; }).map(function (k) { return decs[k]; }));
+    // Seuls les objets dont Space-Track a calculé le point de rentrée (bulletin TIP)
+    // sont placés : une prévision DECAY ne donne qu'une date, pas de lieu.
+    // Un objet = un seul point, bulletin le plus récent.
+    const byId = {};
+    (spaceData.tip || []).forEach(function (o) {
+        const k = String(o.id), p = byId[k];
+        if (!p || String(o.msgEpoch || '') > String(p.msgEpoch || '')) byId[k] = o;
+    });
+    const decayList = Object.keys(byId).map(function (k) { return byId[k]; });
 
     launches.forEach(function (lc) {
         const pad = lc.pad || {};
@@ -147,9 +140,6 @@ function renderSpace(spaceData) {
     });
 
     decayList.forEach(function (obj) {
-        // TIP : point de rentrée prévu. DECAY : seulement le pays propriétaire
-        // (indiqué dans la fiche). Sans position connue, l'objet n'est pas placé
-        // au hasard sur la carte.
         if (typeof obj.lat !== 'number' || typeof obj.lon !== 'number') return;
         const marker = L.marker([obj.lat, obj.lon], { icon: debrisIcon(), zIndexOffset: -300 });
         marker.bindPopup(buildDecayContent(obj), { maxWidth: 300 });
