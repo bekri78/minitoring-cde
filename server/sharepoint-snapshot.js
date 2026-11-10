@@ -90,6 +90,11 @@ function buildSnapshot(src) {
       tip:      arr(tip.objects),
     },
     history:           arr(src.history()),
+    // Analyses croisées (facultatives : absentes des anciens snapshots)
+    ruptures:          src.ruptures ? arr(src.ruptures(events)) : [],
+    convergences:      src.convergences ? arr(src.convergences({
+                         tracks: arr(tracks.tracks), events, news: arr(news.events), anomalies: arr(anomal.anomalies),
+                       })) : [],
   };
 
   const sources = {
@@ -171,6 +176,10 @@ function createSnapshotHandler(src) {
     if (memo && Date.now() - memo.at < SNAPSHOT_TTL_MS) return memo;
     const snapshot = buildSnapshot(src);
     const json = JSON.stringify(snapshot);
+    const d = snapshot.data;
+    console.log('[snapshot] ' + Math.round(json.length / 1024) + ' Ko · ruptures: '
+      + d.ruptures.slice(0, 5).map(r => r.country + '/' + r.category + ' ' + r.today + ' vs ' + r.baseline).join(', ')
+      + ' · convergences: ' + d.convergences.slice(0, 5).map(c => (c.label || '?') + ' [' + c.types.join('+') + ']').join(', '));
     memo = { at: Date.now(), snapshot, json, gzip: zlib.gzipSync(json) };
     return memo;
   }

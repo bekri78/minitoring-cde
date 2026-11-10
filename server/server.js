@@ -27,6 +27,7 @@ const { fetchGoogleNewsEvents, getCache: getNewsCache, getNewsEventsForMap } = r
 const { fetchTodayEvents: fetchTodayEventsFromFiles, isCameoFallbackTitle, purgeSnapshot } = require('./gdelt-files');
 const { enrichEvents }                                                       = require('./enrich');
 const { createSnapshotHandler }                                              = require('./sharepoint-snapshot');
+const { computeRuptures, loadBaselineCounts, computeConvergences }           = require('./insights');
 
 const app      = express();
 const PORT     = process.env.PORT || 3000;
@@ -675,7 +676,29 @@ publicRouter.get('/sharepoint/snapshot', createSnapshotHandler({
   decay:             () => getDecayCache(),
   tip:               () => getTipCache(),
   history:           () => readHistorySummary(),
+  ruptures:          (events) => computeRuptures(events, loadBaselineCounts(CACHE_DIR, todayStamp())),
+  convergences:      (input) => computeConvergences(input),
 }));
+
+function todayStamp() { return new Date().toISOString().slice(0, 10).replace(/-/g, ''); }
+
+// Analyses croisées seules (vitrine publique, outils externes)
+publicRouter.get('/insights', (_req, res) => {
+  try {
+    const events = cache.events || [];
+    const shipCache = getShipCache();
+    const pipe = runPipeline({ aircraft: getMilCache().aircraft || [], ships: shipCache.ships || [] });
+    res.json(publicEnvelope('insights', {
+      ruptures: computeRuptures(events, loadBaselineCounts(CACHE_DIR, todayStamp())),
+      convergences: computeConvergences({
+        tracks: pipe.tracks, events, news: getNewsEventsForMap(),
+        anomalies: getMaritimeAnomalies().anomalies || [],
+      }),
+    }, { lastUpdate: cache.lastUpdate }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.use('/api/public', publicRouter);
 

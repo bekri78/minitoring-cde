@@ -123,7 +123,8 @@ async function fetchDecay() {
     const nowStr    = now.toISOString().slice(0, 10);
     const futureStr = future.toISOString().slice(0, 10);
 
-    const url = `${BASE_URL}/class/decay/DECAY_EPOCH/%3E${nowStr}/DECAY_EPOCH/%3C${futureStr}/orderby/DECAY_EPOCH%20asc/limit/100/format/json`;
+    // Période au format Space-Track « début--fin » (répéter DECAY_EPOCH n'appliquait qu'un critère)
+    const url = `${BASE_URL}/class/decay/DECAY_EPOCH/${nowStr}--${futureStr}/orderby/DECAY_EPOCH%20asc/limit/200/format/json`;
 
     console.log('[spacetrack] fetching DECAY...');
     let resp = await fetch(url, { headers: { Cookie: sessionCookie } });
@@ -145,7 +146,7 @@ async function fetchDecay() {
     cache.objects    = rows.map(normalizeDecay).filter(Boolean);
     cache.lastUpdate = new Date().toISOString();
 
-    console.log(`[spacetrack] ok — ${rows.length} lignes reçues, ${cache.objects.length} objets DECAY retenus`);
+    console.log(`[spacetrack] ok — ${rows.length} lignes reçues (${rows[0]?.DECAY_EPOCH || '-'} → ${rows[rows.length - 1]?.DECAY_EPOCH || '-'}), ${cache.objects.length} objets DECAY retenus`);
   } catch (err) {
     console.error('[spacetrack] fetchDecay failed:', err.message);
   } finally {
@@ -236,7 +237,8 @@ async function fetchTip() {
     const nowStr    = now.toISOString().slice(0, 10);
     const futureStr = future.toISOString().slice(0, 10);
 
-    const url = `${BASE_URL}/class/tip/DECAY_EPOCH/%3E${nowStr}/DECAY_EPOCH/%3C${futureStr}/orderby/DECAY_EPOCH%20asc/limit/100/format/json`;
+    // Période au format Space-Track « début--fin »
+    const url = `${BASE_URL}/class/tip/DECAY_EPOCH/${nowStr}--${futureStr}/orderby/DECAY_EPOCH%20asc/limit/200/format/json`;
 
     console.log('[spacetrack-tip] fetching TIP...');
     let resp = await fetch(url, { headers: { Cookie: sessionCookie } });
@@ -255,7 +257,7 @@ async function fetchTip() {
     const rows = Array.isArray(data) ? data : [];
 
     tipCache.objects    = rows.map(normalizeTip).filter(Boolean);
-    console.log(`[spacetrack-tip] ${rows.length} lignes reçues`);
+    console.log(`[spacetrack-tip] ${rows.length} lignes reçues (${rows[0]?.DECAY_EPOCH || '-'} → ${rows[rows.length - 1]?.DECAY_EPOCH || '-'})`);
     tipCache.lastUpdate = new Date().toISOString();
 
     console.log(`[spacetrack-tip] ok — ${tipCache.objects.length} objets TIP`);
