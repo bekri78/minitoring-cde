@@ -1,59 +1,14 @@
-﻿// ── Analyses croisées : convergences, ruptures, théâtres ─────
+﻿// ── Analyses croisées : convergences, ruptures ─────
 //  - Convergences : foyers où se croisent au moins 3 types de signaux
 //    (avions / navires militaires, anomalies AIS, événements, articles).
 //  - Ruptures : pays dont l'activité des dernières 24 h sort nettement
 //    de sa normale des 28 jours précédents.
-//  - Théâtre : recadre la carte et filtre les panneaux.
+//  - Zone : la recherche de lieu (ogma-search.js) filtre les panneaux.
 //  Données calculées par le serveur et livrées dans le snapshot.
 
 const convergenceLayer = L.layerGroup();
 
-// ── Théâtres ─────────────────────────────────────────────────
-const THEATRES = {
-    MONDE:          { label: 'MONDE',                 bounds: null },
-    EUROPE:         { label: 'EUROPE · FLANC EST',    bounds: [[35, -12], [72, 45]] },
-    LEVANT:         { label: 'LEVANT · MOYEN-ORIENT', bounds: [[12, 25], [42, 63]] },
-    AFRIQUE:        { label: 'AFRIQUE · SAHEL',       bounds: [[-5, -20], [25, 40]] },
-    INDOPACIFIQUE:  { label: 'INDO-PACIFIQUE',        bounds: [[-45, 60], [45, 180]] },
-    AMERIQUES:      { label: 'AMÉRIQUES',             bounds: [[-55, -170], [72, -30]] }
-};
-
-let _theatre = 'MONDE';
-try { _theatre = localStorage.getItem('ogma-theatre') || 'MONDE'; } catch (e) { /* confort */ }
-if (!THEATRES[_theatre]) _theatre = 'MONDE';
-
-function theatreContains(lat, lon) {
-    const b = THEATRES[_theatre].bounds;
-    if (!b) return true;
-    if (typeof lat !== 'number' || typeof lon !== 'number') return false;
-    return lat >= b[0][0] && lat <= b[1][0] && lon >= b[0][1] && lon <= b[1][1];
-}
-
-function setTheatre(name) {
-    if (!THEATRES[name]) return;
-    _theatre = name;
-    try { localStorage.setItem('ogma-theatre', name); } catch (e) { /* confort */ }
-    const sel = document.getElementById('theatre-select');
-    if (sel && sel.value !== name) sel.value = name;
-    const b = THEATRES[name].bounds;
-    if (maCarte) {
-        if (b) maCarte.fitBounds(b, { padding: [10, 10] });
-        else maCarte.setView([30, 20], 3);
-    }
-    document.dispatchEvent(new CustomEvent('ogma:theatre', { detail: name }));
-}
-
-function _initTheatreSelect() {
-    const sel = document.getElementById('theatre-select');
-    if (!sel || sel.options.length) return;
-    Object.keys(THEATRES).forEach(function (k) {
-        const o = document.createElement('option');
-        o.value = k; o.textContent = THEATRES[k].label;
-        sel.appendChild(o);
-    });
-    sel.value = _theatre;
-    sel.addEventListener('change', function () { setTheatre(sel.value); });
-}
+// Filtre géographique : theatreContains() est fourni par ogma-search.js
 
 // ── Convergences ─────────────────────────────────────────────
 const CONV_TYPE_LABEL = {
@@ -276,8 +231,3 @@ document.addEventListener('ogma:theatre', function () {
     renderRuptures(_lastRuptures);
 });
 
-document.addEventListener('DOMContentLoaded', function () {
-    _initTheatreSelect();
-    // Recadrage initial une fois la carte créée
-    setTimeout(function () { if (_theatre !== 'MONDE') setTheatre(_theatre); }, 0);
-});

@@ -296,7 +296,7 @@ function renderSignals(zones) {
     if (!el) return;
 
     // Trier par event_count décroissant, garder les 5 premières
-    // Filtre par théâtre (layer-insights.js) ; le cache garde toutes les zones
+    // Filtre par zone (recherche de lieu, ogma-search.js) ; le cache garde toutes les zones
     const inTheatre = typeof theatreContains === 'function'
         ? zones.filter(function (z) { return theatreContains(z.lat, z.lng); })
         : zones;
@@ -306,7 +306,7 @@ function renderSignals(zones) {
 
     if (!top.length) {
         el.innerHTML = '<div style="color:#4a6a7a;font-size:8px;letter-spacing:0.1em;margin-bottom:6px;">TENSIONS G\u00c9OPOLITIQUES</div>'
-            + '<div style="color:#4a6a7a;font-size:9px;">Aucune zone sur ce th\u00e9\u00e2tre</div>';
+            + '<div style="color:#4a6a7a;font-size:9px;">Aucune tension dans la zone recherch\u00e9e</div>';
         return;
     }
     el.innerHTML = '<div style="color:#4a6a7a;font-size:8px;letter-spacing:0.1em;margin-bottom:6px;">TENSIONS G\u00c9OPOLITIQUES</div>'

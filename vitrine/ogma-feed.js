@@ -85,7 +85,7 @@
     // La couleur passe à l'orange si le snapshot vieillit sans être remplacé
     setInterval(function () { if (APP.Sync && APP.Sync.current) showLastUpdate(APP.Sync.current); }, 60000);
 
-    // Changement de théâtre : le widget des tensions est filtré à nouveau
+    // Changement de zone (recherche de lieu) : le widget des tensions est filtré à nouveau
     document.addEventListener('ogma:theatre', function () {
         var d = APP.Sync && APP.Sync.current && APP.Sync.current.data;
         if (d && (d.signals || []).length) safe('zones de tension', function () { renderSignals(d.signals); });

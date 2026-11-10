@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="ogma-search.css" />
   <link rel="stylesheet" href="vitrine.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
@@ -81,7 +82,14 @@
       <span style="color:#4a6a7a;">DERNIÈRE MAJ</span>
       <span id="hdr-lastupdate" style="color:#4a6a7a;font-size:10px;">--/-- --:--</span>
     </div>
-    <select id="theatre-select" title="Théâtre : recadre la carte et filtre les panneaux" style="font-family:'Share Tech Mono',monospace;font-size:10px;letter-spacing:1px;background:#0a0f16;color:#00d4ff;border:1px solid #1a2a3a;padding:3px 6px;cursor:pointer;"></select>
+    <div class="ogma-search" id="ogma-search">
+      <div class="ogma-search-box">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398l3.85 3.85a1 1 0 0 0 1.415-1.414zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/></svg>
+        <input id="ogma-search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Rechercher un lieu, un pays…" title="Recadre la carte et filtre les panneaux sur le lieu choisi">
+        <button type="button" class="ogma-search-clear" id="ogma-search-clear" title="Revenir au monde entier">✕</button>
+      </div>
+      <div class="ogma-search-dropdown" id="ogma-search-dropdown"></div>
+    </div>
     <div style="display:flex;gap:4px;padding:0 8px;border-left:1px solid #1a2a3a;border-right:1px solid #1a2a3a;">
      <button type="button" class="hdr-btn active" id="btn-ALL"   onclick="setFilter('ALL')">◉ ALL</button>
       <button type="button" class="hdr-btn"        id="btn-OSINT" onclick="setFilter('OSINT')">🌐 OSINT</button>
@@ -161,7 +169,8 @@
   <script charset="utf-8" src="layer-news.js?v=1"></script>
   <script charset="utf-8" src="layer-events.js?v=1"></script>
   <script charset="utf-8" src="layer-signals.js?v=1"></script>
-  <script charset="utf-8" src="layer-insights.js?v=1"></script>
+  <script charset="utf-8" src="ogma-search.js?v=2"></script>
+  <script charset="utf-8" src="layer-insights.js?v=2"></script>
 
 </body>
 
