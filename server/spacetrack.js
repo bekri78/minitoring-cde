@@ -145,7 +145,7 @@ async function fetchDecay() {
     cache.objects    = rows.map(normalizeDecay).filter(Boolean);
     cache.lastUpdate = new Date().toISOString();
 
-    console.log(`[spacetrack] ok — ${cache.objects.length} objets DECAY`);
+    console.log(`[spacetrack] ok — ${rows.length} lignes reçues, ${cache.objects.length} objets DECAY retenus`);
   } catch (err) {
     console.error('[spacetrack] fetchDecay failed:', err.message);
   } finally {
@@ -155,9 +155,11 @@ async function fetchDecay() {
 
 // ── Normalisation ─────────────────────────────────────────────────────────────
 function normalizeDecay(row) {
-  const country = row.COUNTRY_CODE || 'INTL';
-  const coords  = COUNTRY_COORDS[country];
-  if (!coords) return null;   // pays inconnu → on ne place pas sur la carte
+  // Space-Track renvoie le pays dans COUNTRY (ex. « US », « PRC », « CIS ») ;
+  // COUNTRY_CODE n'existe pas dans la classe decay. Un pays sans coordonnées
+  // connues n'écarte plus l'objet : il est placé par l'interface.
+  const country = row.COUNTRY || row.COUNTRY_CODE || 'INTL';
+  const coords  = COUNTRY_COORDS[country] || null;
 
   const decayEpoch = row.DECAY_EPOCH || null;
 
@@ -192,8 +194,8 @@ function normalizeDecay(row) {
     daysLeft,
     color,
     // Coordonnées du pays de lancement + jitter pour éviter les superpositions
-    lon: coords[0] + (Math.random() - 0.5) * 8,
-    lat: coords[1] + (Math.random() - 0.5) * 8,
+    lon: coords ? coords[0] + (Math.random() - 0.5) * 8 : null,
+    lat: coords ? coords[1] + (Math.random() - 0.5) * 8 : null,
   };
 }
 
@@ -253,6 +255,7 @@ async function fetchTip() {
     const rows = Array.isArray(data) ? data : [];
 
     tipCache.objects    = rows.map(normalizeTip).filter(Boolean);
+    console.log(`[spacetrack-tip] ${rows.length} lignes reçues`);
     tipCache.lastUpdate = new Date().toISOString();
 
     console.log(`[spacetrack-tip] ok — ${tipCache.objects.length} objets TIP`);
@@ -297,7 +300,7 @@ function normalizeTip(row) {
     window:      Number(row.WINDOW) || 0,    // incertitude en minutes
     inclination: Number(row.INCLINATION) || 0,
     direction:   row.DIRECTION     || '',
-    country:     row.COUNTRY_CODE  || 'INTL',
+    country:     row.COUNTRY || row.COUNTRY_CODE || 'INTL',
     highInterest: row.HIGH_INTEREST === 'Y',
     msgEpoch:    row.MSG_EPOCH     || null,
     hoursLeft,
@@ -309,4 +312,4 @@ function normalizeTip(row) {
 
 function getTipCache() { return tipCache; }
 
-module.exports = { fetchDecay, getCache, fetchTip, getTipCache };
+module.exports = { fetchDecay, getCache, fetchTip, getTipCache, normalizeDecay, normalizeTip };
