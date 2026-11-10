@@ -117,14 +117,15 @@ async function fetchDecay() {
       if (!ok) { isFetching = false; return; }
     }
 
-    // Fenêtre : rentrées prévues dans les 30 prochains jours
+    // Fenêtre : rentrées prévues dans les 7 prochains jours (au-delà, l'incertitude
+    // se compte en jours et la liste était tronquée à 200 lignes au bout de 11 jours)
     const now    = new Date();
-    const future = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
+    const future = new Date(now.getTime() + DECAY_HORIZON_DAYS * 24 * 3600 * 1000);
     const nowStr    = now.toISOString().slice(0, 10);
     const futureStr = future.toISOString().slice(0, 10);
 
     // Période au format Space-Track « début--fin » (répéter DECAY_EPOCH n'appliquait qu'un critère)
-    const url = `${BASE_URL}/class/decay/DECAY_EPOCH/${nowStr}--${futureStr}/orderby/DECAY_EPOCH%20asc/limit/200/format/json`;
+    const url = `${BASE_URL}/class/decay/DECAY_EPOCH/${nowStr}--${futureStr}/orderby/DECAY_EPOCH%20asc/limit/1000/format/json`;
 
     console.log('[spacetrack] fetching DECAY...');
     let resp = await fetch(url, { headers: { Cookie: sessionCookie } });
@@ -143,15 +144,54 @@ async function fetchDecay() {
     const data = await resp.json();
     const rows = Array.isArray(data) ? data : [];
 
-    cache.objects    = rows.map(normalizeDecay).filter(Boolean);
+    const sel = selectDecay(rows);
+    cache.objects    = sel.kept.map(normalizeDecay).filter(Boolean);
     cache.lastUpdate = new Date().toISOString();
+    cache.stats      = sel.stats;
 
-    console.log(`[spacetrack] ok — ${rows.length} lignes reçues (${rows[0]?.DECAY_EPOCH || '-'} → ${rows[rows.length - 1]?.DECAY_EPOCH || '-'}), ${cache.objects.length} objets DECAY retenus`);
+    console.log(`[spacetrack] ok — ${rows.length} lignes reçues, ${sel.stats.objects} objets distincts : `
+      + `${sel.stats.debris} débris, ${sel.stats.small} petits, ${sel.stats.starlink} Starlink (désorbitation pilotée) écartés · `
+      + `${cache.objects.length} rentrées significatives retenues`);
   } catch (err) {
     console.error('[spacetrack] fetchDecay failed:', err.message);
   } finally {
     isFetching = false;
   }
+}
+
+// ── Sélection ────────────────────────────────────────────────────────────────
+// Space-Track annonce chaque jour des dizaines de rentrées : surtout des débris de
+// quelques centimètres et des Starlink désorbités volontairement (environ 1 à 5 par
+// jour), sans intérêt opérationnel. On ne garde que les objets significatifs :
+// charges utiles et étages de fusée de taille moyenne ou grande.
+const DECAY_HORIZON_DAYS = 7;
+
+// Space-Track publie une ligne par mise à jour de prévision : le même objet revient
+// avec des dates différentes. On ne garde que le bulletin le plus récent.
+function latestPerObject(rows) {
+  const byId = new Map();
+  for (const r of rows) {
+    const id = r.NORAD_CAT_ID;
+    if (!id) continue;
+    const prev = byId.get(id);
+    if (!prev || String(r.MSG_EPOCH || '') > String(prev.MSG_EPOCH || '')) byId.set(id, r);
+  }
+  return [...byId.values()];
+}
+
+function selectDecay(rows) {
+  const byId = new Map(latestPerObject(rows).map(r => [r.NORAD_CAT_ID, r]));
+  const stats = { objects: byId.size, debris: 0, small: 0, starlink: 0 };
+  const kept = [];
+  for (const r of byId.values()) {
+    const name = String(r.OBJECT_NAME || '').toUpperCase();
+    const rcs  = String(r.RCS_SIZE || '').toUpperCase();
+    if (/\bDEB\b|DEBRIS|COOLANT|\bFRAG/.test(name) && rcs !== 'LARGE') { stats.debris++; continue; }
+    if (rcs === 'SMALL') { stats.small++; continue; }
+    if (/^STARLINK/.test(name)) { stats.starlink++; continue; }
+    kept.push(r);
+  }
+  return { kept, stats };
 }
 
 // ── Normalisation ─────────────────────────────────────────────────────────────
@@ -192,6 +232,8 @@ function normalizeDecay(row) {
     perigee:     Number(row.PERIGEE) || 0,       // km
     country,
     msgEpoch:    row.MSG_EPOCH      || null,
+    rcsSize:     row.RCS_SIZE       || '',
+    kind:        /R\/B/.test(String(row.OBJECT_NAME || '')) ? 'étage de fusée' : 'satellite',
     daysLeft,
     color,
     // Coordonnées du pays de lancement + jitter pour éviter les superpositions
@@ -256,7 +298,7 @@ async function fetchTip() {
     const data = await resp.json();
     const rows = Array.isArray(data) ? data : [];
 
-    tipCache.objects    = rows.map(normalizeTip).filter(Boolean);
+    tipCache.objects    = latestPerObject(rows).map(normalizeTip).filter(Boolean);
     console.log(`[spacetrack-tip] ${rows.length} lignes reçues (${rows[0]?.DECAY_EPOCH || '-'} → ${rows[rows.length - 1]?.DECAY_EPOCH || '-'})`);
     tipCache.lastUpdate = new Date().toISOString();
 
@@ -314,4 +356,4 @@ function normalizeTip(row) {
 
 function getTipCache() { return tipCache; }
 
-module.exports = { fetchDecay, getCache, fetchTip, getTipCache, normalizeDecay, normalizeTip };
+module.exports = { fetchDecay, getCache, fetchTip, getTipCache, normalizeDecay, normalizeTip, selectDecay, latestPerObject };

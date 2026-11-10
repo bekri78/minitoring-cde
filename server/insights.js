@@ -29,6 +29,24 @@ function countryNameOf(event) {
   return parts.length ? parts[parts.length - 1] : (event.countryCode || '?');
 }
 
+function median(xs) {
+  const a = xs.slice().sort((x, y) => x - y);
+  if (!a.length) return 0;
+  const h = Math.floor(a.length / 2);
+  return a.length % 2 ? a[h] : (a[h - 1] + a[h]) / 2;
+}
+
+// Localités les plus citées (« Bagdad », « Erbil »…) pour expliquer une rupture
+function topPlaces(events, n) {
+  const c = new Map();
+  for (const e of events) {
+    const parts = String(e.country || '').split(',').map(x => x.trim()).filter(Boolean);
+    if (parts.length < 2) continue;                       // seulement le pays : pas une localité
+    c.set(parts[0], (c.get(parts[0]) || 0) + 1);
+  }
+  return [...c.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([name, count]) => ({ name, count }));
+}
+
 function mean(xs) { return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0; }
 
 function std(xs, m) {
@@ -105,9 +123,11 @@ function computeRuptures(todayEvents, baselineCounts, opts = {}) {
       z: round1(z),
       kind: isEmergence ? 'emergence' : 'hausse',
       level: z >= 4 || (isEmergence && n >= emergence * 2) ? 'forte' : 'notable',
-      lat: located.length ? round1(mean(located.map(e => e.lat))) : null,
-      lon: located.length ? round1(mean(located.map(e => e.lon))) : null,
-      eventIds: evs.slice(0, 5).map(e => e.id),
+      // Médiane plutôt que moyenne : un événement mal géolocalisé ne déplace plus le point
+      lat: located.length ? round1(median(located.map(e => e.lat))) : null,
+      lon: located.length ? round1(median(located.map(e => e.lon))) : null,
+      places: topPlaces(evs, 4),
+      eventIds: evs.slice(0, 8).map(e => e.id),
     });
   }
 
