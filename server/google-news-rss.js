@@ -14,6 +14,7 @@
  * Coût IA : quasi nul — seuls ~5-10% des articles passent par l'IA.
  */
 
+const { decodeGoogleNewsUrl } = require('./google-news-decode');
 const fs   = require('fs');
 const path = require('path');
 
@@ -243,16 +244,11 @@ async function fetchRssFeed(feed) {
 
 // ── Link resolution ───────────────────────────────────────────────────────────
 
+// Google ne redirige plus par HTTP : décodage par google-news-decode.js
 async function resolveGoogleLink(googleUrl) {
   if (!googleUrl || !googleUrl.includes('news.google.com')) return googleUrl;
   try {
-    const resp = await fetch(googleUrl, {
-      method:  'HEAD',
-      redirect: 'follow',
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OSINT-Monitor/1.0)' },
-      signal:  AbortSignal.timeout(8000),
-    });
-    return resp.url || googleUrl;
+    return (await decodeGoogleNewsUrl(googleUrl)) || googleUrl;
   } catch {
     return googleUrl;
   }
@@ -1393,7 +1389,8 @@ async function fetchGoogleNewsEvents() {
     console.log(`[google-news] by domain: ${JSON.stringify(byDomain)}`);
 
     // ── STEP 8 : Async link resolution (non-blocking) ──────────────────
-    resolveLinksAsync(newEvents).catch(() => {});
+    // (nouveaux d'abord, puis les liens encore non résolus du cache)
+    resolveLinksAsync([...newEvents, ...existing]).catch(() => {});
 
   } catch (err) {
     console.error('[google-news] pipeline failed:', err.message);
@@ -1402,17 +1399,25 @@ async function fetchGoogleNewsEvents() {
   }
 }
 
+let resolving = false;
 async function resolveLinksAsync(events) {
-  for (const ev of events) {
-    if (ev.url && ev.url.includes('news.google.com')) {
-      try {
-        const resolved = await resolveGoogleLink(ev.url);
-        if (resolved !== ev.url) ev.url = resolved;
-      } catch {}
-      await sleep(500);
+  if (resolving) return;
+  resolving = true;
+  let ok = 0, failed = 0;
+  try {
+    const todo = events.filter(ev => ev.url && ev.url.includes('news.google.com')
+      && !(ev.urlDecodeFailedAt && Date.now() - ev.urlDecodeFailedAt < 6 * 3600e3)).slice(0, 80);
+    for (const ev of todo) {
+      const resolved = await resolveGoogleLink(ev.url);
+      if (resolved && resolved !== ev.url) { ev.googleUrl = ev.url; ev.url = resolved; delete ev.urlDecodeFailedAt; ok++; }
+      else { ev.urlDecodeFailedAt = Date.now(); failed++; }
+      await sleep(1200);   // rythme lent : Google limite les appels rapprochés
     }
+    if (todo.length) console.log(`[google-news] liens d'articles : ${ok} retrouvés, ${failed} non résolus`);
+  } finally {
+    resolving = false;
+    saveToDisk();
   }
-  saveToDisk();
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

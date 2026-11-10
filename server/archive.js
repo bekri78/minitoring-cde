@@ -143,7 +143,7 @@ function readDay(cacheDir, day) {
 
 const fetchable = u => typeof u === 'string' && /^https?:\/\//.test(u) && !/news\.google\.com\//.test(u);
 
-async function collectLeads({ cacheDir, todayEvents = [], fetchImpl } = {}) {
+async function collectLeads({ cacheDir, todayEvents = [], news = [], fetchImpl } = {}) {
   if (running) return { skipped: true };
   running = true;
   const store = loadLeads(cacheDir);
@@ -156,6 +156,8 @@ async function collectLeads({ cacheDir, todayEvents = [], fetchImpl } = {}) {
       seen.add(u); queue.push(u);
     };
     [...todayEvents].sort((a, b) => (b.score || 0) - (a.score || 0)).forEach(push);
+    // Actualités Google : lien réel retrouvé par google-news-decode.js
+    [...news].sort((a, b) => (b.confidence || 0) - (a.confidence || 0)).forEach(push);
     for (let d = 1; d <= BACKFILL_DAYS && queue.length < PER_RUN; d++) {
       readDay(cacheDir, dayStamp(d)).sort((a, b) => (b.score || 0) - (a.score || 0)).forEach(push);
     }
@@ -195,22 +197,41 @@ function slimForArchive(e) {
   };
 }
 
+// Actualités vues dans la journée, cumulées (le cache Google ne garde que les dernières heures)
+function newsPath(cacheDir, day) { return path.join(cacheDir, `news-${day}.json`); }
+function readNewsDay(cacheDir, day) {
+  try { return JSON.parse(fs.readFileSync(newsPath(cacheDir, day), 'utf8')).news || []; } catch (_) { return []; }
+}
+function mergeNewsDay(cacheDir, day, news) {
+  const byKey = new Map(readNewsDay(cacheDir, day).map(n => [n.id || n.title, n]));
+  for (const n of news) {
+    const slim = {
+      id: n.id, title: n.title, url: n.url, source: n.source, label: n.label,
+      location: n.location, country: n.country, lat: n.lat, lon: n.lon, date: n.publishedAt || n.date,
+      confidence: n.confidence,
+    };
+    byKey.set(slim.id || slim.title, { ...(byKey.get(slim.id || slim.title) || {}), ...slim });
+  }
+  const list = [...byKey.values()];
+  try { fs.writeFileSync(newsPath(cacheDir, day), JSON.stringify({ news: list })); } catch (_) { /* disque plein : l'archive reste servie */ }
+  return list;
+}
+
 function buildArchive({ cacheDir, day, todayEvents, news = [] }) {
   loadLeads(cacheDir);
   const isToday = day === dayStamp(0);
   const events = (isToday && todayEvents && todayEvents.length ? todayEvents : readDay(cacheDir, day)).map(slimForArchive);
   const withLead = events.filter(e => e.lead).length;
+  const dayNews = (isToday ? mergeNewsDay(cacheDir, day, news) : readNewsDay(cacheDir, day))
+    .map(n => ({ ...n, lead: leadOf(n.url) }));
   return {
     type: 'ogma-archive', schemaVersion: 1,
     date: `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`,
     generatedAt: new Date().toISOString(),
     final: !isToday,
-    counts: { events: events.length, withLead, news: isToday ? news.length : 0 },
+    counts: { events: events.length, withLead, news: dayNews.length, newsWithLead: dayNews.filter(n => n.lead).length },
     events,
-    news: isToday ? news.map(n => ({
-      id: n.id, title: n.title, url: n.url, source: n.source, label: n.label,
-      location: n.location, country: n.country, lat: n.lat, lon: n.lon, date: n.publishedAt || n.date,
-    })) : [],
+    news: dayNews,
   };
 }
 

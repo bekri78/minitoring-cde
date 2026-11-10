@@ -981,7 +981,7 @@ cron.schedule('0 3,9,15,21 * * *', () => {
 // ── Cron 15min — Séismes USGS ─────────────────────────────────────────────────
 // Chapeaux d'articles : 120 au plus toutes les 10 min, jamais deux fois le même
 cron.schedule('3,13,23,33,43,53 * * * *', () => {
-  collectLeads({ cacheDir: CACHE_DIR, todayEvents: cache.events || [] })
+  collectLeads({ cacheDir: CACHE_DIR, todayEvents: cache.events || [], news: getNewsEventsForMap() })
     .catch(err => console.error('[archive-cron]', err.message));
 });
 
