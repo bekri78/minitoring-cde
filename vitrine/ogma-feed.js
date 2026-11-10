@@ -53,6 +53,7 @@
             if ((d.signals || []).length) renderSignals(d.signals);
         });
         safe('ruptures et convergences', function () { renderInsights(d); });
+        safe('calques et barre d\u2019état', function () { if (APP.UI) APP.UI.afterRender(); });
 
         console.log('[ogma-feed] carte mise à jour — snapshot du ' + snapshot.generatedAt);
     }
@@ -65,7 +66,7 @@
         var p = function (n) { return String(n).padStart(2, '0'); };
         el.textContent = p(d.getDate()) + '/' + p(d.getMonth() + 1) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
         var stale = Date.now() - d.getTime() > APP.CONFIG.SYNC.STALE_AFTER_MS;
-        el.style.color = stale ? '#ffaa00' : '#00d4ff';
+        el.style.color = stale ? '#f5a524' : '';
     }
 
     function onSnapshot(snapshot) {
@@ -85,11 +86,6 @@
     // La couleur passe à l'orange si le snapshot vieillit sans être remplacé
     setInterval(function () { if (APP.Sync && APP.Sync.current) showLastUpdate(APP.Sync.current); }, 60000);
 
-    // Changement de zone (recherche de lieu) : le widget des tensions est filtré à nouveau
-    document.addEventListener('ogma:theatre', function () {
-        var d = APP.Sync && APP.Sync.current && APP.Sync.current.data;
-        if (d && (d.signals || []).length) safe('zones de tension', function () { renderSignals(d.signals); });
-    });
 
     APP.Feed = {
         start: function () {

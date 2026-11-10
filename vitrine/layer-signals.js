@@ -277,58 +277,11 @@ function _mergeZonesByCountry(zones) {
     });
 }
 
-let _signalsControl = null;
-
+// Les zones de tension sont présentées par la barre de droite (« À surveiller »,
+// ogma-ui.js) ; un clic ouvre le rapport de zone (openSignalsReport).
 function renderSignals(zones) {
-    zones = _mergeZonesByCountry(zones || []);
-    _signalsZonesCache = zones;
-
-    if (!_signalsControl) {
-        _signalsControl = L.control({ position: 'bottomright' });
-        _signalsControl.onAdd = function () {
-            const div = L.DomUtil.create('div', 'signals-widget');
-            div.style.cssText = 'font-family:"Share Tech Mono",monospace;font-size:10px;background:#0a0f16cc;border:1px solid #1a2a3a;padding:8px 12px;max-width:240px;';
-            return div;
-        };
-        _signalsControl.addTo(maCarte);
-    }
-    const el = document.querySelector('.signals-widget');
-    if (!el) return;
-
-    // Trier par event_count décroissant, garder les 5 premières
-    // Filtre par zone (recherche de lieu, ogma-search.js) ; le cache garde toutes les zones
-    const inTheatre = typeof theatreContains === 'function'
-        ? zones.filter(function (z) { return theatreContains(z.lat, z.lng); })
-        : zones;
-    const top = inTheatre.slice().sort(function (a, b) {
-        return (b.event_count || 0) - (a.event_count || 0);
-    }).slice(0, 5);
-
-    if (!top.length) {
-        el.innerHTML = '<div style="color:#4a6a7a;font-size:8px;letter-spacing:0.1em;margin-bottom:6px;">TENSIONS G\u00c9OPOLITIQUES</div>'
-            + '<div style="color:#4a6a7a;font-size:9px;">Aucune tension dans la zone recherch\u00e9e</div>';
-        return;
-    }
-    el.innerHTML = '<div style="color:#4a6a7a;font-size:8px;letter-spacing:0.1em;margin-bottom:6px;">TENSIONS G\u00c9OPOLITIQUES</div>'
-        + top.map(function (z) {
-            const cnt = z.event_count || 0;
-            const lvl = cnt > 100 ? 'CRITICAL' : cnt > 50 ? 'HIGH' : cnt > 20 ? 'MEDIUM' : 'LOW';
-            const color = signalsLevelColor(lvl);
-            const name = z.location_name || z.country || z.id || '';
-            const zid = escapeHtml(z.id || z.location_name || '');
-            return '<div onclick="openSignalsReport(\'' + zid.replace(/'/g, '\\\'') + '\')" style="'
-                + 'display:flex;align-items:baseline;gap:6px;margin-bottom:5px;padding-bottom:5px;'
-                + 'border-bottom:1px solid #1a2a3a;cursor:pointer;transition:background 0.15s;padding:4px 2px;'
-                + '" onmouseover="this.style.background=\'#00d4ff0a\'" onmouseout="this.style.background=\'transparent\'">'
-                + '<span style="color:' + color + ';font-size:8px;flex-shrink:0;">\u25cf</span>'
-                + '<div style="flex:1;">'
-                + '<div style="color:#c8d8e8;font-size:9px;">' + escapeHtml(name) + '</div>'
-                + '<div style="color:' + color + ';font-size:8px;">' + lvl + ' &middot; ' + cnt + ' signaux'
-                + (z.zone_count > 1 ? ' &middot; ' + z.zone_count + ' zones' : '') + '</div>'
-                + '</div>'
-                + '<span style="color:#4a6a7a;font-size:8px;">\u203a</span>'
-                + '</div>';
-        }).join('');
+    _signalsZonesCache = _mergeZonesByCountry(zones || []);
+    if (APP.UI) APP.UI.renderAlerts();
 }
 
 // ── Historique journalier (sync SP uniquement) ────────────────

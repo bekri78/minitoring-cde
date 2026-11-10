@@ -11,99 +11,102 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="ogma.css" />
   <link rel="stylesheet" href="ogma-search.css" />
   <link rel="stylesheet" href="vitrine.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'"/>
   <style>
     @keyframes pulse {
       0%, 100% { opacity: 1; transform: scale(1); }
       50%       { opacity: 0.35; transform: scale(0.75); }
     }
-    body { margin: 0; padding: 0; overflow: hidden; }
-    #app-header { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; }
-    #maCarte { position: fixed; top: 44px; left: 0; right: 0; bottom: 0; }
-    .hdr-btn {
-      font-family: 'Share Tech Mono', monospace;
-      font-size: 10px;
-      background: transparent;
-      border: 1px solid #1a2a3a;
-      color: #4a6a7a;
-      padding: 4px 10px;
-      cursor: pointer;
-      letter-spacing: 1px;
-      transition: background 0.2s, color 0.2s, border-color 0.2s;
-    }
-    .hdr-btn.active {
-      background: rgba(0,212,255,0.08);
-      border-color: #00d4ff;
-      color: #00d4ff;
-    }
-    .hdr-btn-sm {
-      font-family: 'Share Tech Mono', monospace;
-      font-size: 11px;
-      background: transparent;
-      border: 1px solid #1a2a3a;
-      color: #4a6a7a;
-      padding: 4px 12px;
-      cursor: pointer;
-      letter-spacing: 1px;
-      transition: background 0.2s, color 0.2s, border-color 0.2s;
-    }
-    .hdr-btn-sm:hover { border-color: #00d4ff; color: #00d4ff; }
-    .leaflet-popup-content-wrapper {
-      background: #0a0f16;
-      color: #c8d8e8;
-      border: 1px solid #1a2a3a;
-      border-radius: 4px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.7);
-    }
-    .leaflet-popup-tip { background: #0a0f16; }
-    .leaflet-popup-content { margin: 12px 14px; }
-    .leaflet-popup-close-button { color: #4a6a7a !important; font-size: 16px !important; }
-    .leaflet-popup-close-button:hover { color: #00d4ff !important; }
-    /* Fond de carte noir */
- 
   </style>
 </head>
 
 <body>
-  <header id="app-header" style="background:#0a0f16;border-bottom:1px solid #1a2a3a;display:flex;align-items:center;padding:0 20px;gap:24px;height:44px;">
-    <div style="font-family:'Share Tech Mono',monospace;font-size:15px;color:#00d4ff;letter-spacing:4px;white-space:nowrap;">
-        OGMA
-    </div>
-    
-    <div style="display:flex;align-items:center;gap:7px;font-family:'Share Tech Mono',monospace;font-size:11px;">
-      <span style="color:#4a6a7a;">EVENTS</span>
-      <span id="hdr-events" style="color:#00d4ff;">0</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:7px;font-family:'Share Tech Mono',monospace;font-size:11px;">
-      <span style="color:#4a6a7a;">DERNIÈRE MAJ</span>
-      <span id="hdr-lastupdate" style="color:#4a6a7a;font-size:10px;">--/-- --:--</span>
-    </div>
+  <!-- Barre de calques -->
+  <nav class="og-rail" aria-label="Calques de la carte">
+    <span class="og-logo" title="OGMA — veille géopolitique">OG</span>
+    <button type="button" class="og-layer" data-layer="osint" aria-pressed="true" title="OSINT : événements, alertes, séismes, articles">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a13 13 0 0 0 0 18a13 13 0 0 0 0-18"/><path d="M3 12h18"/></svg>
+      <span class="og-layer-count" data-layer-count="osint">0</span><span class="og-sr">OSINT</span>
+    </button>
+    <button type="button" class="og-layer" data-layer="air" aria-pressed="true" title="Air : aéronefs militaires et événements aériens">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M21 15.5 13.5 11V5a1.5 1.5 0 0 0-3 0v6L3 15.5V17l7.5-2.5V19L8 20.5V22l4-1 4 1v-1.5L13.5 19v-4.5L21 17z"/></svg>
+      <span class="og-layer-count" data-layer-count="air">0</span><span class="og-sr">Air</span>
+    </button>
+    <button type="button" class="og-layer" data-layer="sea" aria-pressed="true" title="Mer : navires militaires et événements maritimes">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="5" r="2.5"/><path d="M12 7.5V21"/><path d="M5 12H3a9 9 0 0 0 18 0h-2"/></svg>
+      <span class="og-layer-count" data-layer-count="sea">0</span><span class="og-sr">Mer</span>
+    </button>
+    <button type="button" class="og-layer" data-layer="space" aria-pressed="true" title="Espace : lancements et rentrées atmosphériques">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="3"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-25 12 12)"/></svg>
+      <span class="og-layer-count" data-layer-count="space">0</span><span class="og-sr">Espace</span>
+    </button>
+    <button type="button" class="og-layer" data-layer="conv" aria-pressed="true" title="Convergences : foyers où plusieurs types de signaux se croisent">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
+      <span class="og-layer-count" data-layer-count="conv">0</span><span class="og-sr">Convergences</span>
+    </button>
+    <span class="og-rail-spacer"></span>
+    <button type="button" class="og-layer" id="og-about" title="À propos d'OGMA">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.5" r=".6" fill="currentColor"/></svg>
+      <span class="og-sr">À propos</span>
+    </button>
+  </nav>
+
+  <!-- Recherche de lieu, flottante -->
+  <div class="og-search-wrap">
     <div class="ogma-search" id="ogma-search">
       <div class="ogma-search-box">
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398l3.85 3.85a1 1 0 0 0 1.415-1.414zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/></svg>
-        <input id="ogma-search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Rechercher un lieu, un pays…" title="Recadre la carte et filtre les panneaux sur le lieu choisi">
-        <button type="button" class="ogma-search-clear" id="ogma-search-clear" title="Revenir au monde entier">✕</button>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <label for="ogma-search-input" class="og-sr">Rechercher un lieu</label>
+        <input id="ogma-search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Rechercher un lieu, un pays…" title="Recadre la carte et filtre « À surveiller » sur le lieu choisi">
+        <button type="button" class="ogma-search-clear" id="ogma-search-clear" title="Revenir au monde entier" aria-label="Effacer la recherche">✕</button>
       </div>
       <div class="ogma-search-dropdown" id="ogma-search-dropdown"></div>
     </div>
-    <div style="display:flex;gap:4px;padding:0 8px;border-left:1px solid #1a2a3a;border-right:1px solid #1a2a3a;">
-     <button type="button" class="hdr-btn active" id="btn-ALL"   onclick="setFilter('ALL')">◉ ALL</button>
-      <button type="button" class="hdr-btn"        id="btn-OSINT" onclick="setFilter('OSINT')">🌐 OSINT</button>
-      <button type="button" class="hdr-btn"        id="btn-AIR"   onclick="setFilter('AIR')">✈ AIR</button>
-      <button type="button" class="hdr-btn"        id="btn-SEA"   onclick="setFilter('SEA')">⚓ SEA</button>
-      <button type="button" class="hdr-btn"        id="btn-SPACE" onclick="setFilter('SPACE')">🚀 SPACE</button>
-    </div>
-   
-    <div style="margin-left:auto;display:flex;gap:8px;">
-      <button type="button" class="hdr-btn-sm" onclick="document.getElementById('about-modal').style.display='flex'" style="border-color:#00d4ff55;color:#00d4ff;display:flex;align-items:center;gap:6px;"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" class="bi bi-info-circle-fill" viewBox="0 0 16 16">
-        <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2"/>
-      </svg> À PROPOS</button>
-    </div>
-  </header>
+  </div>
+
+  <!-- Barre de droite : état et alertes -->
+  <button type="button" class="og-panel-toggle" id="og-panel-toggle" aria-controls="og-panel" aria-expanded="true" title="Masquer la barre d'état">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+  </button>
+  <aside class="og-panel" id="og-panel" aria-label="État et alertes">
+    <section class="og-state">
+      <h2 class="og-h">ÉTAT</h2>
+      <div class="og-tiles">
+        <div class="og-tile" id="og-state-tile">
+          <div class="og-tile-title"><span class="og-dot" id="og-state-dot"></span><span id="og-state-label">Chargement…</span></div>
+          <div class="og-tile-sub">snapshot <span id="hdr-lastupdate">--/-- --:--</span></div>
+          <div class="og-tile-sub"><span id="hdr-events">0</span> éléments affichés</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="og-watch" id="og-watch">
+      <div class="og-watch-head">
+        <h2 class="og-h">À SURVEILLER</h2>
+        <span class="og-watch-count" id="og-watch-count"></span>
+      </div>
+      <div class="og-chips" role="group" aria-label="Filtrer les alertes">
+        <button type="button" class="og-chip" data-chip="all" aria-pressed="true">Tout</button>
+        <button type="button" class="og-chip" data-chip="RUPTURE" aria-pressed="false">Ruptures</button>
+        <button type="button" class="og-chip" data-chip="CONVERGENCE" aria-pressed="false">Convergences</button>
+        <button type="button" class="og-chip" data-chip="TENSION" aria-pressed="false">Tensions</button>
+      </div>
+      <ul class="og-list" id="og-alerts"></ul>
+    </section>
+
+    <section class="og-detail" id="og-detail" hidden>
+      <button type="button" class="og-back" id="og-back">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Toutes les alertes
+      </button>
+      <div class="og-detail-body" id="og-detail-body"></div>
+    </section>
+
+  </aside>
+
 <!-- Modal SITREP -->
 <div id="sitrep-modal" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.82);align-items:center;justify-content:center;">
     <div style="background:#0a0f16;border:1px solid #2a1a0a;border-radius:6px;max-width:700px;width:92%;max-height:85vh;display:flex;flex-direction:column;font-family:'Share Tech Mono',monospace;position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.9);">
@@ -157,20 +160,21 @@
 
   <div id="maCarte"></div>
 
-  <script charset="utf-8" src="config.js?v=1"></script>
-  <script charset="utf-8" src="vitrine-data.js?v=1"></script>
-  <script charset="utf-8" src="map.js?v=1"></script>
-  <script charset="utf-8" src="ogma-feed.js?v=1"></script>
-  <script charset="utf-8" src="layer-signal.js?v=1"></script>
-  <script charset="utf-8" src="layer-osint.js?v=1"></script>
-  <script charset="utf-8" src="layer-seismic.js?v=1"></script>
-  <script charset="utf-8" src="layer-tracks.js?v=1"></script>
-  <script charset="utf-8" src="layer-space.js?v=1"></script>
-  <script charset="utf-8" src="layer-news.js?v=1"></script>
-  <script charset="utf-8" src="layer-events.js?v=1"></script>
-  <script charset="utf-8" src="layer-signals.js?v=1"></script>
-  <script charset="utf-8" src="ogma-search.js?v=2"></script>
-  <script charset="utf-8" src="layer-insights.js?v=2"></script>
+  <script charset="utf-8" src="config.js?v=3"></script>
+  <script charset="utf-8" src="vitrine-data.js?v=3"></script>
+  <script charset="utf-8" src="map.js?v=3"></script>
+  <script charset="utf-8" src="ogma-ui.js?v=3"></script>
+  <script charset="utf-8" src="ogma-feed.js?v=3"></script>
+  <script charset="utf-8" src="layer-signal.js?v=3"></script>
+  <script charset="utf-8" src="layer-osint.js?v=3"></script>
+  <script charset="utf-8" src="layer-seismic.js?v=3"></script>
+  <script charset="utf-8" src="layer-tracks.js?v=3"></script>
+  <script charset="utf-8" src="layer-space.js?v=3"></script>
+  <script charset="utf-8" src="layer-news.js?v=3"></script>
+  <script charset="utf-8" src="layer-events.js?v=3"></script>
+  <script charset="utf-8" src="layer-signals.js?v=3"></script>
+  <script charset="utf-8" src="ogma-search.js?v=3"></script>
+  <script charset="utf-8" src="layer-insights.js?v=3"></script>
 
 </body>
 

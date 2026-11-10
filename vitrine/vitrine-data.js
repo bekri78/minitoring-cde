@@ -1,4 +1,4 @@
-/**
+﻿/**
  * vitrine-data.js — Source de données de la vitrine publique.
  *
  * Remplace ogma-sync.js (SharePoint) : lit data/snapshot.json, le valide et le
@@ -34,7 +34,9 @@
         });
         var tip = document.getElementById('hdr-lastupdate');
         if (tip && snapshot.generatedAt) {
+            var age = Date.now() - Date.parse(snapshot.generatedAt);
             tip.title = 'Données publiques du ' + new Date(snapshot.generatedAt).toLocaleString('fr-FR')
+                + '\nÉtat : ' + (age > 2 * 3600 * 1000 ? 'CACHE ANCIEN' : 'À JOUR')
                 + '\nMise à jour automatique toutes les 30 minutes';
         }
     }
@@ -53,7 +55,7 @@
         } catch (e) {
             console.warn('[vitrine] données indisponibles :', e.message);
             var el = document.getElementById('hdr-lastupdate');
-            if (el && !current) { el.textContent = 'indisponible'; el.style.color = '#ffaa00'; }
+            if (el && !current) { el.textContent = 'indisponible'; el.title = 'État : AUCUNE DONNÉE\n' + e.message; }
         }
     }
 

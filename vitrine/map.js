@@ -1,6 +1,6 @@
 ﻿ // ══════════════════════════════════════════════════════════════
-//  map.js — Core : utilitaires, globals, allModeCluster, header,
-//           filtre, init carte.
+//  map.js — Core : utilitaires, globals, cluster commun, calques
+//           cumulables, compteurs, init carte.
 //  Chargement : avant tous les fichiers layer-*.js
 // ══════════════════════════════════════════════════════════════
 
@@ -86,8 +86,24 @@ const allModeCluster = L.markerClusterGroup({
 
 let _rebuildAllModeTimer = null;
 
+// ── Calques cumulables (barre de gauche) ─────────────────────
+// Chaque catégorie s'allume ou s'éteint indépendamment. Les points
+// d'événements de toutes les catégories actives partagent un seul cluster
+// (allModeCluster) pour ne pas superposer plusieurs grappes au même endroit.
+const OG_LAYERS = ['osint', 'air', 'sea', 'space', 'conv'];
+let _layersOn = { osint: true, air: true, sea: true, space: true, conv: true };
+try {
+    const saved = JSON.parse(localStorage.getItem('ogma-layers') || 'null');
+    if (saved) OG_LAYERS.forEach(function (k) { if (typeof saved[k] === 'boolean') _layersOn[k] = saved[k]; });
+} catch (e) { /* confort */ }
+
+// Compatibilité : les couches testent _activeFilter === 'ALL' pour déléguer
+// leur affichage au cluster commun.
+let _activeFilter = 'ALL';
+
+function layerOn(key) { return !!_layersOn[key]; }
+
 function _scheduleRebuildAllMode() {
-    if (_activeFilter !== 'ALL') return;
     clearTimeout(_rebuildAllModeTimer);
     _rebuildAllModeTimer = setTimeout(_rebuildAllMode, 60);
 }
@@ -96,45 +112,75 @@ function _rebuildAllMode() {
     if (!maCarte) return;
     allModeCluster.clearLayers();
     const markers = [];
+    function add(lat, lon, icon, html, maxWidth) {
+        if (lat == null || lon == null || (lat === 0 && lon === 0)) return;
+        const m = L.marker([lat, lon], { icon: icon });
+        m.bindPopup(html, { maxWidth: maxWidth || 340 });
+        markers.push(m);
+    }
 
-    _cacheSignal.forEach(function (loc) {
-        if (loc.lat == null || loc.lng == null || (loc.lat === 0 && loc.lng === 0)) return;
-        const m = L.marker([loc.lat, loc.lng], { icon: dotIcon('#02dbf4') });
-        m.bindPopup(buildSignalContent(loc), { maxWidth: 340 });
-        markers.push(m);
-    });
-    _cacheOsint.forEach(function (ev) {
-        if (ev.lat == null || ev.lon == null || (ev.lat === 0 && ev.lon === 0)) return;
-        const m = L.marker([ev.lat, ev.lon], { icon: dotIcon(osintEventColor(ev)) });
-        m.bindPopup(buildOsintContent(ev), { maxWidth: 340 });
-        markers.push(m);
-    });
-    _cacheMaritime.forEach(function (ev) {
-        if (ev.lat == null || ev.lon == null || (ev.lat === 0 && ev.lon === 0)) return;
-        const m = L.marker([ev.lat, ev.lon], { icon: dotIcon(gdeltEventColor(ev.score ?? 0)) });
-        m.bindPopup(buildGdeltEventContent(ev, 'MARITIME'), { maxWidth: 320 });
-        markers.push(m);
-    });
-    _cacheAviation.forEach(function (ev) {
-        if (ev.lat == null || ev.lon == null || (ev.lat === 0 && ev.lon === 0)) return;
-        const m = L.marker([ev.lat, ev.lon], { icon: dotIcon(gdeltEventColor(ev.score ?? 0)) });
-        m.bindPopup(buildGdeltEventContent(ev, 'AVIATION'), { maxWidth: 320 });
-        markers.push(m);
-    });
+    if (layerOn('osint')) {
+        _cacheSignal.forEach(function (loc) { add(loc.lat, loc.lng, dotIcon('#02dbf4'), buildSignalContent(loc)); });
+        _cacheOsint.forEach(function (ev) { add(ev.lat, ev.lon, dotIcon(osintEventColor(ev)), buildOsintContent(ev)); });
+    }
+    if (layerOn('sea')) {
+        _cacheMaritime.forEach(function (ev) { add(ev.lat, ev.lon, dotIcon(gdeltEventColor(ev.score ?? 0)), buildGdeltEventContent(ev, 'MARITIME'), 320); });
+    }
+    if (layerOn('air')) {
+        _cacheAviation.forEach(function (ev) { add(ev.lat, ev.lon, dotIcon(gdeltEventColor(ev.score ?? 0)), buildGdeltEventContent(ev, 'AVIATION'), 320); });
+    }
     _cacheNews.forEach(function (ev) {
         if (ev.lat == null || ev.lon == null || (ev.lat === 0 && ev.lon === 0)) return;
+        if (!layerOn(_newsEventDomain(ev))) return;
         const color = ev.color || newsConfidenceColor(ev.confidence ?? 0);
         const [jLat, jLon] = _newsJitter(ev.lat, ev.lon);
-        const m = L.marker([jLat, jLon], { icon: dotIcon(color) });
-        m.bindPopup(buildNewsContent(ev), { maxWidth: 340 });
-        markers.push(m);
+        add(jLat, jLon, dotIcon(color), buildNewsContent(ev));
     });
 
     allModeCluster.addLayers(markers);
     if (!maCarte.hasLayer(allModeCluster)) allModeCluster.addTo(maCarte);
 }
 
-// ── Header : compteur & countdown ───────────────────────────
+// Affiche exactement les couches des catégories actives
+function applyLayers() {
+    if (!maCarte) return;
+    const visible = [allModeCluster];
+    if (layerOn('osint')) visible.push(seismicLayer);
+    if (layerOn('air'))   visible.push(tracksLayer);
+    if (layerOn('sea'))   visible.push(tracksSeaLayer);
+    if (layerOn('space')) visible.push(spaceLayer);
+    if (layerOn('conv'))  visible.push(convergenceLayer);
+    const allKnown = [
+        allModeCluster,
+        signalCluster, osintCluster, seismicLayer,
+        newsOsintCluster, newsAirCluster, newsSeaCluster, newsSpaceCluster,
+        tracksLayer, tracksSeaLayer, aviationEvtCluster, maritimeEvtCluster, spaceLayer, convergenceLayer
+    ];
+    allKnown.forEach(function (layer) {
+        if (!layer) return;
+        if (visible.indexOf(layer) !== -1) { if (!maCarte.hasLayer(layer)) layer.addTo(maCarte); }
+        else if (maCarte.hasLayer(layer)) maCarte.removeLayer(layer);
+    });
+    _hdrRefreshCount();
+}
+
+function setLayer(key, on) {
+    if (OG_LAYERS.indexOf(key) === -1) return;
+    _layersOn[key] = !!on;
+    try { localStorage.setItem('ogma-layers', JSON.stringify(_layersOn)); } catch (e) { /* confort */ }
+    _rebuildAllMode();
+    applyLayers();
+    document.dispatchEvent(new CustomEvent('ogma:layers', { detail: Object.assign({}, _layersOn) }));
+}
+
+// Ancienne API (boutons ALL / OSINT / AIR / SEA / SPACE)
+function setFilter(name) {
+    const map = { OSINT: 'osint', AIR: 'air', SEA: 'sea', SPACE: 'space' };
+    OG_LAYERS.forEach(function (k) { _layersOn[k] = name === 'ALL' || k === 'conv' || map[name] === k; });
+    setLayer('conv', _layersOn.conv);
+}
+
+// ── Compteurs ────────────────────────────────────────────────
 const _hdrCounts = {
     signal: 0, osint: 0, seismic: 0, tracks: 0, space: 0,
     newsAir: 0, newsSea: 0, newsSpace: 0, newsOsint: 0,
@@ -146,67 +192,34 @@ function hdrUpdateCount(key, n) {
     _hdrRefreshCount();
 }
 
+function _layerCount(key) {
+    const c = _hdrCounts;
+    if (key === 'air')   return c.tracks + c.aviation + c.newsAir;
+    if (key === 'sea')   return c.maritime + c.newsSea;
+    if (key === 'space') return c.space + c.newsSpace;
+    if (key === 'osint') return c.signal + c.osint + c.seismic + c.newsOsint;
+    if (key === 'conv')  return (typeof _lastConvergences !== 'undefined' ? _lastConvergences.length : 0);
+    return 0;
+}
+
 function _hdrTotalForFilter(filter) {
-    if (filter === 'AIR')   return _hdrCounts.tracks + _hdrCounts.aviation + _hdrCounts.newsAir;
-    if (filter === 'SEA')   return _hdrCounts.maritime + _hdrCounts.newsSea;
-    if (filter === 'SPACE') return _hdrCounts.space + _hdrCounts.newsSpace;
-    if (filter === 'OSINT') return _hdrCounts.signal + _hdrCounts.osint + _hdrCounts.seismic + _hdrCounts.newsOsint;
-    return Object.values(_hdrCounts).reduce(function (s, v) { return s + v; }, 0);
+    if (filter === 'ALL') return OG_LAYERS.reduce(function (s, k) { return s + _layerCount(k); }, 0);
+    return _layerCount(String(filter).toLowerCase() === 'osint' ? 'osint' : { AIR: 'air', SEA: 'sea', SPACE: 'space' }[filter] || '');
 }
 
 function _hdrRefreshCount() {
+    let total = 0;
+    OG_LAYERS.forEach(function (k) {
+        const n = _layerCount(k);
+        if (layerOn(k)) total += n;
+        const el = document.querySelector('[data-layer-count="' + k + '"]');
+        if (el) el.textContent = n > 999 ? Math.round(n / 100) / 10 + 'k' : String(n);
+    });
     const el = document.getElementById('hdr-events');
-    if (el) el.textContent = _hdrTotalForFilter(_activeFilter);
+    if (el) el.textContent = total;
 }
 
 function _hdrResetCountdown() { /* conservé pour compatibilité */ }
-
-// ── Filtre ───────────────────────────────────────────────────
-// Fonctions lambdas pour éviter les référence avant chargement des layer files
-const _filterLayers = {
-    ALL:   function () { return [allModeCluster, seismicLayer, tracksLayer, tracksSeaLayer, spaceLayer, convergenceLayer]; },
-    OSINT: function () { return [signalCluster, osintCluster, seismicLayer, newsOsintCluster, convergenceLayer]; },
-    AIR:   function () { return [tracksLayer, aviationEvtCluster, newsAirCluster, convergenceLayer]; },
-    SEA:   function () { return [tracksSeaLayer, maritimeEvtCluster, newsSeaCluster, convergenceLayer]; },
-    SPACE: function () { return [spaceLayer, newsSpaceCluster]; }
-};
-
-let _activeFilter = 'ALL';
-
-function setFilter(name) {
-    if (!_filterLayers[name]) return;
-    _activeFilter = name;
-
-    ['ALL', 'OSINT', 'AIR', 'SEA', 'SPACE'].forEach(function (f) {
-        const btn = document.getElementById('btn-' + f);
-        if (!btn) return;
-        if (f === name) { btn.classList.add('active'); } else { btn.classList.remove('active'); }
-    });
-
-    if (name === 'ALL') _rebuildAllMode();
-
-    const visible = _filterLayers[name]();
-
-    const allKnown = [
-        allModeCluster,
-        signalCluster, osintCluster, seismicLayer,
-        newsOsintCluster, newsAirCluster, newsSeaCluster, newsSpaceCluster,
-        tracksLayer, tracksSeaLayer, aviationEvtCluster, maritimeEvtCluster, spaceLayer, convergenceLayer
-    ];
-
-    allKnown.forEach(function (layer) {
-        if (!layer || !maCarte) return;
-        if (visible.indexOf(layer) !== -1) {
-            if (!maCarte.hasLayer(layer)) layer.addTo(maCarte);
-        } else {
-            if (maCarte.hasLayer(layer)) maCarte.removeLayer(layer);
-        }
-    });
-
-    _hdrRefreshCount();
-}
-
-
 
 // ── Initialisation carte ─────────────────────────────────────
 async function initializeMap() {
@@ -219,12 +232,12 @@ async function initializeMap() {
         center: [48.8566, 2.3522],
         zoom: 3,
         minZoom: MIN_ZOOM,
-        maxZoom: MAX_ZOOM
+        maxZoom: MAX_ZOOM,
+        zoomControl: false
     });
 
     maCarte.setMaxBounds([[-90, -180], [90, 180]]);
 
-    // Couche de base Dark Gray → rendu noir via filtre CSS
     // Fond de carte public (vitrine) : défini dans config.js
     L.tileLayer(APP.CONFIG.BASEMAP.url, {
         maxZoom: MAX_ZOOM,
@@ -233,29 +246,8 @@ async function initializeMap() {
         attribution: APP.CONFIG.BASEMAP.attribution || ''
     }).addTo(maCarte);
 
-    // Affichage du niveau de zoom
-    const zoomDisplay = L.control({ position: 'topright' });
-    zoomDisplay.onAdd = function (map) {
-        const div = L.DomUtil.create('div', 'zoom-level-display');
-        div.innerHTML = 'Zoom: ' + map.getZoom();
-        div.style.background = 'white';
-        div.style.opacity = '0.8';
-        div.style.color = 'black';
-        div.style.padding = '5px 10px';
-        div.style.border = '2px solid rgba(0,0,0,0.2)';
-        div.style.borderRadius = '4px';
-        div.style.margin = '10px';
-        return div;
-    };
-    zoomDisplay.addTo(maCarte);
-
-    maCarte.on('zoomend', function () {
-        const display = document.querySelector('.zoom-level-display');
-        if (display) display.innerHTML = 'Zoom: ' + maCarte.getZoom();
-    });
-
-    // Échelle
-    L.control.scale({ imperial: false, maxWidth: 200 }).addTo(maCarte);
+    L.control.zoom({ position: 'bottomright', zoomInTitle: 'Zoomer', zoomOutTitle: 'Dézoomer' }).addTo(maCarte);
+    L.control.scale({ imperial: false, maxWidth: 160, position: 'bottomright' }).addTo(maCarte);
 
     // Redimensionnement automatique
     window.addEventListener('resize', function () { maCarte.invalidateSize(); });
@@ -268,6 +260,7 @@ async function initializeMap() {
 
     // Les couches reçoivent leurs données du snapshot SharePoint (ogma-feed.js),
     // et ce poste devient relais s'il a accès à Internet (ogma-sync.js).
+    applyLayers();
     APP.Feed.start();
     APP.Sync.start();
 }

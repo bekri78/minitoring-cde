@@ -75,6 +75,7 @@ function renderConvergences(list) {
         convergenceLayer.addLayer(m);
     });
     if (maCarte && !maCarte.hasLayer(convergenceLayer)) convergenceLayer.addTo(maCarte);
+    if (APP.UI) APP.UI.renderAlerts();
 }
 
 // ── Ruptures ─────────────────────────────────────────────────
@@ -83,7 +84,6 @@ const RUPTURE_CATEGORY_LABEL = {
     strategic: 'stratégique', crisis: 'crise', protest: 'contestation'
 };
 
-let _rupturesControl = null;
 let _lastRuptures = [];
 
 function _fmtRatio(r) {
@@ -91,44 +91,10 @@ function _fmtRatio(r) {
     return '×' + String(r.ratio).replace('.', ',');
 }
 
+// La liste est présentée par la barre de droite (« À surveiller », ogma-ui.js)
 function renderRuptures(list) {
     _lastRuptures = list || [];
-    if (!_rupturesControl) {
-        _rupturesControl = L.control({ position: 'bottomleft' });
-        _rupturesControl.onAdd = function () {
-            const div = L.DomUtil.create('div', 'ruptures-widget');
-            div.style.cssText = 'font-family:"Share Tech Mono",monospace;font-size:10px;background:#0a0f16cc;border:1px solid #1a2a3a;padding:8px 12px;max-width:260px;';
-            L.DomEvent.disableClickPropagation(div);
-            return div;
-        };
-        _rupturesControl.addTo(maCarte);
-    }
-    const el = document.querySelector('.ruptures-widget');
-    if (!el) return;
-
-    const shown = _lastRuptures.filter(function (r) { return theatreContains(r.lat, r.lon); }).slice(0, 5);
-    const head = '<div style="color:#4a6a7a;font-size:8px;letter-spacing:0.1em;margin-bottom:6px;">RUPTURES 24 H <span title="Activité des dernières 24 h comparée à la moyenne des 28 jours précédents" style="cursor:help;">ⓘ</span></div>';
-    if (!shown.length) {
-        el.innerHTML = head + '<div style="color:#4a6a7a;font-size:9px;">Aucune activité inhabituelle</div>';
-        return;
-    }
-    el.innerHTML = head + shown.map(function (r, i) {
-        const color = r.level === 'forte' ? '#ff2244' : '#ffaa00';
-        const cat = RUPTURE_CATEGORY_LABEL[r.category] || r.category;
-        return '<div data-rupture="' + i + '" style="display:flex;align-items:baseline;gap:6px;padding:4px 2px;border-bottom:1px solid #1a2a3a;cursor:pointer;"'
-            + ' onmouseover="this.style.background=\'#ff22440a\'" onmouseout="this.style.background=\'transparent\'">'
-            + '<span style="color:' + color + ';font-size:9px;">▲</span>'
-            + '<div style="flex:1;">'
-            + '<div style="color:#c8d8e8;font-size:9px;">' + escapeHtml(r.country) + ' · ' + escapeHtml(cat) + '</div>'
-            + '<div style="color:' + color + ';font-size:8px;">' + _fmtRatio(r) + ' · ' + r.today + ' signaux (normale ' + String(r.baseline).replace('.', ',') + '/j)</div>'
-            + '</div></div>';
-    }).join('');
-    Array.prototype.forEach.call(el.querySelectorAll('[data-rupture]'), function (row) {
-        row.addEventListener('click', function () {
-            const r = shown[Number(row.getAttribute('data-rupture'))];
-            if (r) showRupture(r);
-        });
-    });
+    if (APP.UI) APP.UI.renderAlerts();
 }
 
 // ── Détail d'une rupture : on cadre le pays sur ses événements et on explique ──
@@ -152,37 +118,39 @@ function _fr(n) { return String(n).replace('.', ','); }
 
 function _ruptureExplain(r, events) {
     const cat = RUPTURE_CATEGORY_LABEL[r.category] || r.category;
-    const color = r.level === 'forte' ? '#ff2244' : '#ffaa00';
-    let why;
-    if (r.kind === 'emergence' || r.ratio == null) {
-        why = '<b>' + r.today + '</b> signaux « ' + escapeHtml(cat) + ' » en 24 h, alors que ce pays n\u2019en produit presque jamais (normale : '
-            + _fr(r.baseline) + ' par jour sur les 28 derniers jours).';
-    } else {
-        why = '<b>' + r.today + '</b> signaux « ' + escapeHtml(cat) + ' » en 24 h contre <b>' + _fr(r.baseline)
+    const strong = r.level === 'forte';
+    const emergence = r.kind === 'emergence' || r.ratio == null;
+    const why = emergence
+        ? '<b>' + r.today + '</b> signaux « ' + escapeHtml(cat) + ' » en 24 h, alors que ce pays n\u2019en produit presque jamais (normale : '
+            + _fr(r.baseline) + ' par jour sur les 28 derniers jours).'
+        : '<b>' + r.today + '</b> signaux « ' + escapeHtml(cat) + ' » en 24 h contre <b>' + _fr(r.baseline)
             + '</b> par jour en moyenne sur les 28 derniers jours, soit <b>' + _fr(r.ratio) + ' fois</b> la normale.';
-    }
-    const strength = r.level === 'forte'
+    const strength = strong
         ? 'Écart très au-delà des variations habituelles (' + _fr(r.z) + ' écarts-types).'
         : 'Écart net par rapport aux variations habituelles (' + _fr(r.z) + ' écarts-types).';
     const places = (r.places || []).length
-        ? '<div style="margin-top:6px;color:#8aa0b0;">Lieux cités : ' + r.places.map(function (p) { return escapeHtml(p.name) + ' (' + p.count + ')'; }).join(', ') + '</div>'
+        ? '<p class="og-d-muted">Lieux cités : <span class="og-d-text">' + r.places.map(function (p) { return escapeHtml(p.name) + ' (' + p.count + ')'; }).join(', ') + '</span></p>'
         : '';
     const list = events.length
-        ? '<div style="margin-top:8px;border-top:1px solid #1a2a3a;padding-top:6px;color:#4a6a7a;font-size:8px;letter-spacing:0.1em;">PRINCIPAUX SIGNAUX</div>'
+        ? '<div class="og-d-label">PRINCIPAUX SIGNAUX</div><ul class="og-d-sources">'
           + events.slice(0, 6).map(function (e) {
                 const t = escapeHtml(e.titleFr || e.title || '(sans titre)');
-                const src = e.domain ? ' <span style="color:#4a6a7a;">— ' + escapeHtml(e.domain) + '</span>' : '';
-                return '<div style="margin-top:4px;line-height:1.35;">• '
-                    + (e.url ? '<a href="' + escapeHtml(e.url) + '" target="_blank" rel="noopener" style="color:#c8d8e8;">' + t + '</a>' : t) + src + '</div>';
-            }).join('')
-        : '<div style="margin-top:8px;color:#4a6a7a;">Détail des signaux indisponible dans ce snapshot.</div>';
-    return '<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:#c8d8e8;max-width:320px;">'
-        + '<div style="color:' + color + ';font-size:9px;letter-spacing:0.1em;margin-bottom:6px;">▲ RUPTURE ' + (r.level === 'forte' ? 'FORTE' : 'NOTABLE') + '</div>'
-        + '<div style="font-size:12px;margin-bottom:6px;">' + escapeHtml(r.country) + ' · ' + escapeHtml(cat) + '</div>'
-        + '<div style="line-height:1.45;">' + why + '</div>'
-        + '<div style="margin-top:4px;color:#8aa0b0;">' + strength + '</div>'
+                const src = e.domain ? '<span class="og-d-muted"> — ' + escapeHtml(e.domain) + '</span>' : '';
+                return '<li>' + (e.url ? '<a href="' + escapeHtml(e.url) + '" target="_blank" rel="noopener">' + t + '</a>' : t) + src + '</li>';
+            }).join('') + '</ul>'
+        : '<p class="og-d-muted">Détail des signaux indisponible dans ce snapshot.</p>';
+    return '<div class="og-d">'
+        + '<div class="og-d-tags"><span class="og-d-tag ' + (strong ? 'og-d-crit' : 'og-d-warn') + '">' + (strong ? 'CRITIQUE' : 'À SURVEILLER') + '</span><span class="og-d-kind">RUPTURE 24 H</span></div>'
+        + '<h3 class="og-d-title">' + escapeHtml(r.country) + ' · ' + escapeHtml(cat) + '</h3>'
+        + '<p class="og-d-text">' + why + '</p>'
+        + '<div class="og-d-kpis">'
+        +   '<div><b>' + r.today + '</b><span>signaux 24 h</span></div>'
+        +   '<div><b>' + _fr(r.baseline) + '</b><span>normale / jour</span></div>'
+        +   '<div><b class="' + (strong ? 'og-d-crit-t' : 'og-d-warn-t') + '">' + (emergence ? 'nouveau' : '×' + _fr(r.ratio)) + '</b><span>écart</span></div>'
+        + '</div>'
+        + '<p class="og-d-muted">' + strength + '</p>'
         + places + list
-        + '<div style="margin-top:8px;color:#4a6a7a;font-size:8px;">Les cercles sur la carte montrent où ces signaux sont localisés.</div>'
+        + '<p class="og-d-hint">Les cercles sur la carte montrent où ces signaux sont localisés.</p>'
         + '</div>';
 }
 
@@ -205,20 +173,18 @@ function showRupture(r) {
 
     const center = hasCenter ? [r.lat, r.lon] : (pts.length ? [pts[0].lat, pts[0].lon] : null);
     if (!center) return;
-    const popup = L.popup({ maxWidth: 340, autoPan: true }).setLatLng(center).setContent(_ruptureExplain(r, events));
-    const open = function () { popup.openOn(maCarte); };
     if (pts.length >= 2) {
         const b = L.latLngBounds(pts.map(function (e) { return [e.lat, e.lon]; })).extend(center);
         maCarte.flyToBounds(b.pad(0.3), { maxZoom: 7, duration: 0.8 });
     } else {
         maCarte.flyTo(center, 6, { duration: 0.8 });
     }
-    let opened = false;
-    const openOnce = function () { if (!opened) { opened = true; open(); } };
-    maCarte.once('moveend', openOnce);
-    setTimeout(openOnce, 1500);   // carte déjà cadrée : pas d'événement moveend
-    // les cercles disparaissent à la fermeture de la fiche
-    popup.on && popup.on('remove', function () { ruptureFocusLayer.clearLayers(); });
+    // La fiche s'ouvre dans la barre de droite ; les cercles disparaissent à sa fermeture
+    const html = _ruptureExplain(r, events);
+    if (APP.UI && APP.UI.showDetail(html, function () { ruptureFocusLayer.clearLayers(); })) return;
+    const popup = L.popup({ maxWidth: 340, autoPan: true }).setLatLng(center).setContent(html);
+    maCarte.once('moveend', function () { popup.openOn(maCarte); });
+    popup.on('remove', function () { ruptureFocusLayer.clearLayers(); });
 }
 
 // ── Point d'entrée appelé par ogma-feed.js ───────────────────
@@ -227,7 +193,5 @@ function renderInsights(data) {
     renderRuptures(data.ruptures || []);
 }
 
-document.addEventListener('ogma:theatre', function () {
-    renderRuptures(_lastRuptures);
-});
+
 
