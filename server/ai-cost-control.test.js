@@ -111,16 +111,20 @@ function mockFactory(responder) {
 }
 const ok = (usage, content = '{"same":[]}') => ({ usage, choices: [{ finish_reason: 'stop', message: { content } }] });
 
-test('raisonnement : activé pour rss et signals, pas pour la traduction', async () => {
+test('raisonnement : effort max (rss, signals), high (filtre/traduction), aucun ailleurs', async () => {
   _spend.reset();
   const { MockOpenAI, bodies } = mockFactory(() => ok({ prompt_tokens: 1000, completion_tokens: 500 }));
   await createDeepSeekClient(MockOpenAI, 'k', 'rss').chat.completions.create({ model: 'm' });
   await createDeepSeekClient(MockOpenAI, 'k', 'signals').chat.completions.create({ model: 'm', max_tokens: 800 });
   await createDeepSeekClient(MockOpenAI, 'k', 'filter-translation').chat.completions.create({ model: 'm' });
+  await createDeepSeekClient(MockOpenAI, 'k', 'autre').chat.completions.create({ model: 'm' });
   assert.equal(bodies[0].thinking.type, 'enabled');
-  assert.equal(bodies[0].reasoning_effort, 'high');
+  assert.equal(bodies[0].reasoning_effort, 'max');     // localisation des articles
+  assert.equal(bodies[1].reasoning_effort, 'max');     // résumés des signaux
   assert.equal(bodies[1].max_tokens, 8800);            // place réservée au raisonnement
-  assert.equal(bodies[2].thinking.type, 'disabled');
+  assert.equal(bodies[2].thinking.type, 'enabled');    // filtre/traduction
+  assert.equal(bodies[2].reasoning_effort, 'high');
+  assert.equal(bodies[3].thinking.type, 'disabled');   // tâche non listée
 });
 
 test('raisonnement : coupé une fois le budget du jour atteint', async () => {

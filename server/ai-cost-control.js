@@ -17,8 +17,13 @@ const PRICE = {                                   // $ par million de jetons (De
   cached: Number(process.env.AI_PRICE_CACHED || 0.0028),
   output: Number(process.env.AI_PRICE_OUTPUT || 0.28),
 };
-const REASONING_TASKS  = String(process.env.AI_REASONING_TASKS ?? 'rss,signals').split(',').map(s => s.trim()).filter(Boolean);
-const REASONING_EFFORT = process.env.AI_REASONING_EFFORT || 'high';
+const REASONING_TASKS  = String(process.env.AI_REASONING_TASKS ?? 'rss,signals,filter-translation').split(',').map(s => s.trim()).filter(Boolean);
+// Effort par tâche : « max » là où la qualité compte le plus (résumés des signaux,
+// localisation des articles), « high » pour le filtre/traduction (gros volumes).
+const REASONING_EFFORT_BY_TASK = Object.fromEntries(String(process.env.AI_REASONING_EFFORT_BY_TASK
+  ?? 'rss:max,signals:max,filter-translation:high').split(',').map(x => x.split(':').map(y => y.trim())).filter(x => x[0] && x[1]));
+const REASONING_EFFORT = process.env.AI_REASONING_EFFORT || 'high';   // tâche non listée ci-dessus
+const effortFor = task => REASONING_EFFORT_BY_TASK[task] || REASONING_EFFORT;
 const DAILY_BUDGET_USD = Number(process.env.AI_DAILY_BUDGET_USD || 0.13);
 const REASONING_EXTRA_TOKENS = 8000;              // place réservée au raisonnement en plus de la réponse
 
@@ -68,7 +73,7 @@ function createDeepSeekClient(OpenAI, apiKey, task) {
   const call = async (body, options, thinking) => {
     const request = thinking
       ? { ...body, max_tokens: (body.max_tokens || 4000) + REASONING_EXTRA_TOKENS,
-          thinking: { type: 'enabled' }, reasoning_effort: REASONING_EFFORT }
+          thinking: { type: 'enabled' }, reasoning_effort: effortFor(task) }
       : { max_tokens: 12000, ...body, thinking: { type: 'disabled' } };
     const completion = await create(request, options);
     addSpend(costOf(completion.usage || {}));
