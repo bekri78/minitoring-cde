@@ -18,8 +18,8 @@ const fakeClient = {
     let content;
     if (sys.includes('deduplication')) {
       calls.dedup++;
-      const n = (messages[1].content.match(/Pair \d+:/g) || []).length;
-      content = JSON.stringify(Array.from({ length: n }, (_, i) => ({ pair: i, same: i === 0 })));
+      calls.lastDedup = messages[1].content;
+      content = JSON.stringify({ same: [0] });
     } else {
       calls.doubts++;
       const n = messages[1].content.split('\n').length;
@@ -68,4 +68,28 @@ test('doutes : seuls les titres nouveaux partent à l\'IA', async () => {
   const r3 = await news.analyzeDoubts(['Titre A', 'Titre C']);
   assert.strictEqual(calls.doubts, 2);                // tout vient du cache
   assert.strictEqual(r3.length, 2);
+});
+
+test('doublons : format compact, chaque titre envoyé une seule fois', () => {
+  const its = [{ title: 'A' }, { title: 'B' }, { title: 'C' }, { title: 'D' }];
+  const prompt = news.buildDedupPrompt(its, [{ i: 0, j: 1 }, { i: 0, j: 2 }, { i: 1, j: 2 }, { i: 2, j: 3 }]);
+  assert.strictEqual(prompt, 'HEADLINES:\n0. A\n1. B\n2. C\n3. D\n\nPAIRS:\n0: 0-1\n1: 0-2\n2: 1-2\n3: 2-3');
+});
+
+test('doublons : lecture de la réponse (nouveau et ancien format, valeurs hors bornes ignorées)', () => {
+  assert.deepStrictEqual([...news.parseDedupAnswer('{"same":[2,0,9,-1,1.5]}', 4)], [2, 0]);
+  assert.deepStrictEqual([...news.parseDedupAnswer('{"same":[]}', 4)], []);
+  assert.deepStrictEqual([...news.parseDedupAnswer('[{"pair":1,"same":true},{"pair":2,"same":false}]', 4)], [1]);
+  assert.deepStrictEqual([...news.parseDedupAnswer('Voici : {"same":[3]}', 4)], [3]);
+  assert.strictEqual(news.parseDedupAnswer('désolé', 4), null);
+});
+
+test('doublons : un lot de 200 paires = un seul appel', async () => {
+  const its = Array.from({ length: 40 }, (_, k) => ({ title: 'Titre unique numéro ' + k + ' zz', pubDate: '2026-11-10T08:00:00Z' }));
+  const ps = [];
+  for (let i = 0; i < 40 && ps.length < 200; i++) for (let j = i + 1; j < 40 && ps.length < 200; j++) ps.push({ i, j });
+  const before = calls.dedup;
+  await news.detectDuplicatePairsWithAI(its, ps);
+  assert.strictEqual(calls.dedup - before, 1);
+  assert.ok(calls.lastDedup.length < 200 * 57 * 4 / 3, 'prompt compact');
 });

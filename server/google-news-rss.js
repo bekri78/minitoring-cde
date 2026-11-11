@@ -1015,15 +1015,21 @@ function isDuplicate(newEvent, existingEvents) {
 
 // AI dedup zone grise (meme evenement, formulations differentes)
 
+// Format compact : chaque titre n'est envoyé qu'une fois (numéroté), les paires
+// ne sont que des couples de numéros, et la réponse ne liste que les doublons.
+// Un titre figure souvent dans 5 à 10 paires : ~3 fois moins de jetons envoyés
+// qu'avec « Pair n: A … B … », et la réponse tient en une ligne.
 const AI_DEDUP_PROMPT = `You are an OSINT news deduplication expert.
-Given pairs of headlines, decide if each pair covers the SAME real-world event.
+You receive numbered HEADLINES, then numbered PAIRS written "pair: headlineA-headlineB".
+For each pair, decide if both headlines cover the SAME real-world event.
 Same event = same incident/operation/announcement, even if worded differently or from different sources.
 Different event = different incident, different day, different location, or only thematically similar.
-Return ONLY a JSON array: [{"pair":0,"same":true},{"pair":1,"same":false},...]`;
+Return ONLY JSON listing the pair numbers that are the same event: {"same":[3,17]}.
+Pairs you do not list are treated as different events. If none: {"same":[]}.`;
 
 const DEDUP_GRAY_MIN      = 0.25;
 const DEDUP_GRAY_MAX      = 0.55;
-const DEDUP_AI_MAX_PAIRS  = 30;
+const DEDUP_AI_MAX_PAIRS  = 200;   // ~1 000 nouvelles paires par cycle → 4 à 5 appels
 const DEDUP_TIME_WINDOW_H = 24;
 
 function findGrayZonePairs(items) {
@@ -1063,6 +1069,40 @@ function markDuplicate(items, pair, duplicateIndices) {
   duplicateIndices.add(ti >= tj ? pair.j : pair.i);
 }
 
+function buildDedupPrompt(items, batch) {
+  const num = new Map();
+  const titles = [];
+  const id = idx => {
+    if (!num.has(idx)) { num.set(idx, titles.length); titles.push(items[idx].title); }
+    return num.get(idx);
+  };
+  const pairLines = batch.map((p, k) => k + ': ' + id(p.i) + '-' + id(p.j));
+  return 'HEADLINES:\n' + titles.map((t, n) => n + '. ' + t).join('\n')
+    + '\n\nPAIRS:\n' + pairLines.join('\n');
+}
+
+// → Set des numéros de paires « même événement », ou null si la réponse est illisible.
+// Accepte aussi l'ancien format [{"pair":0,"same":true},…].
+function parseDedupAnswer(text, n) {
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch {
+    const m = String(text).match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+    if (m) { try { parsed = JSON.parse(m[0]); } catch {} }
+  }
+  if (!parsed) return null;
+  let list = null;
+  if (Array.isArray(parsed)) list = parsed;
+  else if (Array.isArray(parsed.same)) list = parsed.same;
+  else { const v = Object.values(parsed).find(Array.isArray); if (v) list = v; }
+  if (!list) return null;
+  const out = new Set();
+  for (const x of list) {
+    if (typeof x === 'number') { if (Number.isInteger(x) && x >= 0 && x < n) out.add(x); }
+    else if (x && typeof x === 'object' && x.same && Number.isInteger(x.pair) && x.pair < n) out.add(x.pair);
+  }
+  return out;
+}
+
 async function detectDuplicatePairsWithAI(items, pairs) {
   if (!openaiClient || !pairs.length) return new Set();
   const duplicateIndices = new Set();
@@ -1077,9 +1117,7 @@ async function detectDuplicatePairsWithAI(items, pairs) {
 
   for (let b = 0; b < unknown.length; b += DEDUP_AI_MAX_PAIRS) {
     const batch = unknown.slice(b, b + DEDUP_AI_MAX_PAIRS);
-    const prompt = batch.map((p, idx) =>
-      'Pair ' + idx + ':\n  A: "' + items[p.i].title + '"\n  B: "' + items[p.j].title + '"'
-    ).join('\n\n');
+    const prompt = buildDedupPrompt(items, batch);
     try {
       const completion = await openaiClient.chat.completions.create({
         model:    OPENAI_MODEL,
@@ -1090,15 +1128,14 @@ async function detectDuplicatePairsWithAI(items, pairs) {
         temperature:     0,
         response_format: { type: 'json_object' },
       }, { timeout: 30000 });
-      const text    = completion.choices?.[0]?.message?.content || '';
-      const results = parseJsonArray(text);
-      if (!results) continue;
-      for (const r of results) {
-        const pair = batch[r.pair];
-        if (!pair) continue;
-        dedupVerdicts.set(pairKey(items[pair.i].title, items[pair.j].title), !!r.same);
-        if (r.same) markDuplicate(items, pair, duplicateIndices);
-      }
+      const text = completion.choices?.[0]?.message?.content || '';
+      const same = parseDedupAnswer(text, batch.length);
+      if (!same) continue;                       // réponse illisible : rien n'est mémorisé
+      batch.forEach((pair, k) => {
+        const dup = same.has(k);
+        dedupVerdicts.set(pairKey(items[pair.i].title, items[pair.j].title), dup);
+        if (dup) markDuplicate(items, pair, duplicateIndices);
+      });
     } catch (err) {
       if (isRetryableNetworkError(err)) {
         console.warn('[google-news] AI dedup network error: ' + err.message.slice(0, 80));
@@ -1464,5 +1501,7 @@ module.exports = {
   detectLocationFromTitle,
   lookupKnown,
   detectDuplicatePairsWithAI,
+  buildDedupPrompt,
+  parseDedupAnswer,
   analyzeDoubts,
 };
