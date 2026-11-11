@@ -157,3 +157,11 @@ test('coût d\'un appel au tarif V4 Flash, cache compris', () => {
   const usd = costOf({ prompt_tokens: 1000000, prompt_cache_hit_tokens: 500000, completion_tokens: 1000000 });
   assert.ok(Math.abs(usd - (0.07 + 0.0014 + 0.28)) < 1e-9);
 });
+
+test('raisonnement : désactivable appel par appel (ogReasoning: false), paramètre non transmis', async () => {
+  _spend.reset();
+  const { MockOpenAI, bodies } = mockFactory(() => ok({ prompt_tokens: 10, completion_tokens: 5 }));
+  await createDeepSeekClient(MockOpenAI, 'k', 'rss').chat.completions.create({ model: 'm', ogReasoning: false });
+  assert.equal(bodies[0].thinking.type, 'disabled');
+  assert.equal('ogReasoning' in bodies[0], false);
+});

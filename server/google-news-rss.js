@@ -1127,6 +1127,7 @@ async function detectDuplicatePairsWithAI(items, pairs) {
         ],
         temperature:     0,
         response_format: { type: 'json_object' },
+        ogReasoning:     false,   // 200 paires : le raisonnement atteint la limite de jetons sans répondre
       }, { timeout: 30000 });
       const text = completion.choices?.[0]?.message?.content || '';
       const same = parseDedupAnswer(text, batch.length);

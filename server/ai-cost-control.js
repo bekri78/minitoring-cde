@@ -75,8 +75,11 @@ function createDeepSeekClient(OpenAI, apiKey, task) {
     logUsage(task, completion, thinking);
     return completion;
   };
-  client.chat.completions.create = async (body, options) => {
-    const thinking = REASONING_TASKS.includes(task) && !reasoningUnsupported && todaySpend() < DAILY_BUDGET_USD;
+  client.chat.completions.create = async (rawBody, options) => {
+    // ogReasoning: false → cet appel précis reste sans raisonnement (ex. lots de 200 paires de doublons,
+    // où le raisonnement s'emballe jusqu'à la limite de jetons sans produire de réponse)
+    const { ogReasoning, ...body } = rawBody || {};
+    const thinking = ogReasoning !== false && REASONING_TASKS.includes(task) && !reasoningUnsupported && todaySpend() < DAILY_BUDGET_USD;
     let completion;
     try {
       completion = await call(body, options, thinking);
