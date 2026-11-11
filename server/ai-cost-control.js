@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const shadow = require('./ai-shadow');
 
 // ── Raisonnement DeepSeek, sous plafond budgétaire ───────────────────────
 // Le raisonnement (« thinking ») améliore la qualité mais ses jetons sont
@@ -105,6 +106,8 @@ function createDeepSeekClient(OpenAI, apiKey, task) {
       error.status = 422;
       throw error;
     }
+    // Essai comparatif : la même demande rejouée chez Claude Haiku, réponse jetée (ai-shadow.js)
+    if (shadow.active(task)) shadow.compare(task, body, completion).catch(() => {});
     return completion;
   };
   return client;
