@@ -1216,6 +1216,9 @@ async function analyzeDoubtsUncached(titles, attempt = 0) {
 
 // Même principe que pour les paires : un titre déjà analysé n'est pas renvoyé.
 // Renvoie des résultats indexés sur `titles`, comme l'analyse directe.
+const DOUBT_BATCH   = 40;
+const DOUBT_MAX     = 300;   // garde-fou : au-delà, cycle anormal, l'IA est sautée
+
 async function analyzeDoubts(titles) {
   const results = [];
   const unknownTitles = [];
@@ -1226,11 +1229,14 @@ async function analyzeDoubts(titles) {
     else { unknownTitles.push(t); unknownIndex.push(i); }
   });
   console.log(`[google-news] doubts cache: ${results.length} titres déjà analysés, ${unknownTitles.length} à analyser`);
-  if (unknownTitles.length) {
-    const fresh = await analyzeDoubtsUncached(unknownTitles);
+  // Lots de DOUBT_BATCH titres : avec le raisonnement, ~20 titres demandent
+  // ~1 700 jetons de réflexion ; 40 restent loin de la limite de 12 000.
+  for (let b = 0; b < unknownTitles.length; b += DOUBT_BATCH) {
+    const chunk = unknownTitles.slice(b, b + DOUBT_BATCH);
+    const fresh = await analyzeDoubtsUncached(chunk);
     for (const r of fresh || []) {
-      const i = unknownIndex[r.index ?? -1];
-      if (i === undefined) continue;
+      if (!Number.isInteger(r.index) || r.index < 0 || r.index >= chunk.length) continue;
+      const i = unknownIndex[b + r.index];
       const verdict = { location: r.location || '', confidence: r.confidence };
       doubtVerdicts.set(cacheKey(normTitleKey(titles[i])), verdict);
       results.push({ index: i, ...verdict });
@@ -1341,7 +1347,7 @@ async function fetchGoogleNewsEvents() {
     console.log(`[google-news] doubts needing AI: ${doubts.length} / ${classified.length} (${Math.round(100 * doubts.length / classified.length)}%)`);
 
     // ── STEP 5 : AI uniquement sur les doutes (batch max 100) ──────────
-    if (doubts.length > 0 && doubts.length <= 100) {
+    if (doubts.length > 0 && doubts.length <= DOUBT_MAX) {
       const aiResults = await analyzeDoubts(doubts);
       if (aiResults) {
         for (const r of aiResults) {
@@ -1362,7 +1368,7 @@ async function fetchGoogleNewsEvents() {
         }
         console.log(`[google-news] AI enriched ${aiResults.length} doubtful articles`);
       }
-    } else if (doubts.length > 100) {
+    } else if (doubts.length > DOUBT_MAX) {
       console.log(`[google-news] too many doubts (${doubts.length}), skipping AI to save tokens`);
     }
 

@@ -93,3 +93,12 @@ test('doublons : un lot de 200 paires = un seul appel', async () => {
   assert.strictEqual(calls.dedup - before, 1);
   assert.ok(calls.lastDedup.length < 200 * 57 * 4 / 3, 'prompt compact');
 });
+
+test('doutes : traités par lots de 40, chaque verdict revient au bon titre', async () => {
+  const before = calls.doubts;
+  const titles = Array.from({ length: 90 }, (_, k) => 'Titre lot ' + k);
+  const r = await news.analyzeDoubts(titles);
+  assert.strictEqual(calls.doubts - before, 3);
+  assert.strictEqual(r.length, 90);
+  assert.deepStrictEqual(r.map(x => x.index).sort((a, b) => a - b), titles.map((_, k) => k));
+});
