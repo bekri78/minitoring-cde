@@ -21,9 +21,10 @@ const MODEL = process.env.ANTHROPIC_SHADOW_MODEL || 'claude-haiku-5-5';
 const HOURS = Number(process.env.AI_SHADOW_HOURS || 6);
 const MAX_USD = Number(process.env.AI_SHADOW_MAX_USD || 0.30);
 const MAX_PER_TASK = Number(process.env.AI_SHADOW_MAX_PER_TASK || 60);
-const RUN = process.env.AI_SHADOW_RUN || '1';
+const RUN = process.env.AI_SHADOW_RUN || '2';   // 2 : relance après correction du raisonnement
 const PRICE = { input: 0.10, output: 0.50 };             // $ par million de jetons (Haiku 5.5, < 100 k jetons)
-const THINKING_BUDGET = Number(process.env.AI_SHADOW_THINKING_BUDGET || 4000);
+const EFFORT = process.env.AI_SHADOW_EFFORT || 'high';
+const MAX_OUT = Number(process.env.AI_SHADOW_MAX_TOKENS || 16000);   // raisonnement + réponse
 
 const stateFile = () => path.join(process.env.CACHE_DIR || '/data', 'ai-shadow.json');
 let state = null;
@@ -45,29 +46,33 @@ function active(task) {
   return (s.calls[task] || 0) < MAX_PER_TASK;
 }
 
-let thinkingRejected = false;
+// Haiku 5.5 : raisonnement « adaptive » réglé par output_config.effort
+// (thinking.type « enabled » + budget est refusé pour ce modèle). Si l'API
+// refuse encore un réglage, on descend d'un cran : adaptive seul, puis aucun.
+const MODES = [
+  { label: 'adaptive+' + EFFORT, extra: { thinking: { type: 'adaptive' }, output_config: { effort: EFFORT } } },
+  { label: 'adaptive', extra: { thinking: { type: 'adaptive' } } },
+  { label: 'none', extra: {} },
+];
+let mode = 0;
 async function callAnthropic(messages, maxTokens, fetchImpl = fetch) {
   const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
   const msgs = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content) }));
-  const send = async (withThinking) => {
-    const body = { model: MODEL, max_tokens: withThinking ? THINKING_BUDGET + (maxTokens || 4000) : (maxTokens || 4000), system, messages: msgs };
-    if (withThinking) body.thinking = { type: 'enabled', budget_tokens: THINKING_BUDGET };
+  for (;;) {
+    const body = { model: MODEL, max_tokens: Math.max(MAX_OUT, maxTokens || 0), system, messages: msgs, ...MODES[mode].extra };
     const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'x-api-key': KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
     const text = await res.text();
-    if (!res.ok) { const e = new Error('HTTP ' + res.status + ' ' + text.slice(0, 200)); e.status = res.status; throw e; }
-    return JSON.parse(text);
-  };
-  try {
-    return { r: await send(!thinkingRejected), thinking: !thinkingRejected };
-  } catch (e) {
-    if (thinkingRejected || e.status !== 400) throw e;
-    thinkingRejected = true;
-    console.warn('[ai-shadow] paramètre de raisonnement refusé, essai sans :', e.message);
-    return { r: await send(false), thinking: false };
+    if (res.ok) return { r: JSON.parse(text), thinking: MODES[mode].label };
+    if (res.status === 400 && mode < MODES.length - 1) {
+      console.warn('[ai-shadow] réglage « ' + MODES[mode].label + ' » refusé, essai suivant :', text.slice(0, 200));
+      mode++;
+      continue;
+    }
+    const e = new Error('HTTP ' + res.status + ' ' + text.slice(0, 200)); e.status = res.status; throw e;
   }
 }
 
@@ -153,10 +158,11 @@ async function compare(task, body, dsCompletion, fetchImpl) {
     const cmp = /deduplication/i.test(sys) ? compareDedup(user, dsText, hkText)
       : /extract ONLY/i.test(sys) ? compareDoubts(user, dsText, hkText)
       : compareText(task, dsText, hkText);
-    out = { task, model: r.model || MODEL, thinking, ms: Date.now() - t0,
+    out = { task, model: r.model || MODEL, thinking, stop: r.stop_reason, ms: Date.now() - t0,
       haiku: { in: u.input_tokens || 0, out: u.output_tokens || 0, usd: Number(cost.toFixed(6)) },
       deepseek: { in: du.prompt_tokens || 0, out: du.completion_tokens || 0, usd: Number(dsCost.toFixed(6)) },
       ...cmp, total_usd: Number(s.usd.toFixed(4)) };
+    if (cmp.unreadable) out.debut_reponse = clip(cmp.unreadable === 'haiku' ? hkText : dsText, 200);   // pour comprendre l'échec
     const st = s.stats[cmp.kind] = s.stats[cmp.kind] || { n: 0, agreeSum: 0, hkUsd: 0, dsUsd: 0 };
     st.n++; st.hkUsd += cost; st.dsUsd += dsCost; if (typeof cmp.agree === 'number') st.agreeSum += cmp.agree;
     console.log('[ai-shadow]', JSON.stringify(out));
@@ -174,4 +180,4 @@ function summary() {
     stats: Object.fromEntries(Object.entries(s.stats).map(([k, v]) => [k, { n: v.n, accord_moyen: v.n ? Math.round(v.agreeSum / v.n) : null, haiku_usd: Number(v.hkUsd.toFixed(5)), deepseek_usd: Number(v.dsUsd.toFixed(5)) }])) };
 }
 
-module.exports = { compare, summary, active, _reset: () => { state = null; thinkingRejected = false; }, compareDedup, compareDoubts };
+module.exports = { compare, summary, active, _reset: () => { state = null; mode = 0; }, compareDedup, compareDoubts };

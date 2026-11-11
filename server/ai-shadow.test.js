@@ -31,20 +31,23 @@ test('appel Anthropic : format Messages, système séparé, raisonnement, coût'
   assert.equal(sent.headers['x-api-key'], 'test-key');
   assert.equal(sent.body.system, 'You are an OSINT news deduplication expert.');
   assert.deepEqual(sent.body.messages.map(m => m.role), ['user']);
-  assert.equal(sent.body.thinking.type, 'enabled');
+  assert.equal(sent.body.thinking.type, 'adaptive');
+  assert.equal(sent.body.output_config.effort, 'high');
+  assert.equal(sent.body.max_tokens, 16000);
   assert.equal(out.agree, 100);
   assert.equal(out.haiku.usd, 0.0002);
 });
 
-test('raisonnement refusé (400) : nouvel essai sans, puis plus de tentative', async () => {
+test('réglage refusé (400) : adaptive+effort → adaptive → aucun, puis on s\'y tient', async () => {
   shadow._reset();
   const seen = [];
-  const fakeFetch = async (url, opts) => { const b = JSON.parse(opts.body); seen.push(!!b.thinking);
-    if (b.thinking) return { ok: false, status: 400, text: async () => 'thinking not supported' };
+  const fakeFetch = async (url, opts) => { const b = JSON.parse(opts.body);
+    const m = b.output_config ? 'effort' : b.thinking ? 'adaptive' : 'none'; seen.push(m);
+    if (m !== 'none') return { ok: false, status: 400, text: async () => 'not supported' };
     return { ok: true, text: async () => JSON.stringify({ usage: { input_tokens: 10, output_tokens: 5 }, content: [{ type: 'text', text: '{"same":[]}' }] }) }; };
   await shadow.compare('rss', dedupBody, ds('{"same":[]}'), fakeFetch);
   await shadow.compare('rss', dedupBody, ds('{"same":[]}'), fakeFetch);
-  assert.deepEqual(seen, [true, false, false]);
+  assert.deepEqual(seen, ['effort', 'adaptive', 'none', 'none']);
 });
 
 test('garde-fou : plus aucun appel une fois le budget de l\'essai atteint', async () => {
