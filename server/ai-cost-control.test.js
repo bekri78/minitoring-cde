@@ -5,7 +5,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const vm = require('vm');
-const { createDeepSeekClient, persistentCache } = require('./ai-cost-control');
+process.env.CACHE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-spend-test-'));
+const { createDeepSeekClient, persistentCache, costOf, _spend } = require('./ai-cost-control');
 
 test('DeepSeek disables reasoning and SDK retries, honors limits and rejects truncation', async () => {
   let config, body;
@@ -97,4 +98,62 @@ test('fresh signals are reused without a rebuild or disk write', async () => {
   await sandbox.module.exports.refreshSignals([]);
   assert.equal(writes, 0);
   assert.equal(sandbox.module.exports.getSignalsCache().signals[0].id, 'cached');
+});
+
+function mockFactory(responder) {
+  const bodies = [];
+  class MockOpenAI {
+    constructor() {
+      this.chat = { completions: { create: async (request) => { bodies.push(request); return responder(request, bodies.length); } } };
+    }
+  }
+  return { MockOpenAI, bodies };
+}
+const ok = (usage, content = '{"same":[]}') => ({ usage, choices: [{ finish_reason: 'stop', message: { content } }] });
+
+test('raisonnement : activé pour rss et signals, pas pour la traduction', async () => {
+  _spend.reset();
+  const { MockOpenAI, bodies } = mockFactory(() => ok({ prompt_tokens: 1000, completion_tokens: 500 }));
+  await createDeepSeekClient(MockOpenAI, 'k', 'rss').chat.completions.create({ model: 'm' });
+  await createDeepSeekClient(MockOpenAI, 'k', 'signals').chat.completions.create({ model: 'm', max_tokens: 800 });
+  await createDeepSeekClient(MockOpenAI, 'k', 'filter-translation').chat.completions.create({ model: 'm' });
+  assert.equal(bodies[0].thinking.type, 'enabled');
+  assert.equal(bodies[0].reasoning_effort, 'high');
+  assert.equal(bodies[1].max_tokens, 8800);            // place réservée au raisonnement
+  assert.equal(bodies[2].thinking.type, 'disabled');
+});
+
+test('raisonnement : coupé une fois le budget du jour atteint', async () => {
+  _spend.reset();
+  _spend.addSpend(0.25);
+  const { MockOpenAI, bodies } = mockFactory(() => ok({ prompt_tokens: 10, completion_tokens: 5 }));
+  await createDeepSeekClient(MockOpenAI, 'k', 'rss').chat.completions.create({ model: 'm' });
+  assert.equal(bodies[0].thinking.type, 'disabled');
+});
+
+test('raisonnement : paramètre refusé par l\'API → nouvel essai sans, puis plus de tentative', async () => {
+  _spend.reset();
+  const { MockOpenAI, bodies } = mockFactory((req) => {
+    if (req.thinking.type === 'enabled') { const e = new Error('bad param'); e.status = 400; throw e; }
+    return ok({ prompt_tokens: 10, completion_tokens: 5 });
+  });
+  const c = createDeepSeekClient(MockOpenAI, 'k', 'rss');
+  await c.chat.completions.create({ model: 'm' });
+  await c.chat.completions.create({ model: 'm' });
+  assert.deepEqual(bodies.map(b => b.thinking.type), ['enabled', 'disabled', 'disabled']);
+});
+
+test('raisonnement : réponse vide ou tronquée → refaite sans raisonnement', async () => {
+  _spend.reset();
+  const { MockOpenAI, bodies } = mockFactory((req) => req.thinking.type === 'enabled'
+    ? { usage: { prompt_tokens: 10, completion_tokens: 9000 }, choices: [{ finish_reason: 'length', message: { content: '' } }] }
+    : ok({ prompt_tokens: 10, completion_tokens: 5 }, '{"same":[1]}'));
+  const r = await createDeepSeekClient(MockOpenAI, 'k', 'signals').chat.completions.create({ model: 'm' });
+  assert.equal(r.choices[0].message.content, '{"same":[1]}');
+  assert.deepEqual(bodies.map(b => b.thinking.type), ['enabled', 'disabled']);
+});
+
+test('coût d\'un appel au tarif V4 Flash, cache compris', () => {
+  const usd = costOf({ prompt_tokens: 1000000, prompt_cache_hit_tokens: 500000, completion_tokens: 1000000 });
+  assert.ok(Math.abs(usd - (0.07 + 0.0014 + 0.28)) < 1e-9);
 });
