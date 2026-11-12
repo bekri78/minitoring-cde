@@ -1052,9 +1052,11 @@ function findGrayZonePairs(items) {
 // mémoire, les mêmes paires repartaient à l'IA toutes les 3 h. On garde le
 // verdict de chaque paire de titres (3 jours) et on ne questionne que les
 // paires jamais vues.
+// v2 (12/11) : verdicts repartis de zéro avec Claude Haiku ; ceux de DeepSeek
+// (79 % des paires jugées « doublon », dont beaucoup à tort) sont abandonnés.
 const AI_VERDICT_TTL_MS = 3 * 86400000;
-const dedupVerdicts = persistentCache('ai-news-dedup-v1', { ttl: AI_VERDICT_TTL_MS, max: 50000 });
-const doubtVerdicts = persistentCache('ai-news-doubts-v1', { ttl: AI_VERDICT_TTL_MS, max: 20000 });
+const dedupVerdicts = persistentCache('ai-news-dedup-v2', { ttl: AI_VERDICT_TTL_MS, max: 50000 });
+const doubtVerdicts = persistentCache('ai-news-doubts-v2', { ttl: AI_VERDICT_TTL_MS, max: 20000 });
 
 function normTitleKey(title) {
   return String(title || '').toLowerCase().replace(/\s+/g, ' ').trim();
