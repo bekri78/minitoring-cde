@@ -10,11 +10,11 @@ const anthropic = require('./ai-anthropic');
 // sauf AI_PROVIDER=deepseek. Plus aucune donnée n'est alors envoyée à DeepSeek.
 const ANTHROPIC_KEY = (process.env.ANTHROPIC_API_KEY || '').trim();
 const PROVIDER = (process.env.AI_PROVIDER || (ANTHROPIC_KEY ? 'anthropic' : 'deepseek')).toLowerCase();
-// Effort de raisonnement Haiku par tâche (mesuré lors de l'essai du 11-12/11) :
-//  - doublons (lots de 200 paires) : « low » — en « high », ~14 000 jetons de réflexion par lot ;
-//  - localisation : « high » (petits lots, peu coûteux) ; signaux : « medium » ; filtre/traduction : « low ».
+// Effort de raisonnement Haiku par tâche. Budget validé le 12/11 : ~9 €/mois,
+// effort « high » partout (mesuré lors de l'essai du 11-12/11 : ~0,34 $/jour).
+// Pour réduire le coût : doublons en « low » (≈ -40 %), ex. ANTHROPIC_EFFORT_BY_TASK.
 const ANTHROPIC_EFFORT_BY_TASK = Object.fromEntries(String(process.env.ANTHROPIC_EFFORT_BY_TASK
-  ?? 'rss:high,rss-dedup:low,signals:medium,filter-translation:low').split(',').map(x => x.split(':').map(y => y.trim())).filter(x => x[0] && x[1]));
+  ?? 'rss:high,rss-dedup:high,signals:high,filter-translation:high').split(',').map(x => x.split(':').map(y => y.trim())).filter(x => x[0] && x[1]));
 
 // ── Raisonnement DeepSeek, sous plafond budgétaire ───────────────────────
 // Le raisonnement (« thinking ») améliore la qualité mais ses jetons sont
@@ -36,7 +36,7 @@ const REASONING_EFFORT_BY_TASK = Object.fromEntries(String(process.env.AI_REASON
   ?? 'rss:max,signals:max,filter-translation:high').split(',').map(x => x.split(':').map(y => y.trim())).filter(x => x[0] && x[1]));
 const REASONING_EFFORT = process.env.AI_REASONING_EFFORT || 'high';   // tâche non listée ci-dessus
 const effortFor = task => REASONING_EFFORT_BY_TASK[task] || REASONING_EFFORT;
-const DAILY_BUDGET_USD = Number(process.env.AI_DAILY_BUDGET_USD || (PROVIDER === 'anthropic' ? 0.15 : 0.13));
+const DAILY_BUDGET_USD = Number(process.env.AI_DAILY_BUDGET_USD || (PROVIDER === 'anthropic' ? 0.32 : 0.13));
 const REASONING_EXTRA_TOKENS = 8000;              // place réservée au raisonnement en plus de la réponse
 
 const spend = { day: '', usd: 0, loaded: false };

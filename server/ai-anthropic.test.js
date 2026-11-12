@@ -18,7 +18,7 @@ const anth = require('./ai-anthropic');
 
 test('fournisseur : Anthropic dès que la clé est présente', () => { assert.equal(ctrl.PROVIDER, 'anthropic'); });
 
-test('doublons (ogReasoning:false) : effort low ; localisation : high ; réponse au format chat.completions', async () => {
+test('doublons et localisation : effort high ; réponse au format chat.completions', async () => {
   sent.length = 0;
   const c = ctrl.createDeepSeekClient(null, 'ignored', 'rss');
   const r = await c.chat.completions.create({ model: 'deepseek-v4-flash', messages: [{ role: 'system', content: 'S' }, { role: 'user', content: 'U' }], ogReasoning: false, response_format: { type: 'json_object' } });
@@ -28,18 +28,18 @@ test('doublons (ogReasoning:false) : effort low ; localisation : high ; réponse
   assert.equal(sent[0].body.model, 'claude-haiku-5-5');
   assert.equal(sent[0].body.system, 'S');
   assert.deepEqual(sent[0].body.messages, [{ role: 'user', content: 'U' }]);
-  assert.equal(sent[0].body.output_config.effort, 'low');
+  assert.equal(sent[0].body.output_config.effort, 'high');
   assert.equal(sent[1].body.output_config.effort, 'high');
   assert.equal('response_format' in sent[0].body, false);
   assert.equal(r.choices[0].message.content, '{"same":[1]}');
   assert.equal(r.usage.prompt_tokens, 1000);
 });
 
-test('signaux : medium ; filtre/traduction : low', async () => {
+test('signaux et filtre/traduction : high', async () => {
   sent.length = 0;
   await ctrl.createDeepSeekClient(null, 'x', 'signals').chat.completions.create({ messages: [{ role: 'user', content: 'a' }], max_tokens: 800 });
   await ctrl.createDeepSeekClient(null, 'x', 'filter-translation').chat.completions.create({ messages: [{ role: 'user', content: 'b' }] });
-  assert.deepEqual(sent.map(s => s.body.output_config.effort), ['medium', 'low']);
+  assert.deepEqual(sent.map(s => s.body.output_config.effort), ['high', 'high']);
   assert.equal(sent[0].body.max_tokens, 16000);
 });
 
