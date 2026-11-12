@@ -4,6 +4,17 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const shadow = require('./ai-shadow');
+const anthropic = require('./ai-anthropic');
+
+// Fournisseur d'IA : Anthropic (Claude Haiku) dès que ANTHROPIC_API_KEY est définie,
+// sauf AI_PROVIDER=deepseek. Plus aucune donnée n'est alors envoyée à DeepSeek.
+const ANTHROPIC_KEY = (process.env.ANTHROPIC_API_KEY || '').trim();
+const PROVIDER = (process.env.AI_PROVIDER || (ANTHROPIC_KEY ? 'anthropic' : 'deepseek')).toLowerCase();
+// Effort de raisonnement Haiku par tâche (mesuré lors de l'essai du 11-12/11) :
+//  - doublons (lots de 200 paires) : « low » — en « high », ~14 000 jetons de réflexion par lot ;
+//  - localisation : « high » (petits lots, peu coûteux) ; signaux : « medium » ; filtre/traduction : « low ».
+const ANTHROPIC_EFFORT_BY_TASK = Object.fromEntries(String(process.env.ANTHROPIC_EFFORT_BY_TASK
+  ?? 'rss:high,rss-dedup:low,signals:medium,filter-translation:low').split(',').map(x => x.split(':').map(y => y.trim())).filter(x => x[0] && x[1]));
 
 // ── Raisonnement DeepSeek, sous plafond budgétaire ───────────────────────
 // Le raisonnement (« thinking ») améliore la qualité mais ses jetons sont
@@ -25,7 +36,7 @@ const REASONING_EFFORT_BY_TASK = Object.fromEntries(String(process.env.AI_REASON
   ?? 'rss:max,signals:max,filter-translation:high').split(',').map(x => x.split(':').map(y => y.trim())).filter(x => x[0] && x[1]));
 const REASONING_EFFORT = process.env.AI_REASONING_EFFORT || 'high';   // tâche non listée ci-dessus
 const effortFor = task => REASONING_EFFORT_BY_TASK[task] || REASONING_EFFORT;
-const DAILY_BUDGET_USD = Number(process.env.AI_DAILY_BUDGET_USD || 0.13);
+const DAILY_BUDGET_USD = Number(process.env.AI_DAILY_BUDGET_USD || (PROVIDER === 'anthropic' ? 0.15 : 0.13));
 const REASONING_EXTRA_TOKENS = 8000;              // place réservée au raisonnement en plus de la réponse
 
 const spend = { day: '', usd: 0, loaded: false };
@@ -68,7 +79,33 @@ function logUsage(task, completion, thinking) {
     day_usd: Number(todaySpend().toFixed(4)) }));
 }
 
+// Client Anthropic présenté comme un client « chat.completions »
+function createAnthropicClient(task) {
+  return { chat: { completions: { create: async (rawBody, options) => {
+    const { ogReasoning, ...body } = rawBody || {};
+    const key = ogReasoning === false ? task + '-dedup' : task;
+    // Au-delà du budget du jour : effort minimal (Haiku sans raisonnement écrit ses
+    // explications dans la réponse et devient plus long, donc pas moins cher)
+    const effort = todaySpend() < DAILY_BUDGET_USD ? (ANTHROPIC_EFFORT_BY_TASK[key] || ANTHROPIC_EFFORT_BY_TASK[task] || 'low') : 'low';
+    const { raw, reasoning } = await anthropic.messages(ANTHROPIC_KEY, body.messages || [], {
+      effort, maxTokens: body.max_tokens, timeoutMs: Math.max(options?.timeout || 0, 120000) });
+    const completion = anthropic.toCompletion(raw);
+    const usd = anthropic.costOf(completion.usage);
+    addSpend(usd);
+    console.log('[ai-usage]', JSON.stringify({ task: key, provider: 'anthropic', model: completion.model,
+      prompt_tokens: completion.usage.prompt_tokens, completion_tokens: completion.usage.completion_tokens,
+      reasoning, cost_usd: Number(usd.toFixed(6)), day_usd: Number(todaySpend().toFixed(4)) }));
+    if (completion.choices[0].finish_reason === 'length') {
+      const error = new Error('AI output truncated; refusing to cache partial output');
+      error.status = 422;
+      throw error;
+    }
+    return completion;
+  } } } };
+}
+
 function createDeepSeekClient(OpenAI, apiKey, task) {
+  if (PROVIDER === 'anthropic') return createAnthropicClient(task);
   const client = new OpenAI({ apiKey, baseURL: 'https://api.deepseek.com/v1', maxRetries: 0 });
   const create = client.chat.completions.create.bind(client.chat.completions);
   const call = async (body, options, thinking) => {
@@ -107,7 +144,7 @@ function createDeepSeekClient(OpenAI, apiKey, task) {
       throw error;
     }
     // Essai comparatif : la même demande rejouée chez Claude Haiku, réponse jetée (ai-shadow.js)
-    if (shadow.active(task)) shadow.compare(task, body, completion).catch(() => {});
+    if (PROVIDER !== 'anthropic' && shadow.active(task)) shadow.compare(task, body, completion).catch(() => {});
     return completion;
   };
   return client;
@@ -162,4 +199,4 @@ function persistentCache(name, { directory = process.env.CACHE_DIR || '/data', t
   };
 }
 
-module.exports = { createDeepSeekClient, logUsage, persistentCache, cacheKey, costOf, _spend: { todaySpend, addSpend, reset: () => { spend.day = utcDay(); spend.usd = 0; reasoningUnsupported = false; } } };
+module.exports = { PROVIDER, createDeepSeekClient, logUsage, persistentCache, cacheKey, costOf, _spend: { todaySpend, addSpend, reset: () => { spend.day = utcDay(); spend.usd = 0; reasoningUnsupported = false; } } };

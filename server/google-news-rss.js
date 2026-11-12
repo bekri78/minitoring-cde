@@ -22,7 +22,8 @@ const path = require('path');
 
 const OpenAI = require('openai');
 const { createDeepSeekClient, persistentCache, cacheKey } = require('./ai-cost-control');
-const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
+// Clé du fournisseur d'IA : DeepSeek, ou Anthropic (le client est alors routé vers Claude Haiku, cf. ai-cost-control)
+const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || ((process.env.ANTHROPIC_API_KEY || '').trim() ? 'anthropic' : undefined);
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
 const LLM_PROVIDER     = (process.env.LLM_PROVIDER || (DEEPSEEK_API_KEY ? 'deepseek' : OPENAI_API_KEY ? 'openai' : 'none')).toLowerCase();
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || (LLM_PROVIDER === 'deepseek' ? 'deepseek-v4-flash' : 'gpt-4o');

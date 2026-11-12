@@ -7,7 +7,8 @@ const { createDeepSeekClient, persistentCache, cacheKey } = require('./ai-cost-c
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
 const OPENAI_MODEL     = process.env.OPENAI_TRANSLATE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
+// Clé du fournisseur d'IA : DeepSeek, ou Anthropic (le client est alors routé vers Claude Haiku, cf. ai-cost-control)
+const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || ((process.env.ANTHROPIC_API_KEY || '').trim() ? 'anthropic' : undefined);
 const DEEPSEEK_MODEL   = 'deepseek-v4-flash';
 
 const AI_FILTER_ENABLED        = process.env.AI_FILTER_ENABLED !== 'false';

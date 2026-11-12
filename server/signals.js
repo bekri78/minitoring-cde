@@ -19,7 +19,8 @@ const DISK_PATH   = path.join(CACHE_DIR, 'signals-cache.json');
 const OpenAI = require('openai');
 const { createDeepSeekClient } = require('./ai-cost-control');
 
-const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || undefined;
+// Clé du fournisseur d'IA : DeepSeek, ou Anthropic (le client est alors routé vers Claude Haiku, cf. ai-cost-control)
+const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || ((process.env.ANTHROPIC_API_KEY || '').trim() ? 'anthropic' : undefined);
 const DEEPSEEK_MODEL   = 'deepseek-v4-flash';
 const deepseekClient   = DEEPSEEK_API_KEY
   ? createDeepSeekClient(OpenAI, DEEPSEEK_API_KEY, 'signals')
