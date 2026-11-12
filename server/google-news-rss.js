@@ -21,7 +21,7 @@ const path = require('path');
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 const OpenAI = require('openai');
-const { createDeepSeekClient, persistentCache, cacheKey } = require('./ai-cost-control');
+const { createDeepSeekClient, persistentCache, cacheKey, PROVIDER: AI_PROVIDER } = require('./ai-cost-control');
 // Clé du fournisseur d'IA : DeepSeek, ou Anthropic (le client est alors routé vers Claude Haiku, cf. ai-cost-control)
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || ((process.env.ANTHROPIC_API_KEY || '').trim() ? 'anthropic' : undefined);
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
@@ -1030,7 +1030,10 @@ Pairs you do not list are treated as different events. If none: {"same":[]}.`;
 
 const DEDUP_GRAY_MIN      = 0.25;
 const DEDUP_GRAY_MAX      = 0.55;
-const DEDUP_AI_MAX_PAIRS  = 200;   // ~1 000 nouvelles paires par cycle → 4 à 5 appels
+// 200 paires par appel avec DeepSeek ; 100 avec Claude Haiku en effort « high » :
+// sur 200 paires, son raisonnement dépassait parfois 16 000 jetons (réponse tronquée,
+// lot perdu et payé) — constaté 3 fois le 12/11 au soir.
+const DEDUP_AI_MAX_PAIRS  = Number(process.env.DEDUP_AI_MAX_PAIRS || (AI_PROVIDER === 'anthropic' ? 100 : 200));
 const DEDUP_TIME_WINDOW_H = 24;
 
 function findGrayZonePairs(items) {
