@@ -102,3 +102,13 @@ test('doutes : traités par lots de 40, chaque verdict revient au bon titre', as
   assert.strictEqual(r.length, 90);
   assert.deepStrictEqual(r.map(x => x.index).sort((a, b) => a - b), titles.map((_, k) => k));
 });
+
+test('doublons : statistiques par tranche de ressemblance journalisées', async () => {
+  const logs = []; const orig = console.log; console.log = (...a) => logs.push(a.join(' '));
+  try {
+    const its = [{ title: 'Alpha strike Kyiv night', pubDate: '2026-11-10T08:00:00Z' }, { title: 'Beta strike Kyiv morning', pubDate: '2026-11-10T08:00:00Z' }];
+    await news.detectDuplicatePairsWithAI(its, [{ i: 0, j: 1, sim: 0.42 }]);
+  } finally { console.log = orig; }
+  const line = logs.find(l => l.startsWith('[dedup-stats]'));
+  assert.ok(line && line.includes('"0.40"'), line);
+});

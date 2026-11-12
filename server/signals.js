@@ -17,7 +17,10 @@ const CACHE_DIR   = process.env.CACHE_DIR || '/data';
 const DISK_PATH   = path.join(CACHE_DIR, 'signals-cache.json');
 
 const OpenAI = require('openai');
-const { createDeepSeekClient } = require('./ai-cost-control');
+const { createDeepSeekClient, persistentCache, cacheKey } = require('./ai-cost-control');
+// Résumé déjà écrit pour exactement les mêmes titres : réutilisé tel quel (aucune perte de qualité).
+const summaryCache = persistentCache('ai-signals-summaries-v1', { ttl: 2 * 86400000, max: 3000 });
+let summaryStats = { reused: 0, fresh: 0 };
 
 // Clé du fournisseur d'IA : DeepSeek, ou Anthropic (le client est alors routé vers Claude Haiku, cf. ai-cost-control)
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || ((process.env.ANTHROPIC_API_KEY || '').trim() ? 'anthropic' : undefined);
@@ -207,6 +210,9 @@ Respond with a JSON object only, no markdown:
 Rules: max 5 key_points, English only, factual and concise, no speculation.`;
 
   const messages = [{ role: 'user', content: prompt }];
+  const key = cacheKey(['signals-v1', locationName, top.map(e => (e.title || e.url || '').slice(0, 120)).sort()]);
+  const known = summaryCache.get(key);
+  if (known) { summaryStats.reused++; return known; }
 
   // ── DeepSeek uniquement (Groq en pause) ──────────────────────────────────
   if (deepseekClient) {
@@ -220,7 +226,10 @@ Rules: max 5 key_points, English only, factual and concise, no speculation.`;
     const choice = completion.choices?.[0];
     const text = choice?.message?.content || '';
     if (!text) throw new Error(`empty response from DeepSeek (finish_reason: ${choice?.finish_reason}, id: ${completion.id})`);
-    return parseSignalResponse(text);
+    const parsed = parseSignalResponse(text);
+    summaryStats.fresh++;
+    if (parsed && (parsed.summary || (parsed.key_points || []).length)) summaryCache.set(key, parsed);
+    return parsed;
   }
 
   throw new Error('DEEPSEEK_API_KEY required (Groq en pause)');
@@ -262,7 +271,8 @@ async function buildSignals(events) {
     .filter(r => r.status === 'fulfilled' && r.value)
     .map(r => r.value);
 
-  console.log(`[signals] done — ${signals.length} signals generated`);
+  console.log(`[signals] done — ${signals.length} signals generated (${summaryStats.fresh} résumés IA, ${summaryStats.reused} réutilisés : titres inchangés)`);
+  summaryStats = { reused: 0, fresh: 0 };
   return signals;
 }
 
@@ -286,4 +296,4 @@ function isStale() {
   return Date.now() - new Date(signalsCache.lastUpdate).getTime() > CACHE_TTL_MS;
 }
 
-module.exports = { refreshSignals, getSignalsCache, isStale };
+module.exports = { refreshSignals, getSignalsCache, isStale, _buildSignals: buildSignals };

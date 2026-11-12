@@ -88,7 +88,8 @@ test('fresh signals are reused without a rebuild or disk write', async () => {
       };
       if (name === 'path') return path;
       if (name === 'openai') return class {};
-      if (name === './ai-cost-control') return { createDeepSeekClient: () => ({}) };
+      if (name === './ai-cost-control') return { createDeepSeekClient: () => ({}), cacheKey: v => JSON.stringify(v),
+        persistentCache: () => ({ get: () => undefined, set: () => {} }) };
       throw new Error(name);
     },
     process: { env: { DEEPSEEK_API_KEY: 'fake' } }, console,

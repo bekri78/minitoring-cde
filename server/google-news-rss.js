@@ -1148,7 +1148,23 @@ async function detectDuplicatePairsWithAI(items, pairs) {
       }
     }
   }
+  logDedupBuckets(items, unknown);
   return duplicateIndices;
+}
+
+// Statistiques par tranche de ressemblance des paires jugées par l'IA à ce cycle :
+// une tranche où l'IA ne trouve (presque) jamais de doublon peut être exclue sans perte.
+function logDedupBuckets(items, judged) {
+  if (!judged.length) return;
+  const b = {};
+  for (const p of judged) {
+    const v = dedupVerdicts.get(pairKey(items[p.i].title, items[p.j].title));
+    if (v === undefined) continue;
+    const k = (Math.floor(p.sim * 20) / 20).toFixed(2);   // tranches de 0,05
+    b[k] = b[k] || { paires: 0, doublons: 0 };
+    b[k].paires++; if (v) b[k].doublons++;
+  }
+  console.log('[dedup-stats]', JSON.stringify(b));
 }
 
 // ── Domain config ─────────────────────────────────────────────────────────────
