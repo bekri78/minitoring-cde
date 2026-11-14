@@ -34,7 +34,7 @@ function buildFireContent(f) {
 }
 
 let _lastFires = [];
-// Compteur Feux = points chauds FIRMS + feux de forêt GDACS
+// Compteur Feux = points chauds FIRMS + alertes GDACS
 function _firesCountUpdate() {
     const wf = typeof _lastGdacsFires !== 'undefined' ? _lastGdacsFires.length : 0;
     if (typeof hdrUpdateCount === 'function') hdrUpdateCount('fires', _lastFires.length + wf);
@@ -42,7 +42,7 @@ function _firesCountUpdate() {
 function renderFires(cells) {
     _lastFires = cells || [];
     firesLayer.clearLayers();
-    if (typeof gdacsFiresGroup !== 'undefined') firesLayer.addLayer(gdacsFiresGroup);   // feux de forêt GDACS
+    if (typeof gdacsFiresGroup !== 'undefined') firesLayer.addLayer(gdacsFiresGroup);   // alertes GDACS
     _lastFires.forEach(function (f) {
         if (typeof f.lat !== 'number' || typeof f.lon !== 'number') return;
         const lv = FIRE_LEVEL[f.level] || FIRE_LEVEL.faible;

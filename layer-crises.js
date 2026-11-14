@@ -1,11 +1,11 @@
 ﻿// ── Crises : alertes catastrophes GDACS (ONU / Commission européenne) ────────
 // Séismes, cyclones, inondations, volcans, sécheresses.
-// Les feux de forêt GDACS (type WF) vont dans le calque Feux (gdacsFiresGroup) : sinon le
-// calque Crises montrait surtout des feux et couper « Feux » laissait ces icônes à l'écran.
+// v40 : plus de bouton Crises. Toutes les alertes GDACS (feux de forêt, séismes, cyclones…)
+// s'affichent avec le calque Feux, dans gdacsFiresGroup, chacune avec son pictogramme.
 // Couleur = niveau d'alerte GDACS (impact humain estimé) : rouge, orange, vert.
 
 const crisesLayer = L.layerGroup();
-const gdacsFiresGroup = L.layerGroup();   // feux de forêt GDACS, affichés avec le calque Feux
+const gdacsFiresGroup = L.layerGroup();   // alertes GDACS, affichées avec le calque Feux
 
 const CRISIS_LEVEL = {
     red:    { label: 'Alerte rouge',  color: '#e5484d', size: 26 },
@@ -62,8 +62,8 @@ let _lastCrises = [];
 let _lastGdacsFires = [];
 function renderCrises(events) {
     const all = events || [];
-    _lastCrises = all.filter(function (e) { return e.type !== 'WF'; });
-    _lastGdacsFires = all.filter(function (e) { return e.type === 'WF'; });
+    _lastCrises = [];
+    _lastGdacsFires = all;
     crisesLayer.clearLayers();
     gdacsFiresGroup.clearLayers();
     all.forEach(function (e) {
@@ -71,9 +71,8 @@ function renderCrises(events) {
         const z = e.level === 'red' ? 1200 : e.level === 'orange' ? 900 : 100;
         const m = L.marker([e.lat, e.lon], { icon: crisisIcon(e), zIndexOffset: z, title: (e.typeFr || '') + ' — ' + (e.name || '') });
         m.bindPopup(buildCrisisContent(e), { maxWidth: 320 });
-        (e.type === 'WF' ? gdacsFiresGroup : crisesLayer).addLayer(m);
+        gdacsFiresGroup.addLayer(m);
     });
-    if (typeof hdrUpdateCount === 'function') hdrUpdateCount('crises', _lastCrises.length);
     if (typeof firesLayer !== 'undefined' && !firesLayer.hasLayer(gdacsFiresGroup)) firesLayer.addLayer(gdacsFiresGroup);
     if (typeof _firesCountUpdate === 'function') _firesCountUpdate();
     if (typeof applyLayers === 'function') applyLayers();
