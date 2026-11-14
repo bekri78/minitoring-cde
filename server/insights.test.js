@@ -104,3 +104,23 @@ test('convergences : moyens militaires sur leur territoire national ignorés', (
   assert.strictEqual(computeConvergences(mk('USA', 36.9, -76.3)).length, 0, 'Norfolk : pas une alerte');
   assert.strictEqual(computeConvergences(mk('USA', 35.3, 35.9)).length, 1, 'Méditerranée orientale : alerte');
 });
+
+test('ruptures : le nom vient du pays le plus cité, pas du premier article (cas Cuba « Ukraine »)', () => {
+  // 7 articles sur Cuba (code CU) ; le mieux classé porte un lieu faux (« Ukraine »), un autre « Iran »
+  const today = [
+    ...evs('CU', 1, 'conflict', { country: 'Ukraine', score: 100 }),
+    ...evs('CU', 1, 'conflict', { country: 'Iran', score: 90 }),
+    ...evs('CU', 1, 'conflict', { country: 'Washington, District of Columbia, United States', score: 80 }),
+    ...evs('CU', 1, 'conflict', { country: 'Havana, Ciudad de La Habana, Cuba', score: 70 }),
+    ...evs('CU', 6, 'conflict', { country: 'Cuba' }),
+  ];
+  const cu = computeRuptures(today, baseline).find(x => x.countryCode === 'CU');
+  assert.ok(cu, 'rupture Cuba attendue');
+  assert.strictEqual(cu.country, 'Cuba');
+});
+
+test('nom majoritaire : égalité → le mieux classé ; aucun nom → code pays', () => {
+  const { _majorityCountryName: maj } = require('./insights');
+  assert.strictEqual(maj([{ country: 'A' }, { country: 'B' }], 'XX'), 'A');
+  assert.strictEqual(maj([{ country: '' }], 'XX'), 'XX');
+});

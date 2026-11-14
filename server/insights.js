@@ -29,6 +29,21 @@ function countryNameOf(event) {
   return parts.length ? parts[parts.length - 1] : (event.countryCode || '?');
 }
 
+// Nom du pays d'un groupe d'événements : le plus cité parmi eux (égalité : le mieux classé).
+// Le champ « country » d'un article GDELT peut désigner un autre lieu cité (ex. un article sur
+// Cuba marqué « Ukraine ») : se fier au seul premier article nommait la rupture de travers.
+function majorityCountryName(events, fallback) {
+  const count = new Map();
+  for (const e of events) {
+    const name = countryNameOf(e);
+    if (!name || name === '?') continue;
+    count.set(name, (count.get(name) || 0) + 1);
+  }
+  let best = null, bestN = 0;
+  for (const [name, n] of count) if (n > bestN) { best = name; bestN = n; }   // Map garde l'ordre : égalité → premier vu
+  return best || fallback;
+}
+
 function median(xs) {
   const a = xs.slice().sort((x, y) => x - y);
   if (!a.length) return 0;
@@ -115,7 +130,7 @@ function computeRuptures(todayEvents, baselineCounts, opts = {}) {
     out.push({
       id: 'rupture-' + cc + '-' + category,
       countryCode: cc,
-      country: evs.length ? countryNameOf(evs[0]) : cc,
+      country: majorityCountryName(evs, cc),
       category,                                   // 'all' = tous types confondus
       today: n,
       baseline: round1(m),
@@ -312,6 +327,7 @@ function computeConvergences(input, opts = {}) {
 }
 
 module.exports = {
+  _majorityCountryName: majorityCountryName,
   computeRuptures, loadBaselineCounts, countsByKey,
   computeConvergences, collectSignals, countryNameOf, isAtHome,
 };
