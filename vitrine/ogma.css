@@ -323,7 +323,7 @@ svg.leaflet-image-layer.leaflet-interactive path { pointer-events: visiblePainte
 .og-env-menu .og-layer[aria-pressed="true"] .og-env-check::after { content: ''; width: 7px; height: 4px; border: solid #0b0b10; border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
 /* Téléphone : barre défilable au doigt (elle dépassait de l'écran), menu posé sur la page sous la barre */
 @media (max-width: 900px) {
-  .og-layers { left: 16px; right: 16px; transform: none; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  body .og-layers, body.og-panel-closed .og-layers { left: 16px; right: 16px; transform: none; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
   .og-layers::-webkit-scrollbar { display: none; }
   .og-layer { flex: none; }
   .og-env-menu.og-env-menu-mobile { position: fixed; left: 16px; right: 16px; bottom: auto; min-width: 0; z-index: 1100; }

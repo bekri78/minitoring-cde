@@ -12,3 +12,12 @@ button[onclick*="Translate"] { display: none !important; }
 
 /* Pas d'analyste IA dans la version publique */
 .og-d-ask { display: none !important; }
+
+/* v15 — Pas de géocodeur dans la version publique : champ de recherche masqué, légende GNSS remontée */
+.og-search-wrap { display: none !important; }
+.og-gnss-legend { margin-top: var(--og-gap, 16px) !important; }
+/* v15 — Téléphone : les filtres passent à la ligne au lieu d'être coupés (sous le bouton Alertes) */
+@media (max-width: 900px) {
+  html body .og-layers, html body.og-panel-closed .og-layers { top: 64px; bottom: auto; left: 12px; right: 12px; transform: none; flex-wrap: wrap; justify-content: center; overflow: visible; }
+  html body .og-focus-chip { top: 150px; }
+}
