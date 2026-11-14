@@ -308,3 +308,23 @@ body.og-panel-closed .og-layers { left: 50%; }
 .leaflet-pane > svg path.leaflet-interactive,
 svg.leaflet-image-layer.leaflet-interactive path { pointer-events: visiblePainted; pointer-events: auto; }
 .leaflet-interactive { cursor: pointer; }
+/* v41 — Menu « Environnement » (Crises, Feux, GNSS) dans la barre de calques */
+.og-env { position: relative; display: flex; }
+.og-env-caret { opacity: .6; transition: transform .15s ease; }
+.og-env-open .og-env-caret { transform: rotate(180deg); }
+.og-env-btn[aria-pressed="true"] .og-layer-dot { opacity: 1; }
+.og-env-menu { display: none; position: absolute; bottom: calc(100% + 10px); right: 0; min-width: 236px; padding: 5px; border-radius: 11px; flex-direction: column; gap: 2px; z-index: 1060; }
+.og-env-menu.og-env-menu-open { display: flex; }
+.og-env-menu .og-layer { width: 100%; justify-content: flex-start; height: 34px; }
+.og-env-menu .og-layer small { font-size: 11px; color: var(--og-faint); font-weight: 400; }
+.og-env-menu .og-layer .og-layer-count { margin-left: auto; }
+.og-env-check { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid rgba(255, 255, 255, .28); box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.og-env-menu .og-layer[aria-pressed="true"] .og-env-check { background: var(--og-accent-soft, #8b93ff); border-color: transparent; }
+.og-env-menu .og-layer[aria-pressed="true"] .og-env-check::after { content: ''; width: 7px; height: 4px; border: solid #0b0b10; border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
+/* Téléphone : barre défilable au doigt (elle dépassait de l'écran), menu posé sur la page sous la barre */
+@media (max-width: 900px) {
+  .og-layers { left: 16px; right: 16px; transform: none; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .og-layers::-webkit-scrollbar { display: none; }
+  .og-layer { flex: none; }
+  .og-env-menu.og-env-menu-mobile { position: fixed; left: 16px; right: 16px; bottom: auto; min-width: 0; z-index: 1100; }
+}

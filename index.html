@@ -53,8 +53,14 @@
     <button type="button" class="og-layer" data-layer="air" aria-pressed="true" title="Aéronefs militaires et événements aériens"><span class="og-layer-dot" style="background:#7c8db5"></span>Air <span class="og-layer-count" data-layer-count="air">0</span></button>
     <button type="button" class="og-layer" data-layer="sea" aria-pressed="true" title="Navires militaires et événements maritimes"><span class="og-layer-dot" style="background:#5f8fa8"></span>Mer <span class="og-layer-count" data-layer-count="sea">0</span></button>
     <button type="button" class="og-layer" data-layer="space" aria-pressed="true" title="Lancements et rentrées atmosphériques"><span class="og-layer-dot" style="background:#c9ccd3"></span>Espace <span class="og-layer-count" data-layer-count="space">0</span></button>
-    <button type="button" class="og-layer" data-layer="fires" aria-pressed="true" title="Feux et catastrophes : points chauds satellite NASA FIRMS (24 h, zones suivies) et alertes GDACS — feux de forêt, séismes, cyclones, inondations, volcans, sécheresses"><span class="og-layer-dot" style="background:#ff5a1f"></span>Feux <span class="og-layer-count" data-layer-count="fires">0</span></button>
-    <button type="button" class="og-layer" data-layer="gnss" aria-pressed="true" title="Brouillage et leurrage GNSS vus par les avions (Stanford GPS Lab, 2-3 jours de décalage) et FIR touchées selon l’EASA"><span class="og-layer-dot" style="background:#e879f9"></span>GNSS <span class="og-layer-count" data-layer-count="gnss">0</span></button>
+    <div class="og-env" id="og-env">
+      <button type="button" class="og-layer og-env-btn" id="og-env-btn" aria-haspopup="true" aria-expanded="false" aria-controls="og-env-menu" title="Crises, feux et brouillage GNSS"><span class="og-layer-dot" style="background:#c9a227"></span>Environnement <span class="og-layer-count" id="og-env-on">3/3</span><svg class="og-env-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
+      <div class="og-env-menu og-glass" id="og-env-menu" role="group" aria-label="Calques environnement">
+        <button type="button" class="og-layer" data-layer="crises" aria-pressed="true" title="Alertes catastrophes GDACS (ONU / UE) : séismes, cyclones, inondations, volcans, sécheresses"><span class="og-env-check" aria-hidden="true"></span><span class="og-layer-dot" style="background:#e5484d"></span>Crises <small>GDACS</small><span class="og-layer-count" data-layer-count="crises">0</span></button>
+        <button type="button" class="og-layer" data-layer="fires" aria-pressed="true" title="Points chauds satellitaires NASA FIRMS (24 h, zones suivies : incendies, frappes, torchères) et feux de forêt signalés par GDACS"><span class="og-env-check" aria-hidden="true"></span><span class="og-layer-dot" style="background:#ff5a1f"></span>Feux <small>satellite</small><span class="og-layer-count" data-layer-count="fires">0</span></button>
+        <button type="button" class="og-layer" data-layer="gnss" aria-pressed="true" title="Brouillage et leurrage GNSS vus par les avions (Stanford GPS Lab, 2-3 jours de décalage) et FIR touchées selon l’EASA"><span class="og-env-check" aria-hidden="true"></span><span class="og-layer-dot" style="background:#e879f9"></span>Brouillage GNSS<span class="og-layer-count" data-layer-count="gnss">0</span></button>
+      </div>
+    </div>
     <button type="button" class="og-layer" data-layer="conv" aria-pressed="true" title="Foyers où plusieurs types de signaux se croisent"><span class="og-layer-dot og-ring"></span>Convergences <span class="og-layer-count" data-layer-count="conv">0</span></button>
   </nav>
 
@@ -146,24 +152,25 @@
 
   <div id="maCarte"></div>
 
-  <script charset="utf-8" src="config.js?v=8"></script>
-  <script charset="utf-8" src="vitrine-data.js?v=8"></script>
-  <script charset="utf-8" src="map.js?v=8"></script>
-  <script charset="utf-8" src="ogma-ui.js?v=8"></script>
-  <script charset="utf-8" src="ogma-feed.js?v=8"></script>
-  <script charset="utf-8" src="layer-signal.js?v=8"></script>
-  <script charset="utf-8" src="layer-osint.js?v=8"></script>
-  <script charset="utf-8" src="layer-seismic.js?v=8"></script>
-  <script charset="utf-8" src="layer-tracks.js?v=8"></script>
-  <script charset="utf-8" src="layer-space.js?v=8"></script>
-  <script charset="utf-8" src="layer-crises.js?v=8"></script>
-  <script charset="utf-8" src="layer-fires.js?v=8"></script>
-  <script charset="utf-8" src="layer-gnss.js?v=8"></script>
-  <script charset="utf-8" src="layer-news.js?v=8"></script>
-  <script charset="utf-8" src="layer-events.js?v=8"></script>
-  <script charset="utf-8" src="layer-signals.js?v=8"></script>
-  <script charset="utf-8" src="ogma-search.js?v=8"></script>
-  <script charset="utf-8" src="layer-insights.js?v=8"></script>
+  <script charset="utf-8" src="config.js?v=9"></script>
+  <script charset="utf-8" src="vitrine-data.js?v=9"></script>
+  <script charset="utf-8" src="map.js?v=9"></script>
+  <script charset="utf-8" src="ogma-ui.js?v=9"></script>
+  <script charset="utf-8" src="layer-menu.js?v=9"></script>
+  <script charset="utf-8" src="ogma-feed.js?v=9"></script>
+  <script charset="utf-8" src="layer-signal.js?v=9"></script>
+  <script charset="utf-8" src="layer-osint.js?v=9"></script>
+  <script charset="utf-8" src="layer-seismic.js?v=9"></script>
+  <script charset="utf-8" src="layer-tracks.js?v=9"></script>
+  <script charset="utf-8" src="layer-space.js?v=9"></script>
+  <script charset="utf-8" src="layer-crises.js?v=9"></script>
+  <script charset="utf-8" src="layer-fires.js?v=9"></script>
+  <script charset="utf-8" src="layer-gnss.js?v=9"></script>
+  <script charset="utf-8" src="layer-news.js?v=9"></script>
+  <script charset="utf-8" src="layer-events.js?v=9"></script>
+  <script charset="utf-8" src="layer-signals.js?v=9"></script>
+  <script charset="utf-8" src="ogma-search.js?v=9"></script>
+  <script charset="utf-8" src="layer-insights.js?v=9"></script>
 
 </body>
 
