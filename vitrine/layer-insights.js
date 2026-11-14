@@ -32,7 +32,7 @@ function _injectInsightsCSS() {
 function convergenceIcon(c) {
     return L.divIcon({
         html: '<span class="og-conv" title="' + c.types.length + ' types de signaux"></span>',
-        iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -8], className: ''
+        iconSize: [18, 18], iconAnchor: [9, 9], popupAnchor: [0, -10], className: ''
     });
 }
 
