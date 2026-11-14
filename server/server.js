@@ -8,6 +8,7 @@ const path    = require('path');
 const { fetchAll: fetchLaunches, getCache: getLaunchCache } = require('./launches');
 const { fetchDecay, getCache: getDecayCache, fetchTip, getTipCache } = require('./spacetrack');
 const { fetchQuakes, getCache: getQuakeCache }                       = require('./earthquakes');
+const { fetchGdacs, getCache: getGdacsCache }                        = require('./gdacs');
 const { fetchSpaceWeather, getCache: getSwCache }                    = require('./spaceweather');
 const { fetchMilitary, getCache: getMilCache }                       = require('./military-aircraft');
 const { startMilitaryShips, getCache: getShipCache }                 = require('./military-ships');
@@ -681,6 +682,7 @@ publicRouter.get('/sharepoint/snapshot', createSnapshotHandler({
   aviationEvents:    (events) => getAviationEvents(events),
   spatialEvents:     (events) => getSpatialEvents(events),
   earthquakes:       () => getQuakeCache(),
+  disasters:         () => getGdacsCache(),
   spaceWeather:      () => getSwCache(),
   launches:          () => getLaunchCache(),
   decay:             () => getDecayCache(),
@@ -998,6 +1000,11 @@ cron.schedule('*/15 * * * *', () => {
   fetchQuakes().catch(err => console.error('[earthquakes-cron]', err.message));
 });
 
+// ── Cron 30 min — Alertes catastrophes GDACS ─────────────────────────────────
+cron.schedule('7,37 * * * *', () => {
+  fetchGdacs().catch(err => console.error('[gdacs-cron]', err.message));
+});
+
 // ── Cron 15min — Météo spatiale NOAA ──────────────────────────────────────────
 cron.schedule('*/15 * * * *', () => {
   fetchSpaceWeather().catch(err => console.error('[spaceweather-cron]', err.message));
@@ -1043,6 +1050,7 @@ app.listen(PORT, () => {
     .then(() => fetchTip())
     .catch(err => console.error('[startup-spacetrack]', err.message));
   fetchQuakes().catch(err => console.error('[startup-earthquakes]', err.message));
+  fetchGdacs().catch(err => console.error('[startup-gdacs]', err.message));
   fetchSpaceWeather().catch(err => console.error('[startup-spaceweather]', err.message));
   fetchMilitary().catch(err => console.error('[startup-military]', err.message));
   startMilitaryShips();
