@@ -97,3 +97,16 @@ test('route : 503 si l\'instantané est invalide', () => {
   handler(req(), r);
   assert.strictEqual(r.statusCode, 503);
 });
+
+test('brouillage GNSS : listes et source présentes, absentes = listes vides', () => {
+  const s0 = buildSnapshot(src);
+  assert.deepStrictEqual([s0.data.gnssCells, s0.data.gnssEvents, s0.data.gnssFirs], [[], [], []]);
+  const s = buildSnapshot({ ...src, gnss: () => ({
+    cells: [{ id: 'gnss-84x', lat: 57, lon: 21, pct: 60 }], events: [{ id: 'gnss-jam-1', kind: 'jam' }],
+    firs: [{ icao: 'EETT' }], day: '2026/11/11', spoofDay: '2026/11/10', easaDate: '2026-10-14',
+    lastUpdate: '2026-11-14T10:00:00Z', status: 'ok' }) });
+  assert.strictEqual(s.counts.gnssCells, 1);
+  assert.strictEqual(s.sources.gnss.day, '2026-11-11');
+  assert.strictEqual(s.sources.gnss.easaDate, '2026-10-14');
+  assert.deepStrictEqual(validateSnapshot(s), []);
+});

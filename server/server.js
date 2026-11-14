@@ -10,6 +10,7 @@ const { fetchDecay, getCache: getDecayCache, fetchTip, getTipCache } = require('
 const { fetchQuakes, getCache: getQuakeCache }                       = require('./earthquakes');
 const { fetchGdacs, getCache: getGdacsCache }                        = require('./gdacs');
 const { fetchFirms, getCache: getFirmsCache }                        = require('./firms');
+const { fetchGnss, getCache: getGnssCache }                          = require('./gnss');
 const { fetchSpaceWeather, getCache: getSwCache }                    = require('./spaceweather');
 const { fetchMilitary, getCache: getMilCache }                       = require('./military-aircraft');
 const { startMilitaryShips, getCache: getShipCache }                 = require('./military-ships');
@@ -685,6 +686,7 @@ publicRouter.get('/sharepoint/snapshot', createSnapshotHandler({
   earthquakes:       () => getQuakeCache(),
   disasters:         () => getGdacsCache(),
   fires:             () => getFirmsCache(),
+  gnss:              () => getGnssCache(),
   spaceWeather:      () => getSwCache(),
   launches:          () => getLaunchCache(),
   decay:             () => getDecayCache(),
@@ -1012,6 +1014,11 @@ cron.schedule('23 * * * *', () => {
   fetchFirms().catch(err => console.error('[firms-cron]', err.message));
 });
 
+// ── Cron 3 h — Brouillage / leurrage GNSS (Stanford GPS Lab + EASA) ──────────
+cron.schedule('41 */3 * * *', () => {
+  fetchGnss().catch(err => console.error('[gnss-cron]', err.message));
+});
+
 // ── Cron 15min — Météo spatiale NOAA ──────────────────────────────────────────
 cron.schedule('*/15 * * * *', () => {
   fetchSpaceWeather().catch(err => console.error('[spaceweather-cron]', err.message));
@@ -1059,6 +1066,7 @@ app.listen(PORT, () => {
   fetchQuakes().catch(err => console.error('[startup-earthquakes]', err.message));
   fetchGdacs().catch(err => console.error('[startup-gdacs]', err.message));
   fetchFirms().catch(err => console.error('[startup-firms]', err.message));
+  fetchGnss().catch(err => console.error('[startup-gnss]', err.message));
   fetchSpaceWeather().catch(err => console.error('[startup-spaceweather]', err.message));
   fetchMilitary().catch(err => console.error('[startup-military]', err.message));
   startMilitaryShips();

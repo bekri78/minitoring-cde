@@ -64,6 +64,7 @@ function buildSnapshot(src) {
   const quakes  = src.earthquakes();
   const disasters = src.disasters ? src.disasters() : { events: [] };
   const fires     = src.fires ? src.fires() : { cells: [] };
+  const gnss      = src.gnss ? src.gnss() : { cells: [], events: [], firs: [] };
   const sw      = src.spaceWeather();
   const launch  = src.launches();
   const decay   = src.decay();
@@ -84,6 +85,10 @@ function buildSnapshot(src) {
     earthquakes:       arr(quakes.quakes),
     fires:             arr(fires.cells),        // points chauds NASA FIRMS (facultatif)
     disasters:         arr(disasters.events),   // alertes GDACS (facultatif : absent des anciens snapshots)
+    // Brouillage / leurrage GNSS (facultatif) — Stanford GPS Lab (CC BY-NC 4.0) + EASA
+    gnssCells:         arr(gnss.cells),
+    gnssEvents:        arr(gnss.events),
+    gnssFirs:          arr(gnss.firs),
     spaceWeather:      { kp: sw.kp ?? null, scales: sw.scales ?? null, alerts: arr(sw.alerts) },
     space: {
       launches: arr(launch.launches),
@@ -112,6 +117,9 @@ function buildSnapshot(src) {
     earthquakes:       { lastUpdate: quakes.lastUpdate || null, status: status(quakes) },
     fires:             { lastUpdate: fires.lastUpdate || null, status: fires.status || status(fires) },
     disasters:         { lastUpdate: disasters.lastUpdate || null, status: disasters.status || status(disasters) },
+    gnss:              { lastUpdate: gnss.lastUpdate || null, status: gnss.status || status(gnss),
+                         day: gnss.day ? gnss.day.replace(/\//g, '-') : null, spoofDay: gnss.spoofDay ? gnss.spoofDay.replace(/\//g, '-') : null,
+                         easaDate: gnss.easaDate || null },
     spaceWeather:      { lastUpdate: sw.lastUpdate || null, status: status(sw) },
     space:             { lastUpdate: launch.lastUpdate || decay.lastUpdate || tip.lastUpdate || null, status: status(launch) },
   };
