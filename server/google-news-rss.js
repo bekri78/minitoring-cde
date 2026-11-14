@@ -22,6 +22,7 @@ const path = require('path');
 
 const OpenAI = require('openai');
 const { createDeepSeekClient, persistentCache, cacheKey, PROVIDER: AI_PROVIDER } = require('./ai-cost-control');
+const aiSamples = require('./ai-samples');
 // Clé du fournisseur d'IA : DeepSeek, ou Anthropic (le client est alors routé vers Claude Haiku, cf. ai-cost-control)
 const DEEPSEEK_API_KEY = (process.env.DEEPSEEK_API_KEY || '').trim().replace(/^=+/, '') || ((process.env.ANTHROPIC_API_KEY || '').trim() ? 'anthropic' : undefined);
 const OPENAI_API_KEY   = ((process.env.OPENAI_API_KEY || process.env.chatgpt) || '').trim().replace(/^=+/, '') || undefined;
@@ -1141,6 +1142,7 @@ async function detectDuplicatePairsWithAI(items, pairs) {
       batch.forEach((pair, k) => {
         const dup = same.has(k);
         dedupVerdicts.set(pairKey(items[pair.i].title, items[pair.j].title), dup);
+        aiSamples.record('doublons', { a: items[pair.i].title, b: items[pair.j].title, sim: Number((pair.sim || 0).toFixed(3)), verdict: dup });
         if (dup) markDuplicate(items, pair, duplicateIndices);
       });
     } catch (err) {
@@ -1261,6 +1263,7 @@ async function analyzeDoubts(titles) {
       const i = unknownIndex[b + r.index];
       const verdict = { location: r.location || '', confidence: r.confidence };
       doubtVerdicts.set(cacheKey(normTitleKey(titles[i])), verdict);
+      aiSamples.record('localisation', { titre: titles[i], lieu: verdict.location, confiance: verdict.confidence });
       results.push({ index: i, ...verdict });
     }
   }

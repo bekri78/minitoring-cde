@@ -335,6 +335,15 @@ function requirePublicApiKey(req, res, next) {
   next();
 }
 
+// Contrôle qualité : échantillon quotidien des décisions de l'IA (ai-samples.js)
+app.get('/api/admin/ai-samples', requirePublicApiKey, (req, res) => {
+  const samples = require('./ai-samples');
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || '')) ? String(req.query.date) : undefined;
+  const s = samples.get(day);
+  if (req.query.format === 'json') return res.json(s);
+  res.set('Content-Type', 'text/html; charset=utf-8').send(samples.html(s));
+});
+
 function publicEnvelope(type, data, meta = {}) {
   const list = Array.isArray(data) ? data : null;
   return {
