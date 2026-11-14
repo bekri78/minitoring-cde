@@ -351,8 +351,8 @@ svg.leaflet-image-layer.leaflet-interactive path { pointer-events: visiblePainte
 .og-rar-coord { font-size: 13px; color: #ffb3b5; letter-spacing: .02em; margin: 2px 0; font-variant-numeric: tabular-nums; }
 /* v46 — Rentrée atmosphérique : météorite (plus de disque rouge), halo rouge pulsé sur la roche */
 .og-met { position: relative; display: block; width: 40px; height: 40px; }
-.og-met-svg { position: relative; z-index: 1; display: block; overflow: visible; filter: drop-shadow(0 0 4px rgba(255, 77, 61, .75)) drop-shadow(0 1px 2px rgba(0, 0, 0, .7)); }
-.og-met-pulse { position: absolute; left: 14px; top: 13px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid rgba(229, 72, 77, .85); animation: og-spc-pulse 1.8s ease-out infinite; }
+.og-met-svg { position: relative; z-index: 1; display: block; overflow: visible; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .8)); }
+.og-met-pulse { position: absolute; left: 15px; top: 15px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid rgba(229, 72, 77, .85); animation: og-spc-pulse 1.8s ease-out infinite; }
 @media (prefers-reduced-motion: reduce) { .og-met-pulse { animation: none; } }
 /* v46 — Lancement imminent (−1 h à +24 h) : fusée ambre lumineuse, double halo pulsé */
 .og-spc-launch.og-spc-soon { color: #ffb224; }

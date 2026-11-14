@@ -48,8 +48,9 @@ function _gnssMeta() {
     return s.gnss || {};
 }
 function _gnssFoot(extra) {
-    // v46 : source retirée des fiches ; l'attribution exigée par la licence CC BY-NC reste dans la légende
-    return '<div style="border-top:1px solid rgba(255,255,255,.08);padding-top:8px;color:#8a8f98;font-size:11px;">' + extra + '</div>';
+    // v47 : la source (exigée par la licence CC BY-NC) figure dans la fiche, plus dans la légende
+    return '<div style="border-top:1px solid rgba(255,255,255,.08);padding-top:8px;color:#8a8f98;font-size:11px;">' + extra + '</div>'
+        + '<div style="margin-top:6px;font-size:11px;color:#62666d;">' + GNSS_SOURCE + '</div>';
 }
 
 function buildGnssCellContent(c) {
@@ -89,7 +90,8 @@ function _gnssLegendHtml() {
     let h = '<div class="og-gnss-title">Brouillage GNSS <span>· ' + escapeHtml(_gnssDay(m.day)) + '</span></div>'
         + '<div class="og-gnss-row">' + sw('faible') + '10–25 % ' + sw('moyen') + '25–50 % ' + sw('fort') + '≥ 50 %</div>'
         + '<div class="og-gnss-row"><span class="og-gnss-pt" style="background:#f472b6"></span>source <span class="og-gnss-pt" style="background:#38bdf8"></span>leurrage</div>';
-    return h + '<div class="og-gnss-src">Stanford GPS Lab, rfi.stanford.edu</div>';
+    // v47 : source retirée de la légende ; crédit Stanford (licence CC BY-NC 4.0) dans « À propos »
+    return h;
 }
 function _gnssLegendSync() {
     if (!maCarte) return;
