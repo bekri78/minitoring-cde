@@ -6,7 +6,23 @@
 // 2 à 3 jours de décalage. Classement EASA des FIR touchées sur 7 jours.
 
 const gnssLayer = L.layerGroup();
-const _gnssRenderer = L.canvas({ padding: 0.5 });
+// Hexagones sur un canvas placé dans un plan juste SOUS celui des vecteurs : sinon le canvas,
+// qui couvre toute la carte, intercepte les clics des points GNSS, Feux et Convergences.
+// OGMA redéfinit les indices des plans (tuiles 2, vecteurs 4…) : on se cale sur le plan des vecteurs.
+let _gnssRenderer = null;
+function _gnssCanvas() {
+    if (_gnssRenderer) return _gnssRenderer;
+    if (!maCarte.getPane('ogGnss')) {
+        const z = parseInt(getComputedStyle(maCarte.getPane('overlayPane')).zIndex, 10);
+        const pane = maCarte.createPane('ogGnss');
+        pane.style.zIndex = isNaN(z) ? 350 : String(z - 1);
+        // L'ancienne leaflet.css de librairies/ ne positionne que les plans qu'elle connaît :
+        // sans position, le z-index serait ignoré et le fond de carte passerait au-dessus.
+        pane.style.position = 'absolute'; pane.style.left = '0'; pane.style.top = '0';
+    }
+    _gnssRenderer = L.canvas({ pane: 'ogGnss', padding: 0.5 });
+    return _gnssRenderer;
+}
 
 const GNSS_LEVEL = {
     fort:   { label: 'Fort',   color: '#e879f9', fill: 0.55 },
@@ -115,7 +131,7 @@ function renderGnss(cells, events, firs) {
         if (!Array.isArray(c.b) || c.b.length < 3) return;
         const lv = GNSS_LEVEL[c.level] || GNSS_LEVEL.faible;
         const poly = L.polygon(c.b, {
-            renderer: _gnssRenderer, color: lv.color, weight: 0.6, opacity: 0.7, fillColor: lv.color, fillOpacity: lv.fill
+            renderer: _gnssCanvas(), pane: 'ogGnss', color: lv.color, weight: 0.6, opacity: 0.7, fillColor: lv.color, fillOpacity: lv.fill
         });
         poly.bindPopup(buildGnssCellContent(c), { maxWidth: 300 });
         gnssLayer.addLayer(poly);
