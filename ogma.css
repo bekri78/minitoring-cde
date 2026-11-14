@@ -328,3 +328,9 @@ svg.leaflet-image-layer.leaflet-interactive path { pointer-events: visiblePainte
   .og-layer { flex: none; }
   .og-env-menu.og-env-menu-mobile { position: fixed; left: 16px; right: 16px; bottom: auto; min-width: 0; z-index: 1100; }
 }
+/* v42 — Menu « Événements » (événements + convergences) : ouvert vers la droite (premier bouton de la barre) */
+.og-env-left .og-env-menu { right: auto; left: 0; }
+/* Convergences plus lisibles : anneau épaissi dans la barre et sur la carte (même mauve) */
+.og-layer-dot.og-ring { width: 11px; height: 11px; border: 3px solid var(--og-accent-soft); opacity: .55; }
+.og-conv { width: 18px; height: 18px; border: 3px solid var(--og-accent-soft); background: rgba(139, 147, 255, .18); box-shadow: 0 0 0 1px rgba(0, 0, 0, .45), 0 0 8px rgba(139, 147, 255, .45); }
+.og-layer[aria-pressed="true"] .og-layer-dot.og-ring { opacity: 1; }
