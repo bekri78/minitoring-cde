@@ -1,0 +1,175 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+
+  <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OGMA</title>
+  <meta name="description" content="OGMA — veille géopolitique en sources ouvertes">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="ogma.css" />
+  <link rel="stylesheet" href="ogma-search.css" />
+  <link rel="stylesheet" href="vitrine.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <style>
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.35; transform: scale(0.75); }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Barre de commande : un lieu ou une question -->
+  <div class="og-search-wrap">
+    <div class="ogma-search" id="ogma-search">
+      <div class="ogma-search-box">
+        <svg class="og-search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span class="og-ia-chip" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"/></svg>OGMA</span>
+        <label for="ogma-search-input" class="og-sr">Rechercher un lieu ou poser une question</label>
+        <input id="ogma-search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Rechercher un lieu, un pays…" title="Recadre la carte et filtre les alertes sur le lieu choisi (touche /)">
+        <button type="button" class="ogma-search-clear" id="ogma-search-clear" title="Effacer" aria-label="Effacer la recherche">✕</button>
+      </div>
+      <div class="ogma-search-dropdown" id="ogma-search-dropdown"></div>
+      <section class="og-answer" id="og-answer" aria-live="polite" aria-label="Réponse de l'analyste OGMA" hidden></section>
+    </div>
+  </div>
+
+  <!-- Filtre actif sur la carte (fiche d'une rupture) -->
+  <div class="og-focus-chip og-glass" id="og-focus-chip" role="status">
+    <span>Carte limitée à <strong id="og-focus-label"></strong></span>
+    <button type="button" id="og-focus-clear">Tout afficher</button>
+  </div>
+
+  <!-- Calques -->
+  <nav class="og-layers og-glass" aria-label="Calques de la carte">
+    <button type="button" class="og-layer" data-layer="osint" aria-pressed="true" title="Événements, alertes, séismes et articles"><span class="og-layer-dot" style="background:#9aa0aa"></span>Événements <span class="og-layer-count" data-layer-count="osint">0</span></button>
+    <button type="button" class="og-layer" data-layer="air" aria-pressed="true" title="Aéronefs militaires et événements aériens"><span class="og-layer-dot" style="background:#7c8db5"></span>Air <span class="og-layer-count" data-layer-count="air">0</span></button>
+    <button type="button" class="og-layer" data-layer="sea" aria-pressed="true" title="Navires militaires et événements maritimes"><span class="og-layer-dot" style="background:#5f8fa8"></span>Mer <span class="og-layer-count" data-layer-count="sea">0</span></button>
+    <button type="button" class="og-layer" data-layer="space" aria-pressed="true" title="Lancements et rentrées atmosphériques"><span class="og-layer-dot" style="background:#c9ccd3"></span>Espace <span class="og-layer-count" data-layer-count="space">0</span></button>
+    <div class="og-env" id="og-env">
+      <button type="button" class="og-layer og-env-btn" id="og-env-btn" aria-haspopup="true" aria-expanded="false" aria-controls="og-env-menu" title="Crises, feux et brouillage GNSS"><span class="og-layer-dot" style="background:#c9a227"></span>Environnement <span class="og-layer-count og-env-on" id="og-env-on">3/3</span><svg class="og-env-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
+      <div class="og-env-menu og-glass" id="og-env-menu" role="group" aria-label="Calques environnement">
+        <button type="button" class="og-layer" data-layer="crises" aria-pressed="true" title="Alertes catastrophes GDACS (ONU / UE) : séismes, cyclones, inondations, volcans, sécheresses"><span class="og-env-check" aria-hidden="true"></span><span class="og-layer-dot" style="background:#e5484d"></span>Crises <small>GDACS</small><span class="og-layer-count" data-layer-count="crises">0</span></button>
+        <button type="button" class="og-layer" data-layer="fires" aria-pressed="true" title="Points chauds satellitaires NASA FIRMS (24 h, zones suivies : incendies, frappes, torchères) et feux de forêt signalés par GDACS"><span class="og-env-check" aria-hidden="true"></span><span class="og-layer-dot" style="background:#ff5a1f"></span>Feux <small>satellite</small><span class="og-layer-count" data-layer-count="fires">0</span></button>
+        <button type="button" class="og-layer" data-layer="gnss" aria-pressed="true" title="Brouillage et leurrage GNSS vus par les avions (Stanford GPS Lab, 2-3 jours de décalage)"><span class="og-env-check" aria-hidden="true"></span><span class="og-layer-dot" style="background:#e879f9"></span>Brouillage GNSS<span class="og-layer-count" data-layer-count="gnss">0</span></button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Panneau d'état et d'alertes -->
+  <button type="button" class="og-panel-pill og-glass" id="og-panel-pill" aria-controls="og-panel" title="Afficher le panneau">
+    <span class="og-dot" style="background:var(--og-crit)"></span><span class="og-num" id="og-pill-count">Alertes</span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg>
+  </button>
+  <aside class="og-panel" id="og-panel" aria-label="État et alertes">
+    <header class="og-panel-head">
+      <span class="og-brand">OGMA</span>
+      <span class="og-status" id="og-state-tile"><span class="og-dot" id="og-state-dot"></span><span id="og-state-label">Chargement…</span> · <span id="hdr-lastupdate" class="og-num">--:--</span><span class="og-sr"><span id="hdr-events">0</span> éléments affichés</span></span>
+      <span class="og-head-actions">
+        <button type="button" class="og-icon-btn" id="og-about" title="À propos d'OGMA" aria-label="À propos d'OGMA"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r=".6" fill="currentColor"/></svg></button>
+        <button type="button" class="og-icon-btn" id="og-panel-toggle" aria-controls="og-panel" aria-expanded="true" title="Masquer le panneau" aria-label="Masquer le panneau"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg></button>
+      </span>
+    </header>
+
+    <section class="og-watch" id="og-watch" aria-label="À surveiller">
+      <div class="og-chips" role="group" aria-label="Filtrer les alertes">
+        <button type="button" class="og-chip" data-chip="all" aria-pressed="true">Tout</button>
+        <button type="button" class="og-chip" data-chip="TENSION" aria-pressed="false">Tensions<span class="og-num" data-chip-count="TENSION"></span></button>
+        <button type="button" class="og-chip" data-chip="RUPTURE" aria-pressed="false">Ruptures<span class="og-num" data-chip-count="RUPTURE"></span></button>
+      </div>
+      <span class="og-watch-count" id="og-watch-count"></span>
+      <ul class="og-list" id="og-alerts"></ul>
+    </section>
+
+    <section class="og-detail" id="og-detail" hidden>
+      <button type="button" class="og-back" id="og-back">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>À surveiller
+      </button>
+      <div class="og-detail-body" id="og-detail-body"></div>
+    </section>
+
+  </aside>
+
+<!-- Modal SITREP -->
+<div id="sitrep-modal" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.82);align-items:center;justify-content:center;">
+    <div style="background:#0a0f16;border:1px solid #2a1a0a;border-radius:6px;max-width:700px;width:92%;max-height:85vh;display:flex;flex-direction:column;font-family:'Share Tech Mono',monospace;position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.9);">
+      <div style="padding:20px 24px 14px;border-bottom:1px solid #2a1a0a;flex-shrink:0;">
+        <button type="button" onclick="closeSitrep()" style="position:absolute;top:12px;right:16px;background:transparent;border:none;color:#4a6a7a;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
+        <div style="color:#ff8800;font-size:14px;letter-spacing:4px;margin-bottom:8px;">⚡ POINT DE SITUATION</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <span id="sitrep-datetime" style="color:#4a6a7a;font-size:9px;letter-spacing:1px;">--</span>
+          <span style="color:#1a2a3a;">|</span>
+          <span id="sitrep-stats" style="font-size:9px;"></span>
+        </div>
+      </div>
+      <div style="padding:20px 24px;overflow-y:auto;flex:1;">
+        <div id="sitrep-report" style="color:#c8d8e8;font-size:11px;line-height:1.9;"></div>
+      </div>
+      <div style="padding:12px 24px;border-top:1px solid #2a1a0a;display:flex;justify-content:flex-end;flex-shrink:0;">
+        <button type="button" onclick="closeSitrep()" style="font-family:'Share Tech Mono',monospace;font-size:10px;padding:6px 20px;background:rgba(255,136,0,0.08);color:#ff8800;border:1px solid #ff880055;cursor:pointer;letter-spacing:1px;">FERMER</button>
+      </div>
+    </div>
+  </div>
+  <!-- Modal À propos -->
+  <div id="about-modal" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.75);align-items:center;justify-content:center;">
+    <div style="background:#0a0f16;border:1px solid #1a2a3a;border-radius:6px;max-width:560px;width:90%;padding:32px;font-family:'Share Tech Mono',monospace;position:relative;box-shadow:0 8px 40px rgba(0,0,0,0.8);">
+      <!-- Fermeture -->
+      <button type="button" onclick="document.getElementById('about-modal').style.display='none'" style="position:absolute;top:12px;right:16px;background:transparent;border:none;color:#4a6a7a;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
+
+      <!-- Titre -->
+      <div style="color:#00d4ff;font-size:18px;letter-spacing:4px;margin-bottom:4px;">OGMA</div>
+      <div style="color:#4a6a7a;font-size:9px;letter-spacing:2px;margin-bottom:24px;border-bottom:1px solid #1a2a3a;padding-bottom:16px;">Outil de Gestion des Menaces et d’Anticipation</div>
+
+      <!-- Description -->
+      <p style="color:#c8d8e8;font-size:11px;line-height:1.7;margin:0 0 16px 0;">
+        <strong style="color:#00d4ff;">OGMA</strong> est un outil de veille géopolitique en sources ouvertes : il fusionne en continu des données publiques pour repérer les situations inhabituelles et les points où plusieurs signaux se croisent.
+      </p>
+      <div style="color:#4a6a7a;font-size:9px;letter-spacing:1px;margin-bottom:8px;">SOURCES OUVERTES</div>
+      <ul style="color:#c8d8e8;font-size:10px;line-height:1.8;margin:0 0 16px 0;padding-left:20px;">
+        <li>Presse mondiale (GDELT) et actualités (Google Actualités)</li>
+        <li>Trafic aérien et maritime militaire (ADS-B / AIS), anomalies maritimes (Global Fishing Watch)</li>
+        <li>Activité spatiale (Space-Track, The Space Devs), séismes (USGS), météo spatiale (NOAA)</li>
+      </ul>
+      <div style="color:#4a6a7a;font-size:9px;letter-spacing:1px;margin-bottom:8px;">ANALYSES</div>
+      <ul style="color:#c8d8e8;font-size:10px;line-height:1.8;margin:0 0 16px 0;padding-left:20px;">
+        <li><b>Ruptures 24 h</b> : activité d'un pays comparée à sa moyenne des 28 jours précédents</li>
+        <li><b>Convergences</b> : zones où au moins trois types de signaux se croisent</li>
+      </ul>
+      <p style="color:#4a6a7a;font-size:9px;line-height:1.6;margin:0;">
+        Données publiques, mises à jour automatiquement toutes les 30 minutes. Indicateurs d'alerte à recouper : ils ne constituent pas une information validée.
+      </p>
+    </div>
+  </div>
+
+  <div id="maCarte"></div>
+
+  <script charset="utf-8" src="config.js?v=13"></script>
+  <script charset="utf-8" src="vitrine-data.js?v=13"></script>
+  <script charset="utf-8" src="map.js?v=13"></script>
+  <script charset="utf-8" src="ogma-ui.js?v=13"></script>
+  <script charset="utf-8" src="layer-menu.js?v=13"></script>
+  <script charset="utf-8" src="ogma-feed.js?v=13"></script>
+  <script charset="utf-8" src="layer-signal.js?v=13"></script>
+  <script charset="utf-8" src="layer-osint.js?v=13"></script>
+  <script charset="utf-8" src="layer-seismic.js?v=13"></script>
+  <script charset="utf-8" src="layer-tracks.js?v=13"></script>
+  <script charset="utf-8" src="layer-space.js?v=13"></script>
+  <script charset="utf-8" src="layer-crises.js?v=13"></script>
+  <script charset="utf-8" src="layer-fires.js?v=13"></script>
+  <script charset="utf-8" src="layer-gnss.js?v=13"></script>
+  <script charset="utf-8" src="layer-news.js?v=13"></script>
+  <script charset="utf-8" src="layer-events.js?v=13"></script>
+  <script charset="utf-8" src="layer-signals.js?v=13"></script>
+  <script charset="utf-8" src="ogma-search.js?v=13"></script>
+  <script charset="utf-8" src="layer-insights.js?v=13"></script>
+
+</body>
+
+</html>
