@@ -123,8 +123,8 @@ let _rebuildAllModeTimer = null;
 // Chaque catégorie s'allume ou s'éteint indépendamment. Les points
 // d'événements de toutes les catégories actives partagent un seul cluster
 // (allModeCluster) pour ne pas superposer plusieurs grappes au même endroit.
-const OG_LAYERS = ['osint', 'air', 'sea', 'space', 'conv'];
-let _layersOn = { osint: true, air: true, sea: true, space: true, conv: true };
+const OG_LAYERS = ['osint', 'air', 'sea', 'space', 'crises', 'fires', 'gnss', 'conv'];
+let _layersOn = { osint: true, air: true, sea: true, space: true, crises: true, fires: true, gnss: true, conv: true };
 try {
     const saved = JSON.parse(localStorage.getItem('ogma-layers') || 'null');
     if (saved) OG_LAYERS.forEach(function (k) { if (typeof saved[k] === 'boolean') _layersOn[k] = saved[k]; });
@@ -196,7 +196,8 @@ function applyLayers() {
     if (_focusLayer) {
         const others = [allModeCluster, signalCluster, osintCluster, seismicLayer, newsOsintCluster, newsAirCluster, newsSeaCluster,
             newsSpaceCluster, tracksLayer, tracksSeaLayer, aviationEvtCluster, maritimeEvtCluster, spaceLayer, convergenceLayer,
-            typeof ruptureLayer !== 'undefined' ? ruptureLayer : null];
+            typeof ruptureLayer !== 'undefined' ? ruptureLayer : null, typeof crisesLayer !== 'undefined' ? crisesLayer : null,
+            typeof firesLayer !== 'undefined' ? firesLayer : null, typeof gnssLayer !== 'undefined' ? gnssLayer : null];
         others.forEach(function (layer) { if (layer && maCarte.hasLayer(layer)) maCarte.removeLayer(layer); });
         if (!maCarte.hasLayer(_focusLayer)) _focusLayer.addTo(maCarte);
         _hdrRefreshCount();
@@ -208,13 +209,19 @@ function applyLayers() {
     if (layerOn('sea'))   visible.push(tracksSeaLayer);
     if (layerOn('space')) visible.push(spaceLayer);
     if (layerOn('conv'))  visible.push(convergenceLayer);
+    if (layerOn('crises') && typeof crisesLayer !== 'undefined') visible.push(crisesLayer);
+    if (layerOn('fires') && typeof firesLayer !== 'undefined') visible.push(firesLayer);
+    if (layerOn('gnss') && typeof gnssLayer !== 'undefined') visible.push(gnssLayer);
     if (typeof ruptureLayer !== 'undefined') visible.push(ruptureLayer);   // alertes : toujours visibles
     const allKnown = [
         allModeCluster,
         signalCluster, osintCluster, seismicLayer,
         newsOsintCluster, newsAirCluster, newsSeaCluster, newsSpaceCluster,
         tracksLayer, tracksSeaLayer, aviationEvtCluster, maritimeEvtCluster, spaceLayer, convergenceLayer,
-        typeof ruptureLayer !== 'undefined' ? ruptureLayer : null
+        typeof ruptureLayer !== 'undefined' ? ruptureLayer : null,
+        typeof crisesLayer !== 'undefined' ? crisesLayer : null,
+        typeof firesLayer !== 'undefined' ? firesLayer : null,
+        typeof gnssLayer !== 'undefined' ? gnssLayer : null
     ];
     allKnown.forEach(function (layer) {
         if (!layer) return;
@@ -244,7 +251,7 @@ function setFilter(name) {
 const _hdrCounts = {
     signal: 0, osint: 0, seismic: 0, tracks: 0, space: 0,
     newsAir: 0, newsSea: 0, newsSpace: 0, newsOsint: 0,
-    maritime: 0, aviation: 0
+    maritime: 0, aviation: 0, crises: 0, fires: 0, gnss: 0
 };
 
 function hdrUpdateCount(key, n) {
@@ -258,6 +265,9 @@ function _layerCount(key) {
     if (key === 'sea')   return c.maritime + c.newsSea;
     if (key === 'space') return c.space + c.newsSpace;
     if (key === 'osint') return c.signal + c.osint + c.seismic + c.newsOsint;
+    if (key === 'crises') return c.crises;
+    if (key === 'fires')  return c.fires;
+    if (key === 'gnss')   return c.gnss;
     if (key === 'conv')  return (typeof _lastConvergences !== 'undefined' ? _lastConvergences.length : 0);
     return 0;
 }

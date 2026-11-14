@@ -39,6 +39,9 @@
             hdrUpdateCount('seismic', (d.earthquakes || []).length);
         });
         safe('pistes', function () { renderTracks(d.tracks || []); });
+        safe('crises', function () { if (typeof renderCrises === 'function') renderCrises(d.disasters || []); });
+        safe('fires', function () { if (typeof renderFires === 'function') renderFires(d.fires || []); });
+        safe('gnss', function () { if (typeof renderGnss === 'function') renderGnss(d.gnssCells || [], d.gnssEvents || [], d.gnssFirs || []); });
         safe('spatial', function () { renderSpace(d.space || {}); });
         safe('actualités', function () { renderNews(d.news || []); });
         safe('maritime', function () {
