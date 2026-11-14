@@ -222,7 +222,8 @@ function showRupture(r, siblings) {
 
 // ── Point d'entrée appelé par ogma-feed.js ───────────────────
 function renderInsights(data) {
-    renderConvergences(data.convergences || []);
+    // v44 : convergences retirées de l'interface (toujours calculées par le serveur, transmises à l'IA)
+    renderConvergences([]);
     renderRuptures(data.ruptures || []);
 }
 
