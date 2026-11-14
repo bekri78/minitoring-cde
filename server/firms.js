@@ -9,8 +9,8 @@
  * Clé : variable FIRMS_MAP_KEY (gratuite, 5000 requêtes / 10 min).
  * API : https://firms.modaps.eosdis.nasa.gov/api/area/csv/{KEY}/{SOURCE}/{W,S,E,N}/{JOURS}
  *
- * Réduction : confiance haute (ou nominale ≥ 20 MW), regroupement en cellules
- * de 0,1° (~10 km), cellules gardées si ≥ 3 détections ou ≥ 50 MW, 400 au plus,
+ * Réduction : confiance haute ou nominale, regroupement en cellules de 0,1°
+ * (~10 km), cellules gardées si ≥ 3 détections ou ≥ 20 MW, 400 au plus,
  * les plus puissantes d'abord.
  */
 
@@ -50,7 +50,8 @@ function parseCsv(text) {
 function keep(d) {
   const c = String(d.confidence || '').toLowerCase();
   const frp = Number(d.frp) || 0;
-  return c === 'h' || c === 'high' || ((c === 'n' || c === 'nominal') && frp >= 20) || Number(c) >= 80;
+  // VIIRS : h = haute, n = nominale (l'essentiel des détections), l = basse (écartée)
+  return c === 'h' || c === 'high' || c === 'n' || c === 'nominal' || Number(c) >= 80 || (c === 'l' && frp >= 50);
 }
 
 function utcIso(date, time) {
@@ -92,7 +93,7 @@ function aggregate(rows, zoneName) {
 function select(cells) {
   const byId = new Map();
   for (const c of cells) {
-    if (c.count < 3 && c.frpMax < 50) continue;
+    if (c.count < 3 && c.frpMax < 20) continue;
     const p = byId.get(c.id);
     if (!p || c.frpMax > p.frpMax) byId.set(c.id, p ? { ...c, count: Math.max(c.count, p.count) } : c);
   }
@@ -113,7 +114,7 @@ async function fetchFirms(fetchImpl = fetch, key = process.env.FIRMS_MAP_KEY) {
   if (isFetching) return cache;
   isFetching = true;
   try {
-    const all = []; let ok = 0;
+    const all = []; let ok = 0; const stat = { rows: 0, h: 0, n: 0, l: 0 };
     for (const z of ZONES) {
       for (const src of SOURCES) {
         const url = `${API}/${key}/${src}/${z.box.join(',')}/1`;
@@ -122,7 +123,9 @@ async function fetchFirms(fetchImpl = fetch, key = process.env.FIRMS_MAP_KEY) {
           const res = await fetchImpl(url, { headers: { 'User-Agent': 'OGMA/1.0 (veille OSINT)' }, signal: ctrl.signal });
           const text = await res.text();
           if (!res.ok || /invalid|error/i.test(text.slice(0, 80)) && !/latitude/i.test(text.slice(0, 80))) throw new Error('HTTP ' + res.status + ' ' + text.slice(0, 60));
-          all.push(...aggregate(parseCsv(text), z.name)); ok++;
+          const rows = parseCsv(text);
+          rows.forEach(r => { stat.rows++; const c = String(r.confidence || '').toLowerCase()[0]; if (stat[c] !== undefined) stat[c]++; });
+          all.push(...aggregate(rows, z.name)); ok++;
         } catch (err) {
           console.warn(`[firms] ${z.id}/${src} :`, err.message);
         } finally { clearTimeout(t); }
@@ -132,7 +135,7 @@ async function fetchFirms(fetchImpl = fetch, key = process.env.FIRMS_MAP_KEY) {
     const cells = select(all);
     cache = { cells, lastUpdate: new Date().toISOString(), status: 'ok' };
     saveToDisk();
-    console.log(`[firms] ${cells.length} foyers (forts ${cells.filter(c => c.level === 'fort').length}) sur ${ok} requêtes`);
+    console.log(`[firms] ${cells.length} foyers (forts ${cells.filter(c => c.level === 'fort').length}) — ${stat.rows} détections brutes (h ${stat.h}, n ${stat.n}, l ${stat.l}) sur ${ok} requêtes`);
   } catch (err) {
     console.warn('[firms] fetch failed:', err.message);
     cache = { ...cache, status: cache.cells.length ? 'stale' : 'error' };
