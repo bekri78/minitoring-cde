@@ -9,6 +9,7 @@ const { fetchAll: fetchLaunches, getCache: getLaunchCache } = require('./launche
 const { fetchDecay, getCache: getDecayCache, fetchTip, getTipCache } = require('./spacetrack');
 const { fetchQuakes, getCache: getQuakeCache }                       = require('./earthquakes');
 const { fetchGdacs, getCache: getGdacsCache }                        = require('./gdacs');
+const { fetchFirms, getCache: getFirmsCache }                        = require('./firms');
 const { fetchSpaceWeather, getCache: getSwCache }                    = require('./spaceweather');
 const { fetchMilitary, getCache: getMilCache }                       = require('./military-aircraft');
 const { startMilitaryShips, getCache: getShipCache }                 = require('./military-ships');
@@ -683,6 +684,7 @@ publicRouter.get('/sharepoint/snapshot', createSnapshotHandler({
   spatialEvents:     (events) => getSpatialEvents(events),
   earthquakes:       () => getQuakeCache(),
   disasters:         () => getGdacsCache(),
+  fires:             () => getFirmsCache(),
   spaceWeather:      () => getSwCache(),
   launches:          () => getLaunchCache(),
   decay:             () => getDecayCache(),
@@ -1005,6 +1007,11 @@ cron.schedule('7,37 * * * *', () => {
   fetchGdacs().catch(err => console.error('[gdacs-cron]', err.message));
 });
 
+// ── Cron 1 h — Points chauds NASA FIRMS (VIIRS) ──────────────────────────────
+cron.schedule('23 * * * *', () => {
+  fetchFirms().catch(err => console.error('[firms-cron]', err.message));
+});
+
 // ── Cron 15min — Météo spatiale NOAA ──────────────────────────────────────────
 cron.schedule('*/15 * * * *', () => {
   fetchSpaceWeather().catch(err => console.error('[spaceweather-cron]', err.message));
@@ -1051,6 +1058,7 @@ app.listen(PORT, () => {
     .catch(err => console.error('[startup-spacetrack]', err.message));
   fetchQuakes().catch(err => console.error('[startup-earthquakes]', err.message));
   fetchGdacs().catch(err => console.error('[startup-gdacs]', err.message));
+  fetchFirms().catch(err => console.error('[startup-firms]', err.message));
   fetchSpaceWeather().catch(err => console.error('[startup-spaceweather]', err.message));
   fetchMilitary().catch(err => console.error('[startup-military]', err.message));
   startMilitaryShips();

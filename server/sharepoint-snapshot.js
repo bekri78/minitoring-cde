@@ -63,6 +63,7 @@ function buildSnapshot(src) {
   const anomal  = src.maritimeAnomalies();
   const quakes  = src.earthquakes();
   const disasters = src.disasters ? src.disasters() : { events: [] };
+  const fires     = src.fires ? src.fires() : { cells: [] };
   const sw      = src.spaceWeather();
   const launch  = src.launches();
   const decay   = src.decay();
@@ -81,6 +82,7 @@ function buildSnapshot(src) {
     aviationEvents:    arr(src.aviationEvents(events)),
     spatialEvents:     arr(src.spatialEvents(events)),
     earthquakes:       arr(quakes.quakes),
+    fires:             arr(fires.cells),        // points chauds NASA FIRMS (facultatif)
     disasters:         arr(disasters.events),   // alertes GDACS (facultatif : absent des anciens snapshots)
     spaceWeather:      { kp: sw.kp ?? null, scales: sw.scales ?? null, alerts: arr(sw.alerts) },
     space: {
@@ -108,6 +110,7 @@ function buildSnapshot(src) {
     tracks:            { lastUpdate: tracks.meta?.shipStream?.lastUpdate || null, status: tracks.meta?.shipStream?.status || 'ok' },
     maritimeAnomalies: { lastUpdate: anomal.meta?.lastUpdate || null, status: anomal.meta?.status || 'unknown' },
     earthquakes:       { lastUpdate: quakes.lastUpdate || null, status: status(quakes) },
+    fires:             { lastUpdate: fires.lastUpdate || null, status: fires.status || status(fires) },
     disasters:         { lastUpdate: disasters.lastUpdate || null, status: disasters.status || status(disasters) },
     spaceWeather:      { lastUpdate: sw.lastUpdate || null, status: status(sw) },
     space:             { lastUpdate: launch.lastUpdate || decay.lastUpdate || tip.lastUpdate || null, status: status(launch) },
