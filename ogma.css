@@ -301,3 +301,10 @@ body.og-panel-closed .og-layers { left: 50%; }
 .og-gnss-firs li span { color: var(--og-faint); }
 .og-gnss-src { margin-top: 5px; font-size: 10.5px; color: #62666d; }
 @media (max-width: 900px) { .og-gnss-legend { display: none; } }
+/* v39 — Tracés vectoriels cliquables (points Feux, sources et leurrages GNSS, cercles).
+   La leaflet.css de librairies/ est celle de Leaflet 0.7 alors que leaflet.js est en 1.9 :
+   il lui manque cette règle, et le SVG de Leaflet 1.9 (pointer-events="none") rendait ces
+   points transparents aux clics. */
+.leaflet-pane > svg path.leaflet-interactive,
+svg.leaflet-image-layer.leaflet-interactive path { pointer-events: visiblePainted; pointer-events: auto; }
+.leaflet-interactive { cursor: pointer; }
