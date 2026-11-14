@@ -48,8 +48,8 @@ function _gnssMeta() {
     return s.gnss || {};
 }
 function _gnssFoot(extra) {
-    return '<div style="border-top:1px solid rgba(255,255,255,.08);padding-top:8px;color:#8a8f98;font-size:11px;">' + extra + '</div>'
-        + '<div style="margin-top:6px;font-size:11px;color:#62666d;">' + GNSS_SOURCE + '</div>';
+    // v46 : source retirée des fiches ; l'attribution exigée par la licence CC BY-NC reste dans la légende
+    return '<div style="border-top:1px solid rgba(255,255,255,.08);padding-top:8px;color:#8a8f98;font-size:11px;">' + extra + '</div>';
 }
 
 function buildGnssCellContent(c) {
