@@ -80,7 +80,7 @@ function buildGnssEventContent(e) {
     );
 }
 
-// Légende et classement EASA, visibles quand le calque est allumé
+// Légende, visible quand le calque est allumé (v44 : classement EASA retiré, données trop anciennes)
 let _gnssLegend = null;
 let _lastGnssFirs = [];
 function _gnssLegendHtml() {
@@ -89,13 +89,7 @@ function _gnssLegendHtml() {
     let h = '<div class="og-gnss-title">Brouillage GNSS <span>· ' + escapeHtml(_gnssDay(m.day)) + '</span></div>'
         + '<div class="og-gnss-row">' + sw('faible') + '10–25 % ' + sw('moyen') + '25–50 % ' + sw('fort') + '≥ 50 %</div>'
         + '<div class="og-gnss-row"><span class="og-gnss-pt" style="background:#f472b6"></span>source <span class="og-gnss-pt" style="background:#38bdf8"></span>leurrage</div>';
-    if (_lastGnssFirs.length) {
-        h += '<details class="og-gnss-firs"><summary>FIR touchées (EASA, 7 j au ' + escapeHtml(_gnssDay(m.easaDate)) + ')</summary><ol>'
-            + _lastGnssFirs.slice(0, 15).map(function (f) {
-                return '<li>' + escapeHtml(f.name) + ' <span>' + escapeHtml(f.icao) + (f.spoofing ? ' · leurrage' : '') + '</span></li>';
-            }).join('') + '</ol></details>';
-    }
-    return h + '<div class="og-gnss-src">Stanford GPS Lab, rfi.stanford.edu · EASA</div>';
+    return h + '<div class="og-gnss-src">Stanford GPS Lab, rfi.stanford.edu</div>';
 }
 function _gnssLegendSync() {
     if (!maCarte) return;
@@ -108,7 +102,7 @@ function _gnssLegendSync() {
             return div;
         };
     }
-    const show = maCarte.hasLayer(gnssLayer) && (gnssLayer.getLayers().length > 0 || _lastGnssFirs.length > 0);
+    const show = maCarte.hasLayer(gnssLayer) && gnssLayer.getLayers().length > 0;
     if (show && !_gnssLegend._map) _gnssLegend.addTo(maCarte);
     if (!show && _gnssLegend._map) _gnssLegend.remove();
     if (show) {

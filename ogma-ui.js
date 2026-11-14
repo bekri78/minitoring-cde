@@ -180,7 +180,7 @@
     }
 
     // Ordre des groupes dans « Tout » : les tensions d'abord (les plus significatives)
-    const GROUPS = [['TENSION', 'Tensions'], ['RUPTURE', 'Ruptures'], ['CONVERGENCE', 'Convergences']];
+    const GROUPS = [['TENSION', 'Tensions'], ['RUPTURE', 'Ruptures']];
 
     function renderAlerts() {
         const list = $('og-alerts');

@@ -123,8 +123,8 @@ let _rebuildAllModeTimer = null;
 // Chaque catégorie s'allume ou s'éteint indépendamment. Les points
 // d'événements de toutes les catégories actives partagent un seul cluster
 // (allModeCluster) pour ne pas superposer plusieurs grappes au même endroit.
-const OG_LAYERS = ['osint', 'air', 'sea', 'space', 'crises', 'fires', 'gnss', 'conv'];
-let _layersOn = { osint: true, air: true, sea: true, space: true, crises: true, fires: true, gnss: true, conv: true };
+const OG_LAYERS = ['osint', 'air', 'sea', 'space', 'crises', 'fires', 'gnss'];
+let _layersOn = { osint: true, air: true, sea: true, space: true, crises: true, fires: true, gnss: true };
 try {
     const saved = JSON.parse(localStorage.getItem('ogma-layers') || 'null');
     if (saved) OG_LAYERS.forEach(function (k) { if (typeof saved[k] === 'boolean') _layersOn[k] = saved[k]; });
@@ -208,7 +208,6 @@ function applyLayers() {
     if (layerOn('air'))   visible.push(tracksLayer);
     if (layerOn('sea'))   visible.push(tracksSeaLayer);
     if (layerOn('space')) visible.push(spaceLayer);
-    if (layerOn('conv'))  visible.push(convergenceLayer);
     if (layerOn('crises') && typeof crisesLayer !== 'undefined') visible.push(crisesLayer);
     if (layerOn('fires') && typeof firesLayer !== 'undefined') visible.push(firesLayer);
     if (layerOn('gnss') && typeof gnssLayer !== 'undefined') visible.push(gnssLayer);
@@ -244,7 +243,7 @@ function setLayer(key, on) {
 function setFilter(name) {
     const map = { OSINT: 'osint', AIR: 'air', SEA: 'sea', SPACE: 'space' };
     OG_LAYERS.forEach(function (k) { _layersOn[k] = name === 'ALL' || k === 'conv' || map[name] === k; });
-    setLayer('conv', _layersOn.conv);
+    setLayer('osint', _layersOn.osint);
 }
 
 // ── Compteurs ────────────────────────────────────────────────
