@@ -7,6 +7,8 @@ on:
       - 'server/opensky-client.test.js'
       - 'server/airFetcher.js'
       - 'server/aviation-osint.js'
+      - 'server/opensky-diagnostics.js'
+      - 'server/server.js'
       - '.github/workflows/opensky-tests.yml'
   push:
     branches: [main]
@@ -31,5 +33,7 @@ jobs:
           node --check server/opensky-client.js
           node --check server/airFetcher.js
           node --check server/aviation-osint.js
+          node --check server/opensky-diagnostics.js
+          node --check server/server.js
       - name: Run mock OpenSky auth tests
         run: node --test server/opensky-client.test.js
