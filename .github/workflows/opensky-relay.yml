@@ -1,0 +1,37 @@
+name: Relais OpenSky
+
+# OpenSky bloque les adresses de Railway (Google Cloud) mais répond aux exécuteurs GitHub.
+# Toutes les 30 min, ce workflow récupère les zones Europe de l'Est / Moyen-Orient et la vue
+# mondiale (12 crédits, ~580/jour sur 4 000) et les envoie au serveur OGMA (route privée).
+# Secrets requis : OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET, OPENSKY_INGEST_KEY.
+# Les données ne sont jamais publiées (conditions OpenSky : pas de redistribution).
+
+on:
+  schedule:
+    - cron: '12,42 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opensky-relay
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: server
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: OpenSky → serveur OGMA
+        env:
+          OPENSKY_CLIENT_ID: ${{ secrets.OPENSKY_CLIENT_ID }}
+          OPENSKY_CLIENT_SECRET: ${{ secrets.OPENSKY_CLIENT_SECRET }}
+          OPENSKY_INGEST_KEY: ${{ secrets.OPENSKY_INGEST_KEY }}
+        run: node server/opensky-relay.js

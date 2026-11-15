@@ -1,6 +1,7 @@
 'use strict';
 
 const { fetchOpenSkyJson, isOpenSkyEnabled } = require('./opensky-client');
+const openskyRelay = require('./opensky-relay-store');
 
 const { MILITARY_AIRBASES } = require('./data/military-airbases');
 
@@ -74,7 +75,20 @@ function getOpenSkyCache() { return openSkyCache; }
 let openSkyDisabledLogged = false;
 async function refreshOpenSkyCache() {
   if (!isOpenSkyEnabled()) {
-    // Recoupement aérien « non observable » (aucune pénalité) tant qu'OpenSky est désactivé
+    // Données du relais GitHub si récentes (Railway ne peut pas joindre OpenSky)
+    const g = openskyRelay.getGlobal();
+    if (g) {
+      openSkyCache = {
+        aircraft: g.states
+          .map(s => ({ icao24: s[0], callsign: (s[1] || '').trim(), lat: s[6], lon: s[5], altBaro: s[7], velocity: s[9], onGround: s[8] }))
+          .filter(a => typeof a.lat === 'number' && typeof a.lon === 'number'),
+        lastUpdate: g.fetchedAt,
+        status: 'ok',
+      };
+      console.log(`[opensky] relais GitHub : ${openSkyCache.aircraft.length} appareils (${g.fetchedAt.slice(11, 16)} UTC)`);
+      return;
+    }
+    // Sinon recoupement aérien « non observable » (aucune pénalité)
     openSkyCache = { aircraft: [], lastUpdate: null, status: 'disabled' };
     if (!openSkyDisabledLogged) { console.log('[opensky] collecte désactivée (OPENSKY_ENABLED absent) : adresses Railway bloquées par OpenSky'); openSkyDisabledLogged = true; }
     return;
@@ -217,7 +231,7 @@ function computeRecencyScore(timestamp) {
 // ── OpenSky corroboration (cache-first, absence ≠ proof of nothing) ───────────
 function correlateOpenSky(lat, lon, radiusKm = 250) {
   const ageMs = Date.now() - Date.parse(openSkyCache.lastUpdate || '');
-  if (openSkyCache.status !== 'ok' || !Number.isFinite(ageMs) || ageMs > 30 * 60 * 1000) {
+  if (openSkyCache.status !== 'ok' || !Number.isFinite(ageMs) || ageMs > 75 * 60 * 1000) {   // relais toutes les 30 min (+ retards GitHub)
     return { source: 'opensky', status: 'not_observable', confidenceImpact: 0, count: 0 };
   }
   const nearby = openSkyCache.aircraft.filter(

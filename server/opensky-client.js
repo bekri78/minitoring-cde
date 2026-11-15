@@ -108,4 +108,10 @@ function isOpenSkyEnabled() {
   return /^(1|true|oui|yes|on)$/i.test(String(process.env.OPENSKY_ENABLED || '').trim());
 }
 
-module.exports = { fetchOpenSkyJson, resetTokenCache, isOpenSkyEnabled };
+// Zones interrogées (serveur et relais GitHub) : [lamin, lomin, lamax, lomax], 4 crédits chacune
+const OPENSKY_BOXES = [
+  { name: 'eastern-europe', lamin: 44, lomin: 20, lamax: 62, lomax: 50 },
+  { name: 'middle-east',    lamin: 20, lomin: 30, lamax: 42, lomax: 65 },
+];
+
+module.exports = { fetchOpenSkyJson, resetTokenCache, isOpenSkyEnabled, OPENSKY_BOXES };

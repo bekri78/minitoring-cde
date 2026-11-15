@@ -1,6 +1,7 @@
 'use strict';
 
-const { fetchOpenSkyJson, isOpenSkyEnabled } = require('./opensky-client');
+const { fetchOpenSkyJson, isOpenSkyEnabled, OPENSKY_BOXES } = require('./opensky-client');
+const openskyRelay = require('./opensky-relay-store');
 
 /**
  * airFetcher.js — Sources ADS-B supplémentaires pour WORLD MONITOR
@@ -22,13 +23,7 @@ const TIMEOUT_MS     = 5_000;
 const CACHE_TTL_MS   = 60_000;
 const CONCURRENCY    = 2;       // max requêtes simultanées
 
-// Zones OpenSky à sonder (bounding boxes [lamin, lomin, lamax, lomax])
-// Limité à 2 zones pour rester sous le rate-limit anonyme (10 req/min)
-// Priorité aux zones de conflit actif non couvertes par /mil endpoints
-const OPENSKY_BOXES = [
-  { name: 'eastern-europe', lamin: 44, lomin: 20, lamax: 62, lomax: 50 },
-  { name: 'middle-east',    lamin: 20, lomin: 30, lamax: 42, lomax: 65 },
-];
+// Zones OpenSky : OPENSKY_BOXES (opensky-client.js), partagées avec le relais GitHub
 
 // ── Cache mémoire par source ───────────────────────────────────────────────
 const sourceCache = new Map();
@@ -138,6 +133,22 @@ async function fetchOpenSky() {
   return out;
 }
 
+// Relais GitHub : mêmes états OpenSky, reçus par POST /api/ingest/opensky
+async function fetchOpenSkyRelay() {
+  const r = openskyRelay.getRegional();
+  if (!r) return [];
+  const seen = new Map();
+  for (const states of Object.values(r.regions)) {
+    for (const s of states) {
+      const ac = normalizeOpenSkyState(s);
+      if (ac && ac.hex && !seen.has(ac.hex)) seen.set(ac.hex, ac);
+    }
+  }
+  const out = Array.from(seen.values());
+  console.log(`[mil-aircraft] opensky (relais GitHub, ${r.fetchedAt.slice(11, 16)} UTC) : ${out.length} appareils`);
+  return out;
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // FETCH SOURCES — point d'entrée unique
 // ══════════════════════════════════════════════════════════════════════════
@@ -151,8 +162,9 @@ async function fetchSources() {
   // airplanes.live et adsb.fi sont déjà gérés par le pipeline legacy (fetchMilSource)
   // avec filtre militaire strict — les redoubler ici causerait des 429.
   // airFetcher apporte uniquement les sources complémentaires.
-  // OpenSky : désactivé par défaut (adresses Railway bloquées) — voir OPENSKY_ENABLED
-  const fetchers = isOpenSkyEnabled() ? [{ name: 'opensky', fn: fetchOpenSky }] : [];
+  // OpenSky : appel direct si OPENSKY_ENABLED, sinon données du relais GitHub (Railway est bloqué)
+  const fetchers = isOpenSkyEnabled() ? [{ name: 'opensky', fn: fetchOpenSky }]
+    : openskyRelay.getRegional() ? [{ name: 'opensky-relais', fn: fetchOpenSkyRelay }] : [];
   if (!fetchers.length) return [];
 
   const results = await Promise.allSettled(fetchers.map(f => f.fn()));

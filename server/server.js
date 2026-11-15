@@ -41,6 +41,28 @@ const PORT     = process.env.PORT || 3000;
 const CACHE_DIR = process.env.CACHE_DIR || '/data';
 
 app.use(cors());
+
+// ── Relais OpenSky (GitHub Actions) ─────────────────────────────────────────
+// OpenSky bloque les adresses de Railway : le workflow opensky-relay.yml récupère les
+// données depuis GitHub et les envoie ici (clé partagée OPENSKY_INGEST_KEY, jamais journalisée).
+// Déclaré avant express.json() global (limité à 100 Ko) : un envoi pèse ~1 Mo.
+const openskyRelay = require('./opensky-relay-store');
+app.post('/api/ingest/opensky', express.json({ limit: '15mb' }), (req, res) => {
+  const expected = String(process.env.OPENSKY_INGEST_KEY || '');
+  if (!expected) return res.status(503).json({ error: 'OPENSKY_INGEST_KEY non configurée sur le serveur' });
+  const got = Buffer.from(String(req.get('x-ingest-key') || ''));
+  const want = Buffer.from(expected);
+  if (got.length !== want.length || !require('crypto').timingSafeEqual(got, want)) return res.status(401).json({ error: 'clé invalide' });
+  try {
+    const summary = openskyRelay.ingest(req.body);
+    console.log('[opensky-relais] reçu ' + JSON.stringify(summary));
+    refreshOpenSkyCache().catch(err => console.warn('[opensky-relais] cache :', err.message));
+    res.json({ ok: true, ...summary });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.use(express.json());
 
 // ── État en mémoire ───────────────────────────────────────────────────────
