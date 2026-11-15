@@ -13,12 +13,25 @@ let expiresAt = 0;
 let tokenRequest = null;
 
 function credentials() {
-  const id = (process.env.OPENSKY_CLIENT_ID || '').trim();
-  const secret = (process.env.OPENSKY_CLIENT_SECRET || '').trim();
-  if (Boolean(id) !== Boolean(secret)) {
-    throw new Error('OpenSky OAuth2: configure both OPENSKY_CLIENT_ID and OPENSKY_CLIENT_SECRET');
+  // Use current OAuth2 names when present. Otherwise read the existing Railway
+  // variable names EXACTLY, including their accidental trailing spaces.
+  // This preserves the secret values: no copy, rename or log output is needed.
+  const configuredId = (process.env.OPENSKY_CLIENT_ID || '').trim();
+  const configuredSecret = (process.env.OPENSKY_CLIENT_SECRET || '').trim();
+  if (configuredId || configuredSecret) {
+    if (!configuredId || !configuredSecret) {
+      throw new Error('OpenSky OAuth2: configure both OPENSKY_CLIENT_ID and OPENSKY_CLIENT_SECRET');
+    }
+    return { id: configuredId, secret: configuredSecret };
   }
-  return id ? { id, secret } : null;
+  const legacyId = (process.env['OPENSKY_USER '] || process.env.OPENSKY_USER || '').trim();
+  const legacySecret = (process.env['OPENSKY_PASS '] || process.env.OPENSKY_PASS || '').trim();
+  if (Boolean(legacyId) !== Boolean(legacySecret)) {
+    throw new Error('OpenSky OAuth2: legacy Railway variables are incomplete');
+  }
+  // The legacy variable contents MUST be an API Client ID/Secret for OAuth2,
+  // not the OpenSky website login and password.
+  return legacyId ? { id: legacyId, secret: legacySecret } : null;
 }
 
 function resetTokenCache() {
