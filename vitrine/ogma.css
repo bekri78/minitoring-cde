@@ -361,3 +361,9 @@ svg.leaflet-image-layer.leaflet-interactive path { pointer-events: visiblePainte
 .og-spc-soon::before, .og-spc-soon::after { content: ''; position: absolute; inset: -9px; border-radius: 50%; border: 2px solid rgba(255, 178, 36, .85); animation: og-spc-pulse 1.8s ease-out infinite; }
 .og-spc-soon::after { animation-delay: .9s; }
 @media (prefers-reduced-motion: reduce) { .og-spc-soon::after { display: none; } }
+
+
+/* v50 — Copernicus EMS : repère bleu UE sur une alerte cartographiée ; activation seule = disque bleu */
+.og-crisis { position: relative; }
+.og-cems-dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: #4f7cff; border: 1.5px solid #fff; box-sizing: border-box; }
+.og-crisis-cems { box-shadow: 0 0 0 1px rgba(0, 0, 0, .4), 0 0 8px rgba(79, 124, 255, .6); }
