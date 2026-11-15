@@ -118,3 +118,11 @@ test('humanitaire ReliefWeb : liste et source présentes, absentes = liste vide'
   assert.strictEqual(s.sources.humanitarian.status, 'ok');
   assert.deepStrictEqual(validateSnapshot(s), []);
 });
+
+test('Copernicus EMS : liste et source présentes, absentes = liste vide', () => {
+  assert.deepStrictEqual(buildSnapshot(src).data.copernicus, []);
+  const s = buildSnapshot({ ...src, copernicus: () => ({ activations: [{ id: 'cems-EMSR934', code: 'EMSR934' }], lastUpdate: '2026-11-15T10:00:00Z', status: 'ok' }) });
+  assert.strictEqual(s.counts.copernicus, 1);
+  assert.strictEqual(s.sources.copernicus.status, 'ok');
+  assert.deepStrictEqual(validateSnapshot(s), []);
+});

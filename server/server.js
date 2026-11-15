@@ -12,6 +12,7 @@ const { fetchGdacs, getCache: getGdacsCache }                        = require('
 const { fetchFirms, getCache: getFirmsCache }                        = require('./firms');
 const { fetchGnss, getCache: getGnssCache }                          = require('./gnss');
 const { fetchReliefWeb, getCache: getReliefWebCache }                = require('./reliefweb');
+const { fetchCopernicus, getCache: getCopernicusCache }              = require('./copernicus');
 const { fetchSpaceWeather, getCache: getSwCache }                    = require('./spaceweather');
 const { fetchMilitary, getCache: getMilCache }                       = require('./military-aircraft');
 const { startMilitaryShips, getCache: getShipCache }                 = require('./military-ships');
@@ -689,6 +690,7 @@ publicRouter.get('/sharepoint/snapshot', createSnapshotHandler({
   fires:             () => getFirmsCache(),
   gnss:              () => getGnssCache(),
   humanitarian:      () => getReliefWebCache(),
+  copernicus:        () => getCopernicusCache(),
   spaceWeather:      () => getSwCache(),
   launches:          () => getLaunchCache(),
   decay:             () => getDecayCache(),
@@ -1016,6 +1018,11 @@ cron.schedule('23 * * * *', () => {
   fetchFirms().catch(err => console.error('[firms-cron]', err.message));
 });
 
+// ── Cron 1 h — Activations Copernicus EMS (cartographie d'urgence UE) ────────
+cron.schedule('47 * * * *', () => {
+  fetchCopernicus().catch(err => console.error('[copernicus-cron]', err.message));
+});
+
 // ── Cron 2 h — Crises humanitaires ReliefWeb (ONU/OCHA, appname requis) ──────
 cron.schedule('17 */2 * * *', () => {
   fetchReliefWeb().catch(err => console.error('[reliefweb-cron]', err.message));
@@ -1075,6 +1082,7 @@ app.listen(PORT, () => {
   fetchFirms().catch(err => console.error('[startup-firms]', err.message));
   fetchGnss().catch(err => console.error('[startup-gnss]', err.message));
   fetchReliefWeb().catch(err => console.error('[startup-reliefweb]', err.message));
+  fetchCopernicus().catch(err => console.error('[startup-copernicus]', err.message));
   fetchSpaceWeather().catch(err => console.error('[startup-spaceweather]', err.message));
   fetchMilitary().catch(err => console.error('[startup-military]', err.message));
   startMilitaryShips();
