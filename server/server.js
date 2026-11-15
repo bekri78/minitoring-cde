@@ -27,6 +27,7 @@ const { fetchWorldEvents, getCache: getWorldEventsCache }            = require('
 const { getMaritimeEvents, getMaritimeAnomalies, getNavalActivity }  = require('./maritime-osint');
 const { fetchMaritimeAnomalies }                                     = require('./maritime-anomalies');
 const { getAviationEvents, refreshOpenSkyCache }                     = require('./aviation-osint');
+const { runOpenSkyDiagnostics }                                        = require('./opensky-diagnostics');
 const { getSpatialEvents }                                           = require('./spatial-osint');
 const { fetchGoogleNewsEvents, getCache: getNewsCache, getNewsEventsForMap } = require('./google-news-rss');
 const { fetchTodayEvents: fetchTodayEventsFromFiles, isCameoFallbackTitle, purgeSnapshot } = require('./gdelt-files');
@@ -1090,6 +1091,7 @@ app.listen(PORT, () => {
   fetchWorldEvents().catch(err => console.error('[startup-world-events]', err.message));
   fetchMaritimeAnomalies().catch(err => console.error('[startup-maritime-anomalies]', err.message));
   refreshOpenSkyCache().catch(err => console.error('[startup-opensky]', err.message));
+  runOpenSkyDiagnostics().catch(err => console.warn('[opensky-diag]', err.code || err.name));
   fetchGoogleNewsEvents().catch(err => console.error('[startup-google-news]', err.message));
 });
 

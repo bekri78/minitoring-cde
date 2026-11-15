@@ -1,0 +1,39 @@
+name: OpenSky aviation client tests
+
+on:
+  pull_request:
+    paths:
+      - 'server/opensky-client.js'
+      - 'server/opensky-client.test.js'
+      - 'server/airFetcher.js'
+      - 'server/aviation-osint.js'
+      - 'server/opensky-diagnostics.js'
+      - 'server/server.js'
+      - '.github/workflows/opensky-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/opensky-client.js'
+      - 'server/opensky-client.test.js'
+      - 'server/airFetcher.js'
+      - 'server/aviation-osint.js'
+
+jobs:
+  opensky:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check JS syntax
+        run: |
+          node --check server/opensky-client.js
+          node --check server/airFetcher.js
+          node --check server/aviation-osint.js
+          node --check server/opensky-diagnostics.js
+          node --check server/server.js
+      - name: Run mock OpenSky auth tests
+        run: node --test server/opensky-client.test.js
