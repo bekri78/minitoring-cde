@@ -1,6 +1,7 @@
 'use strict';
 
 const { MILITARY_AIRBASES } = require('./data/military-airbases');
+const { openskyJson } = require('./opensky-auth');
 
 // ── Event type rules ──────────────────────────────────────────────────────────
 const EVENT_TYPE_RULES = [
@@ -74,16 +75,10 @@ async function refreshOpenSkyCache() {
   const url = 'https://opensky-network.org/api/states/all';
   try {
     console.log('[opensky] refreshing aircraft cache...');
-    const resp = await fetch(url, {
-      signal: AbortSignal.timeout(25000),
-      headers: { Accept: 'application/json' },
-    });
-    if (!resp.ok) {
-      console.warn(`[opensky] HTTP ${resp.status}`);
-      openSkyCache = { ...openSkyCache, status: `error_http_${resp.status}` };
-      return;
-    }
-    const data = await resp.json();
+    // Authentifié OAuth2 si OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET existent (4 crédits par appel global)
+    const r = await openskyJson(url, { timeoutMs: 25000, label: 'OpenSky global' });
+    const data = r.data;
+    if (r.creditsLeft != null) console.log(`[opensky] crédits restants ${r.creditsLeft}${r.authenticated ? '' : ' (anonyme)'}`);
     const states = Array.isArray(data?.states) ? data.states : [];
     openSkyCache = {
       aircraft: states
