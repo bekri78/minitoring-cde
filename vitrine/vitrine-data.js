@@ -93,7 +93,7 @@
             if (!p || !p.src) return;
             el.innerHTML = '<a href="' + esc(p.link) + '" target="_blank" rel="noopener">'
                 + '<img src="' + esc(p.src) + '" onerror="var a=this.closest(\'a\');if(a)a.style.display=\'none\'" style="' + IMG + '" alt="photo"/>'
-                + '<div style="font-size:11px;color:#8a8f98;margin-top:3px;">' + esc([p.model, p.reg].filter(Boolean).join(' · ')) + ' · © ' + esc(p.photographer) + ' (Planespotters)</div></a>';
+                + '<div style="font-size:11px;color:#8a8f98;margin-top:3px;">' + esc([p.model, p.reg, p.photographer ? '© ' + p.photographer + ' (Planespotters)' : ''].filter(Boolean).join(' · ')) + '</div></a>';
         };
         if (planeCache[key] !== undefined) { draw(planeCache[key]); return; }
         fetch('https://api.planespotters.net/pub/photos/hex/' + encodeURIComponent(key))
