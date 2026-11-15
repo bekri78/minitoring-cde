@@ -51,7 +51,7 @@ function regionOf(lat, lon) {
   return '';
 }
 
-let cache = { day: null, spoofDay: null, cells: [], events: [], firs: [], easaDate: null, lastUpdate: null, status: 'initializing', easaStatus: 'initializing' };
+let cache = { day: null, eventsDay: null, spoofDay: null, cells: [], events: [], firs: [], easaDate: null, lastUpdate: null, status: 'initializing', easaStatus: 'initializing' };
 let isFetching = false;
 
 const r2 = x => Math.round(x * 100) / 100;
@@ -192,12 +192,19 @@ async function fetchStanford(fetchImpl, now) {
   let changed = false;
   const hm = await latest(fetchImpl, 'jamming', 'heatmap', cache.day, now);
   if (hm) {
-    const cells = reduceHeatmap(hm.data);
-    let jam = [];
-    try { const ev = await getJson(fetchImpl, `${BASE}/jamming/${hm.day}/events.json`, 30000); jam = reduceEvents(ev && ev.data, 'jam'); }
-    catch (err) { console.warn('[gnss] events brouillage :', err.message); }
-    cache = { ...cache, day: hm.day, cells, events: jam.concat(cache.events.filter(e => e.kind === 'spoof')) };
+    cache = { ...cache, day: hm.day, cells: reduceHeatmap(hm.data), events: cache.events.filter(e => e.kind === 'spoof'), eventsDay: null };
     changed = true;
+  }
+  // Sources de brouillage du jour : Stanford publie la carte avant la liste des sources.
+  // Tant que la liste du jour en cache n'a pas été obtenue, on la redemande à chaque passage.
+  if (cache.day && cache.eventsDay !== cache.day) {
+    try {
+      const ev = await getJson(fetchImpl, `${BASE}/jamming/${cache.day}/events.json`, 30000);
+      if (ev && Array.isArray(ev.data)) {
+        cache = { ...cache, eventsDay: cache.day, events: reduceEvents(ev.data, 'jam').concat(cache.events.filter(e => e.kind === 'spoof')) };
+        changed = true;
+      }
+    } catch (err) { console.warn('[gnss] events brouillage :', err.message); }
   }
   const sp = await latest(fetchImpl, 'spoofing', 'events', cache.spoofDay, now);
   if (sp) {
@@ -247,5 +254,5 @@ function getCache() { return cache; }
 module.exports = {
   fetchGnss, getCache, regionOf,
   _reduceHeatmap: reduceHeatmap, _reduceEvents: reduceEvents, _parseEasa: parseEasa, _candidateDays: candidateDays,
-  _reset: () => { cache = { day: null, spoofDay: null, cells: [], events: [], firs: [], easaDate: null, lastUpdate: null, status: 'initializing', easaStatus: 'initializing' }; },
+  _reset: () => { cache = { day: null, eventsDay: null, spoofDay: null, cells: [], events: [], firs: [], easaDate: null, lastUpdate: null, status: 'initializing', easaStatus: 'initializing' }; },
 };

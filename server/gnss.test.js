@@ -77,3 +77,26 @@ test('récupération : dernier jour publié, pas de re-téléchargement du même
   const c3 = await g.fetchGnss(ko, new Date('2026-11-15T10:00:00Z'));
   assert.equal(c3.cells.length, 1); assert.equal(c3.status, 'stale'); assert.equal(c3.easaStatus, 'stale');
 });
+
+test('sources de brouillage publiées après la carte : redemandées au passage suivant', async () => {
+  g._reset();
+  const now = new Date('2026-11-14T10:00:00Z');
+  let eventsReady = false; const asked = [];
+  const f = async (u) => {
+    asked.push(u);
+    if (u.includes('easa.europa.eu')) return { ok: false, status: 503 };
+    const json = d => ({ ok: true, status: 200, json: async () => ({ data: d }) });
+    if (u.endsWith('jamming/2026/11/13/heatmap.json')) return json([row(BALTIC, 8, 10)]);
+    if (u.endsWith('jamming/2026/11/13/events.json') && eventsReady) return json([{ eventId: '1', latitude: 57, longitude: 21, date: '2026-11-13', numFltAffected: 40 }]);
+    return { ok: false, status: 404 };
+  };
+  let c = await g.fetchGnss(f, now);
+  assert.equal(c.day, '2026/11/13'); assert.equal(c.events.filter(e => e.kind === 'jam').length, 0, 'liste pas encore publiée');
+  eventsReady = true; asked.length = 0;
+  c = await g.fetchGnss(f, now);
+  assert.equal(c.events.filter(e => e.kind === 'jam').length, 1, 'liste obtenue au passage suivant');
+  assert.ok(!asked.some(u => u.endsWith('2026/11/13/heatmap.json')), 'carte du jour pas retéléchargée');
+  asked.length = 0;
+  await g.fetchGnss(f, now);
+  assert.ok(!asked.some(u => u.endsWith('jamming/2026/11/13/events.json')), 'liste obtenue : plus redemandée');
+});
