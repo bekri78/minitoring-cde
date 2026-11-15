@@ -124,8 +124,15 @@
         if (!el || !mmsi) return;
         var iso2 = ISO2[String(country || '').toUpperCase()];
         var flag = iso2 ? 'https://flagcdn.com/w80/' + iso2 + '.png' : '';
-        el.innerHTML = '<a href="https://www.marinetraffic.com/en/photos/of/vessels/mmsi:' + encodeURIComponent(mmsi) + '/" target="_blank" rel="noopener">'
-            + '<img src="https://photos.marinetraffic.com/ais/showphoto.aspx?mmsi=' + encodeURIComponent(mmsi) + '" data-flag="' + esc(flag) + '" onerror="_shipImgFallback(this)" style="' + IMG + '" alt="navire"/></a>';
+        var link = 'https://www.marinetraffic.com/en/photos/of/vessels/mmsi:' + encodeURIComponent(mmsi) + '/';
+        var thumb = 'https://photos.marinetraffic.com/ais/showphoto.aspx?mmsi=' + encodeURIComponent(mmsi);
+        // Tout de suite : drapeau (ou vignette) + lien ; la photo MarineTraffic, si elle charge, la remplace
+        el.innerHTML = '<a href="' + link + '" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);text-decoration:none;">'
+            + (flag ? '<img src="' + flag + '" onerror="this.style.display=\'none\'" style="width:40px;height:auto;border-radius:2px;flex:none;" alt="pavillon"/>' : '')
+            + '<span style="font-size:11.5px;color:#8a8f98;line-height:1.35;">Photo non disponible<br><span style="color:#a8aeff;">Voir le navire sur MarineTraffic</span></span></a>';
+        var probe = new Image();
+        probe.onload = function () { if (probe.naturalWidth > 1 && el.isConnected) el.innerHTML = '<a href="' + link + '" target="_blank" rel="noopener"><img src="' + thumb + '" style="' + IMG + '" alt="navire"/></a>'; };
+        probe.src = thumb;
     };
 
     console.log('✓ vitrine-data.js chargé');

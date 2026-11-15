@@ -316,8 +316,8 @@ async function initializeMap() {
     }).addTo(maCarte);
 
     L.control.zoom({ position: 'bottomright', zoomInTitle: 'Zoomer', zoomOutTitle: 'Dézoomer' }).addTo(maCarte);
-    // Avions et navires : simples points de loin, silhouettes à partir du zoom 6
-    const nearClass = function () { maCarte.getContainer().classList.toggle('og-near', maCarte.getZoom() >= 6); };
+    // Avions et navires : simples points de loin, silhouettes à partir du zoom 4 (échelle ~1000 km, v54)
+    const nearClass = function () { maCarte.getContainer().classList.toggle('og-near', maCarte.getZoom() >= 4); };
     maCarte.on('zoomend', nearClass);
     nearClass();
     L.control.scale({ imperial: false, maxWidth: 160, position: 'bottomright' }).addTo(maCarte);
