@@ -42,9 +42,16 @@ function setCache(name, data) {
   sourceCache.set(name, { data, ts: Date.now() });
 }
 
-// OpenSky : authentification OAuth2 (opensky-auth.js). L'ancienne authentification
-// identifiant / mot de passe (OPENSKY_USER / OPENSKY_PASS) n'est plus acceptée.
-const { openskyJson } = require('./opensky-auth');
+function openSkyHeaders() {
+  const headers = { 'User-Agent': 'WorldMonitor/1.0' };
+  const user = process.env.OPENSKY_USER;
+  const pass = process.env.OPENSKY_PASS;
+  if (user && pass) {
+    const token = Buffer.from(`${user}:${pass}`).toString('base64');
+    headers.Authorization = `Basic ${token}`;
+  }
+  return headers;
+}
 
 // ── Fetch avec timeout + retry ─────────────────────────────────────────────
 async function fetchWithRetry(url, options = {}, attempt = 0) {
@@ -128,9 +135,10 @@ function normalizeOpenSkyState(s) {
 async function fetchOpenSkyBox(box) {
   const { lamin, lomin, lamax, lomax } = box;
   const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
-  const r = await fetchPool(() => openskyJson(url, { label: 'OpenSky ' + box.name }));
-  if (r.creditsLeft != null) console.log(`[mil-aircraft] opensky ${box.name} : ${(r.data?.states || []).length} états · crédits restants ${r.creditsLeft}${r.authenticated ? '' : ' (anonyme)'}`);
-  return (r.data?.states || []).map(normalizeOpenSkyState).filter(Boolean);
+  const data = await fetchPool(() =>
+    fetchWithRetry(url, { headers: openSkyHeaders() })
+  );
+  return (data?.states || []).map(normalizeOpenSkyState).filter(Boolean);
 }
 
 async function fetchOpenSky() {
