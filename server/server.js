@@ -1091,7 +1091,7 @@ app.listen(PORT, () => {
   fetchWorldEvents().catch(err => console.error('[startup-world-events]', err.message));
   fetchMaritimeAnomalies().catch(err => console.error('[startup-maritime-anomalies]', err.message));
   refreshOpenSkyCache().catch(err => console.error('[startup-opensky]', err.message));
-  runOpenSkyDiagnostics().catch(err => console.warn('[opensky-diag]', err.code || err.name));
+  if (require('./opensky-client').isOpenSkyEnabled()) runOpenSkyDiagnostics().catch(err => console.warn('[opensky-diag]', err.code || err.name));
   fetchGoogleNewsEvents().catch(err => console.error('[startup-google-news]', err.message));
 });
 

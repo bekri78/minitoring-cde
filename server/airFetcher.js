@@ -1,6 +1,6 @@
 'use strict';
 
-const { fetchOpenSkyJson } = require('./opensky-client');
+const { fetchOpenSkyJson, isOpenSkyEnabled } = require('./opensky-client');
 
 /**
  * airFetcher.js — Sources ADS-B supplémentaires pour WORLD MONITOR
@@ -151,9 +151,9 @@ async function fetchSources() {
   // airplanes.live et adsb.fi sont déjà gérés par le pipeline legacy (fetchMilSource)
   // avec filtre militaire strict — les redoubler ici causerait des 429.
   // airFetcher apporte uniquement les sources complémentaires.
-  const fetchers = [
-    { name: 'opensky', fn: fetchOpenSky },
-  ];
+  // OpenSky : désactivé par défaut (adresses Railway bloquées) — voir OPENSKY_ENABLED
+  const fetchers = isOpenSkyEnabled() ? [{ name: 'opensky', fn: fetchOpenSky }] : [];
+  if (!fetchers.length) return [];
 
   const results = await Promise.allSettled(fetchers.map(f => f.fn()));
 

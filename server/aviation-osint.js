@@ -1,6 +1,6 @@
 'use strict';
 
-const { fetchOpenSkyJson } = require('./opensky-client');
+const { fetchOpenSkyJson, isOpenSkyEnabled } = require('./opensky-client');
 
 const { MILITARY_AIRBASES } = require('./data/military-airbases');
 
@@ -71,7 +71,14 @@ let openSkyCache = { aircraft: [], lastUpdate: null, status: 'not_loaded' };
 
 function getOpenSkyCache() { return openSkyCache; }
 
+let openSkyDisabledLogged = false;
 async function refreshOpenSkyCache() {
+  if (!isOpenSkyEnabled()) {
+    // Recoupement aérien « non observable » (aucune pénalité) tant qu'OpenSky est désactivé
+    openSkyCache = { aircraft: [], lastUpdate: null, status: 'disabled' };
+    if (!openSkyDisabledLogged) { console.log('[opensky] collecte désactivée (OPENSKY_ENABLED absent) : adresses Railway bloquées par OpenSky'); openSkyDisabledLogged = true; }
+    return;
+  }
   // OAuth2 when credentials are configured; otherwise limited anonymous access.
   const url = 'https://opensky-network.org/api/states/all';
   try {

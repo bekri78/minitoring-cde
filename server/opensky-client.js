@@ -102,4 +102,10 @@ async function fetchOpenSkyJson(url, { timeoutMs = 25000, fetchImpl = globalThis
   throw new Error('OpenSky OAuth2: token refresh failed');
 }
 
-module.exports = { fetchOpenSkyJson, resetTokenCache };
+// OpenSky bloque les adresses de Railway (Google Cloud) au niveau réseau, y compris le serveur
+// de jetons : collecte désactivée par défaut. OPENSKY_ENABLED=true pour la réactiver (relais, autre hébergeur).
+function isOpenSkyEnabled() {
+  return /^(1|true|oui|yes|on)$/i.test(String(process.env.OPENSKY_ENABLED || '').trim());
+}
+
+module.exports = { fetchOpenSkyJson, resetTokenCache, isOpenSkyEnabled };
