@@ -1,5 +1,7 @@
 'use strict';
 
+const { fetchOpenSkyJson } = require('./opensky-client');
+
 /**
  * airFetcher.js — Sources ADS-B supplémentaires pour WORLD MONITOR
  *
@@ -11,13 +13,12 @@
  * Contraintes :
  *   - max 2 requêtes simultanées (via fetchPool)
  *   - timeout 5 s par requête
- *   - retry max 2 fois
+ *   - erreurs OAuth2 / HTTP visibles dans les journaux
  *   - cache mémoire 60 s par source
  */
 
 // ── Config ─────────────────────────────────────────────────────────────────
 const TIMEOUT_MS     = 5_000;
-const RETRY_MAX      = 2;
 const CACHE_TTL_MS   = 60_000;
 const CONCURRENCY    = 2;       // max requêtes simultanées
 
@@ -40,37 +41,6 @@ function getCached(name) {
 }
 function setCache(name, data) {
   sourceCache.set(name, { data, ts: Date.now() });
-}
-
-function openSkyHeaders() {
-  const headers = { 'User-Agent': 'WorldMonitor/1.0' };
-  const user = process.env.OPENSKY_USER;
-  const pass = process.env.OPENSKY_PASS;
-  if (user && pass) {
-    const token = Buffer.from(`${user}:${pass}`).toString('base64');
-    headers.Authorization = `Basic ${token}`;
-  }
-  return headers;
-}
-
-// ── Fetch avec timeout + retry ─────────────────────────────────────────────
-async function fetchWithRetry(url, options = {}, attempt = 0) {
-  const controller = new AbortController();
-  const timer      = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    if (res.status === 429) throw new Error('429 rate-limited');
-    if (!res.ok)           throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    if (attempt < RETRY_MAX) {
-      await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
-      return fetchWithRetry(url, options, attempt + 1);
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 // ── Pool de concurrence (max N requêtes simultanées) ──────────────────────
@@ -97,8 +67,9 @@ const fetchPool = makePool(CONCURRENCY);
 function clean(v) { return v != null && v !== '' ? v : null; }
 
 function toNum(v) {
+  if (v == null || v === '') return null;
   const n = Number(v);
-  return isFinite(n) ? n : null;
+  return Number.isFinite(n) ? n : null;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -135,9 +106,7 @@ function normalizeOpenSkyState(s) {
 async function fetchOpenSkyBox(box) {
   const { lamin, lomin, lamax, lomax } = box;
   const url = `https://opensky-network.org/api/states/all?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
-  const data = await fetchPool(() =>
-    fetchWithRetry(url, { headers: openSkyHeaders() })
-  );
+  const data = await fetchPool(() => fetchOpenSkyJson(url, { timeoutMs: TIMEOUT_MS }));
   return (data?.states || []).map(normalizeOpenSkyState).filter(Boolean);
 }
 
@@ -149,13 +118,19 @@ async function fetchOpenSky() {
   const results = await Promise.allSettled(OPENSKY_BOXES.map(fetchOpenSkyBox));
 
   const seen = new Map();
-  for (const r of results) {
+  let succeeded = 0;
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
     if (r.status === 'fulfilled') {
+      succeeded++;
       for (const ac of r.value) {
         if (ac.hex && !seen.has(ac.hex)) seen.set(ac.hex, ac);
       }
+    } else {
+      console.warn(`[mil-aircraft] opensky ${OPENSKY_BOXES[i].name} failed: ${r.reason?.message}`);
     }
   }
+  if (!succeeded) throw new Error('OpenSky: both regional requests failed');
 
   const out = Array.from(seen.values());
   console.log(`[mil-aircraft] opensky raw=${out.length} accepted=${out.length}`);
