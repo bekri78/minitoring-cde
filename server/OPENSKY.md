@@ -5,11 +5,11 @@ Depuis le 18 mars 2026, OpenSky REST n'accepte plus le couple utilisateur/mot de
 ## Configuration Railway (production)
 
 1. Se connecter à son compte OpenSky (https://opensky-network.org/) et créer un **API client** dans la page Account. Ne pas utiliser le login/password du site.
-2. Dans Railway, service `minitoring-cde` → Variables, définir :
+2. Dans Railway, service `minitoring-cde` → Variables, définir si nécessaire :
    - `OPENSKY_CLIENT_ID` : identifiant du client API (terminant normalement par `-api-client`).
    - `OPENSKY_CLIENT_SECRET` : secret associé au client API.
 3. **Ne jamais enregistrer ces valeurs sur GitHub, dans la documentation, dans les tickets ni dans les logs.**
-4. Les variables historiques `OPENSKY_USER ` et `OPENSKY_PASS ` (avec espaces finaux visibles dans Railway) ne sont plus utilisées par ces deux collecteurs. Après validation, les supprimer pour éviter la confusion.
+4. **Compatibilité immédiate Railway :** le correctif lit directement `OPENSKY_USER ` et `OPENSKY_PASS ` avec leur espace final lorsque les deux nouvelles variables ne sont pas définies. Les valeurs restent inchangées et ne sont jamais affichées. Si ces valeurs sont réellement un Client ID et un Client Secret OpenSky, le jeton OAuth2 sera demandé. Si ce sont l'ancien login et mot de passe du site, la requête de jeton échouera et il faudra saisir les vrais identifiants de client OAuth2 sous les nouveaux noms. L'API connectée à Railway ne peut ni lire les secrets ni renommer les variables existantes sans leurs valeurs. Après validation, les anciens noms pourront être supprimés manuellement dans Railway.
 5. Une fois la pull request fusionnée et le déploiement réussi, consulter les journaux : lignes `[mil-aircraft] opensky...` et `[opensky] cached ... aircraft`. En cas de `HTTP 401/403/429`, vérifier droits, limitations et quotas OpenSky.
 
 Sans les deux nouvelles variables, le client utilise l'accès anonyme (quotas plus faibles et restrictions possibles des hébergeurs). **La correction du code ne garantit pas à elle seule une collecte réussie depuis Railway.** OpenSky précise qu'il peut bloquer certaines adresses d'hébergeurs.
