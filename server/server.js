@@ -758,6 +758,8 @@ const IMAGE_PROXY_WHITELIST = new Set([
   't.plnspttrs.net',
   'photos.marinetraffic.com',
   'www.marinetraffic.com',
+  'upload.wikimedia.org',   // v55 : photos de navires de guerre (Wikipédia)
+  'thumb.wikimedia.org',
 ]);
 const IMAGE_MAX_BYTES = 500 * 1024; // 500 Ko
 
@@ -779,7 +781,8 @@ app.get('/proxy/image', requirePublicApiKey, async (req, res) => {
   }
 
   try {
-    const resp = await fetch(raw, { signal: AbortSignal.timeout(10000) });
+    // Wikimedia exige un User-Agent descriptif (sinon HTTP 403)
+    const resp = await fetch(raw, { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': 'OGMA-image-cache/1.0 (OSINT map; low volume)' } });
     if (!resp.ok) return res.status(502).json({ error: `upstream HTTP ${resp.status}` });
 
     const buf = Buffer.from(await resp.arrayBuffer());

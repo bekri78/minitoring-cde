@@ -120,7 +120,45 @@
         }
         var a = img.closest('a'); if (a) a.style.display = 'none';
     };
-    window.loadShipPhoto = function (mmsi, country, el) {
+
+    // v55 — Photo Wikipédia des navires de guerre (MarineTraffic ne sert plus ses photos : erreur 522).
+    // Seulement pour un nom à préfixe naval (HMS, HMAS, HNLMS, USS…) dont le pays correspond au
+    // pavillon de la piste, et si un article porte exactement ce nom (hors numéro de coque).
+    // Parmi les homonymes, on garde l'article au présent (« is a … ») : le navire en service, pas
+    // ses prédécesseurs (« was a … ») ; le titre de l'article est affiché sous la photo.
+    var _SHIP_PREFIX_COUNTRY = { HMS:'GBR', HMAS:'AUS', HMCS:'CAN', HMNZS:'NZL', HNLMS:'NLD', USS:'USA', USNS:'USA', USCGC:'USA',
+        NRP:'PRT', JS:'JPN', INS:'IND', KRI:'IDN', ROKS:'KOR', TCG:'TUR', HDMS:'DNK', HNOMS:'NOR', KNM:'NOR', HSWMS:'SWE',
+        ESPS:'ESP', SPS:'ESP', ITS:'ITA', NAVE:'ITA', BNS:'BEL', FGS:'DEU', HS:'GRC', ARA:'ARG', BAP:'PER', CNS:'CHL', PNS:'PAK',
+        RSS:'SGP', KD:'MYS', BRP:'PHL', ORP:'POL', ENS:'EST', FS:'FRA', LE:'IRL' };
+    var _shipWikiCache = {};
+    function _shipNameKey(s) {
+        return String(s || '').toLowerCase().replace(/\s*\(.*?\)\s*/g, ' ').replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+    }
+    function _wikiShipPhoto(name, country) {
+        var m = /^([A-Z]+)\s+(.+)$/.exec(String(name || '').trim().toUpperCase());
+        if (!m || !_SHIP_PREFIX_COUNTRY[m[1]]) return Promise.resolve(null);
+        var cty = String(country || '').toUpperCase();
+        if (cty && cty !== 'MIL' && cty !== 'UNKNOWN' && _SHIP_PREFIX_COUNTRY[m[1]] !== cty) return Promise.resolve(null);
+        var key = _shipNameKey(name);
+        if (_shipWikiCache[key] !== undefined) return Promise.resolve(_shipWikiCache[key]);
+        var url = 'https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrlimit=5'
+            + '&gsrsearch=' + encodeURIComponent('intitle:"' + String(name).trim() + '"')
+            + '&prop=pageimages|pageprops|extracts&ppprop=disambiguation&piprop=thumbnail&pithumbsize=480'
+            + '&exintro=1&explaintext=1&exsentences=1&exlimit=5';
+        return fetch(url).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+            var pages = j && j.query && j.query.pages ? Object.keys(j.query.pages).map(function (k) { return j.query.pages[k]; }) : [];
+            pages.sort(function (a, b) { return a.index - b.index; });
+            var p = pages.filter(function (p) {
+                return _shipNameKey(p.title) === key && p.thumbnail && !(p.pageprops && 'disambiguation' in p.pageprops)
+                    && /\bis an? /.test(p.extract || '');
+            })[0];
+            var res = p ? { src: p.thumbnail.source, title: p.title,
+                link: 'https://en.wikipedia.org/wiki/' + encodeURIComponent(p.title.replace(/ /g, '_')) } : null;
+            _shipWikiCache[key] = res;
+            return res;
+        }).catch(function () { return null; });
+    }
+    window.loadShipPhoto = function (mmsi, country, el, name) {
         if (!el || !mmsi) return;
         var iso2 = ISO2[String(country || '').toUpperCase()];
         var flag = iso2 ? 'https://flagcdn.com/w80/' + iso2 + '.png' : '';
@@ -133,6 +171,12 @@
         var probe = new Image();
         probe.onload = function () { if (probe.naturalWidth > 1 && el.isConnected) el.innerHTML = '<a href="' + link + '" target="_blank" rel="noopener"><img src="' + thumb + '" style="' + IMG + '" alt="navire"/></a>'; };
         probe.src = thumb;
+        _wikiShipPhoto(name, country).then(function (w) {
+            if (!w || !el.isConnected) return;
+            probe.onload = null;
+            el.innerHTML = '<a href="' + esc(w.link) + '" target="_blank" rel="noopener"><img src="' + esc(w.src) + '" style="' + IMG + '" alt="navire"/>'
+                + '<div style="font-size:11px;color:#8a8f98;margin-top:3px;">' + esc(w.title) + ' · Wikipédia</div></a>';
+        });
     };
 
     console.log('✓ vitrine-data.js chargé');

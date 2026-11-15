@@ -119,7 +119,7 @@ function renderTracks(tracks) {
             const popId = 'sh-' + t.id;
             marker.bindPopup(buildTrackSeaPopup(t), { maxWidth: 360 });
             marker.on('popupopen', function () {
-                loadShipPhoto(t.id, t.country || '', document.getElementById(popId + '-photo'));
+                loadShipPhoto(t.id, t.country || '', document.getElementById(popId + '-photo'), t.name || '');
             });
             tracksSeaLayer.addLayer(marker);
         }
