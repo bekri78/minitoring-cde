@@ -97,6 +97,27 @@ function detectMilitary(icao24hex, callsign) {
   return null;
 }
 
+// ── Filtre strict pour les sources complémentaires (OpenSky) ─────────────
+// Les plages hex nationales (Russie, Chine, Iran, Israël, Pologne, Turquie…) couvrent aussi
+// l'aviation civile : sur 299 avions OpenSky (15/11), les 24 retenus étaient des vols de ligne
+// (El Al, Enter Air, Pegasus, Air China Cargo…). airplanes.live / adsb.fi fournissent déjà une
+// liste militaire ; pour OpenSky, on écarte en plus les indicatifs commerciaux et civils.
+// Indicatif de vol commercial : 3 lettres OACI de compagnie + numéro (ELY2374, PGT58FU)
+const COMMERCIAL_FLIGHT_RE = /^[A-Z]{3}\d{1,4}[A-Z]{0,2}$/;
+// Immatriculation civile américaine utilisée comme indicatif (N100RP)
+const US_CIVIL_REG_RE = /^N\d{1,5}[A-Z]{0,2}$/;
+// Codes OACI d'opérateurs militaires / d'État : gardés même au format « 3 lettres + numéro »
+const MIL_OPERATOR_CODES = new Set(['RFF', 'RSD', 'CTM', 'FAF', 'FNY', 'RRR', 'IAM', 'AME', 'PLF', 'NAF', 'BAF', 'GAF', 'GNY',
+  'HUF', 'CFC', 'ASY', 'IAF', 'CNV', 'RCH', 'SAM', 'PAT', 'CEF', 'SUI', 'SVF', 'DAF', 'NOW', 'FNF', 'HAF', 'LAF', 'ROF', 'BGF']);
+
+function detectMilitaryStrict(icao24hex, callsign) {
+  const cs = String(callsign || '').trim().toUpperCase();
+  if (cs && MIL_CALLSIGN_RE.test(cs)) return detectMilitary(icao24hex, '') || { country: 'UNKNOWN', color: '#e8f4ff' };
+  if (cs && COMMERCIAL_FLIGHT_RE.test(cs) && !MIL_OPERATOR_CODES.has(cs.slice(0, 3))) return null;
+  if (cs && US_CIVIL_REG_RE.test(cs)) return null;
+  return detectMilitary(icao24hex, cs);
+}
+
 // ── Normalise un objet ADS-B brut → format interne ───────────────────────
 function normalizeAc(a) {
   if (Array.isArray(a)) {
@@ -263,8 +284,8 @@ async function fetchMilitary() {
       const callsign = (t.flight || '').trim();
       if (legacyMap.has(icao24)) continue;            // déjà présent via source legacy
 
-      const mil = detectMilitary(icao24, callsign);
-      if (!mil && t.source !== 'airframes') continue; // filtre militaire strict
+      const mil = detectMilitaryStrict(icao24, callsign);   // sources complémentaires : filtre strict
+      if (!mil && t.source !== 'airframes') continue;
 
       legacyMap.set(icao24, {
         id:       icao24,
@@ -317,4 +338,4 @@ async function fetchMilitary() {
 }
 
 function getCache() { return cache; }
-module.exports = { fetchMilitary, getCache };
+module.exports = { fetchMilitary, getCache, _detectMilitaryStrict: detectMilitaryStrict };
