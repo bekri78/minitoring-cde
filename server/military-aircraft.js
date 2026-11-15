@@ -8,7 +8,36 @@ const { fetchSources, mergeTracksByHex }               = require('./airFetcher')
 const MIL_SOURCES = [
   { name: 'airplanes.live', url: 'https://api.airplanes.live/v2/mil' },
   { name: 'adsb.fi',        url: 'https://opendata.adsb.fi/api/v2/mil' },
+  // adsb.lol : réseau ouvert (ODbL), même format ; remplace airplanes.live qui refuse les serveurs (403)
+  { name: 'adsb.lol',       url: 'https://api.adsb.lol/v2/mil' },
 ];
+
+// ── Attribution OACI des adresses 24 bits par pays (blocs principaux) ─────
+// Sert aux appareils déjà classés militaires par les sources /mil mais hors des plages
+// militaires connues ci-dessous (Australie, Nouvelle-Zélande, Brésil, Japon, Belgique…).
+const ICAO_COUNTRY_BLOCKS = [
+  [0xA00000, 0xAFFFFF, 'USA'], [0xC00000, 0xC3FFFF, 'CAN'], [0x400000, 0x43FFFF, 'GBR'], [0x380000, 0x3BFFFF, 'FRA'],
+  [0x3C0000, 0x3FFFFF, 'DEU'], [0x300000, 0x33FFFF, 'ITA'], [0x340000, 0x37FFFF, 'ESP'], [0x480000, 0x487FFF, 'NLD'],
+  [0x488000, 0x48FFFF, 'POL'], [0x448000, 0x44FFFF, 'BEL'], [0x458000, 0x45FFFF, 'DNK'], [0x478000, 0x47FFFF, 'NOR'],
+  [0x4A8000, 0x4AFFFF, 'SWE'], [0x460000, 0x467FFF, 'FIN'], [0x440000, 0x447FFF, 'AUT'], [0x4B0000, 0x4B7FFF, 'CHE'],
+  [0x4B8000, 0x4BFFFF, 'TUR'], [0x468000, 0x46FFFF, 'GRC'], [0x490000, 0x497FFF, 'PRT'], [0x498000, 0x49FFFF, 'CZE'],
+  [0x4A0000, 0x4A7FFF, 'ROU'], [0x470000, 0x477FFF, 'HUN'], [0x4CA000, 0x4CAFFF, 'IRL'], [0x450000, 0x457FFF, 'BGR'],
+  [0x508000, 0x50FFFF, 'UKR'], [0x100000, 0x1FFFFF, 'RUS'], [0x7C0000, 0x7FFFFF, 'AUS'], [0xC80000, 0xC87FFF, 'NZL'],
+  [0x840000, 0x87FFFF, 'JPN'], [0x718000, 0x71FFFF, 'KOR'], [0x780000, 0x7BFFFF, 'CHN'], [0x800000, 0x83FFFF, 'IND'],
+  [0x738000, 0x73FFFF, 'ISR'], [0x730000, 0x737FFF, 'IRN'], [0x710000, 0x717FFF, 'SAU'], [0x896000, 0x896FFF, 'ARE'],
+  [0x010000, 0x017FFF, 'EGY'], [0x008000, 0x00FFFF, 'ZAF'], [0xE40000, 0xE7FFFF, 'BRA'], [0xE00000, 0xE3FFFF, 'ARG'],
+  [0xE80000, 0xE80FFF, 'CHL'], [0x0AC000, 0x0ACFFF, 'COL'], [0x0D0000, 0x0D7FFF, 'MEX'], [0x760000, 0x767FFF, 'PAK'],
+  [0x768000, 0x76FFFF, 'SGP'], [0x8A0000, 0x8AFFFF, 'IDN'], [0x880000, 0x887FFF, 'THA'], [0x750000, 0x757FFF, 'MYS'],
+  [0x758000, 0x75FFFF, 'PHL'], [0x06A000, 0x06A3FF, 'QAT'], [0x706000, 0x706FFF, 'KWT'], [0x740000, 0x747FFF, 'JOR'],
+  [0x70C000, 0x70C3FF, 'OMN'], [0x020000, 0x027FFF, 'MAR'], [0x0A0000, 0x0A7FFF, 'DZA'], [0x064000, 0x064FFF, 'NGA'],
+  [0x899000, 0x8993FF, 'TWN'],
+];
+function icaoCountry(icao24hex) {
+  const h = parseInt(icao24hex, 16);
+  if (!Number.isFinite(h)) return 'UNKNOWN';
+  const b = ICAO_COUNTRY_BLOCKS.find(([lo, hi]) => h >= lo && h <= hi);
+  return b ? b[2] : 'UNKNOWN';
+}
 
 
 const CACHE_MAX_AGE = 5  * 60 * 1000;
@@ -136,14 +165,15 @@ function normalizeAc(a) {
       track: a[10] != null ? Number(a[10]) : 0 };
   }
 
-  // Format airplanes.live / adsb.fi / adsb.one
+  // Format airplanes.live / adsb.fi / adsb.lol (points /mil : déjà classés militaires par l'agrégateur)
   if (a.lat == null || a.lon == null) return null;
   if (a.alt_baro === 'ground' || a.on_ground) return null;
 
   const icao24   = (a.hex || a.icao24 || '').toLowerCase().replace(/^~/, '');
   const callsign = (a.flight || a.callsign || a.r || '').trim();
-  const mil      = detectMilitary(icao24, callsign);
-  if (!mil) return null;
+  if (callsign && CIVILIAN_CALLSIGN_RE.test(callsign)) return null;
+  // Hors plages connues : pays d'immatriculation d'après l'attribution OACI
+  const mil      = detectMilitary(icao24, callsign) || { country: icaoCountry(icao24), color: '#e8f4ff' };
 
   const lon   = Number(a.lon);
   const lat   = Number(a.lat);
@@ -202,7 +232,7 @@ async function fetchMilSource(src) {
         const hexVal = parseInt(icao24, 16);
         const hexOk  = MIL_HEX_RANGES.some(r => hexVal >= r.lo && hexVal <= r.hi);
         const csOk   = callsign && MIL_CALLSIGN_RE.test(callsign);
-        if (!hexOk && !csOk)                         { rej.noMilMatch++; continue; }
+        if (!hexOk && !csOk) rej.noMilMatch++;      // compté mais gardé : la source /mil l'a classé militaire
       }
       const n = normalizeAc(a);
       if (n) { updateTrail(n.id, n.lon, n.lat); out.push(n); }
@@ -232,7 +262,7 @@ async function fetchMilSource(src) {
     );
     console.log(
       `[mil-aircraft] rejected: noPos=${rej.noPos} onGround=${rej.onGround}` +
-      ` civilianCs=${rej.civilianCs} noMilMatch=${rej.noMilMatch}` +
+      ` civilianCs=${rej.civilianCs} hors_plages_gardés=${rej.noMilMatch}` +
       (noPosStr ? ` noPos_countries: ${noPosStr}` : '')
     );
     if (countryStr) console.log(`[mil-aircraft] countries: ${countryStr}`);
@@ -338,4 +368,4 @@ async function fetchMilitary() {
 }
 
 function getCache() { return cache; }
-module.exports = { fetchMilitary, getCache, _detectMilitaryStrict: detectMilitaryStrict };
+module.exports = { fetchMilitary, getCache, _detectMilitaryStrict: detectMilitaryStrict, _normalizeAc: normalizeAc, _icaoCountry: icaoCountry };

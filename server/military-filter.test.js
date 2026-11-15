@@ -19,3 +19,18 @@ test('sources complémentaires : militaires connus conservés (indicatif ou opé
   assert.equal(strict('ae1234', 'RCH871').country, 'USA', 'pays tiré de la plage hex');
   assert.equal(strict('400000', 'BAW123'), null, 'hors plage militaire');
 });
+
+// v55 — sources /mil : les appareils classés militaires par l'agrégateur sont gardés même hors plages connues
+test('source /mil : militaire australien / néo-zélandais / brésilien gardé avec le pays OACI', () => {
+  const { _normalizeAc } = require('./military-aircraft');
+  const cases = [['7cf869', 'STAL56', 'AUS'], ['c87f3e', 'HER11', 'NZL'], ['e400d9', 'BRS01', 'BRA'], ['87c85b', '', 'JPN']];
+  for (const [hex, cs, cty] of cases) {
+    const n = _normalizeAc({ hex, flight: cs, lat: -30, lon: 140, alt_baro: 20000 });
+    assert.ok(n, hex); assert.equal(n.country, cty, hex);
+  }
+});
+test('source /mil : indicatif de compagnie civile toujours écarté, au sol écarté', () => {
+  const { _normalizeAc } = require('./military-aircraft');
+  assert.equal(_normalizeAc({ hex: '7c1234', flight: 'QFA12', lat: -30, lon: 140, alt_baro: 30000 }), null);
+  assert.equal(_normalizeAc({ hex: '7cf869', flight: 'STAL56', lat: -30, lon: 140, alt_baro: 'ground' }), null);
+});
