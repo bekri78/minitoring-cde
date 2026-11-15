@@ -48,6 +48,9 @@ jobs:
             if (s.type !== "ogma-snapshot" || s.schemaVersion !== 1) throw new Error("format inattendu");
             for (const k of lists) if (!Array.isArray(s.data[k])) throw new Error(k + " absent");
             if (!s.data.osint.length && !s.data.news.length) throw new Error("aucun événement");
+            // ReliefWeb : pas de redistribution publique (conditions d’utilisation) — retiré de la vitrine
+            delete s.data.humanitarian; if (s.sources) delete s.sources.humanitarian; if (s.counts) delete s.counts.humanitarian;
+            require("fs").writeFileSync("vitrine/data/snapshot.json", JSON.stringify(s));
             console.log("instantané du", s.generatedAt, "—", s.data.osint.length, "événements,", s.data.news.length, "articles,", (s.data.ruptures || []).length, "ruptures,", (s.data.convergences || []).length, "convergences");
           '
 

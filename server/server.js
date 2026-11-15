@@ -11,6 +11,7 @@ const { fetchQuakes, getCache: getQuakeCache }                       = require('
 const { fetchGdacs, getCache: getGdacsCache }                        = require('./gdacs');
 const { fetchFirms, getCache: getFirmsCache }                        = require('./firms');
 const { fetchGnss, getCache: getGnssCache }                          = require('./gnss');
+const { fetchReliefWeb, getCache: getReliefWebCache }                = require('./reliefweb');
 const { fetchSpaceWeather, getCache: getSwCache }                    = require('./spaceweather');
 const { fetchMilitary, getCache: getMilCache }                       = require('./military-aircraft');
 const { startMilitaryShips, getCache: getShipCache }                 = require('./military-ships');
@@ -687,6 +688,7 @@ publicRouter.get('/sharepoint/snapshot', createSnapshotHandler({
   disasters:         () => getGdacsCache(),
   fires:             () => getFirmsCache(),
   gnss:              () => getGnssCache(),
+  humanitarian:      () => getReliefWebCache(),
   spaceWeather:      () => getSwCache(),
   launches:          () => getLaunchCache(),
   decay:             () => getDecayCache(),
@@ -1014,6 +1016,11 @@ cron.schedule('23 * * * *', () => {
   fetchFirms().catch(err => console.error('[firms-cron]', err.message));
 });
 
+// ── Cron 2 h — Crises humanitaires ReliefWeb (ONU/OCHA, appname requis) ──────
+cron.schedule('17 */2 * * *', () => {
+  fetchReliefWeb().catch(err => console.error('[reliefweb-cron]', err.message));
+});
+
 // ── Cron 3 h — Brouillage / leurrage GNSS (Stanford GPS Lab + EASA) ──────────
 cron.schedule('41 */3 * * *', () => {
   fetchGnss().catch(err => console.error('[gnss-cron]', err.message));
@@ -1067,6 +1074,7 @@ app.listen(PORT, () => {
   fetchGdacs().catch(err => console.error('[startup-gdacs]', err.message));
   fetchFirms().catch(err => console.error('[startup-firms]', err.message));
   fetchGnss().catch(err => console.error('[startup-gnss]', err.message));
+  fetchReliefWeb().catch(err => console.error('[startup-reliefweb]', err.message));
   fetchSpaceWeather().catch(err => console.error('[startup-spaceweather]', err.message));
   fetchMilitary().catch(err => console.error('[startup-military]', err.message));
   startMilitaryShips();

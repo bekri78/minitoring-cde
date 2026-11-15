@@ -65,6 +65,7 @@ function buildSnapshot(src) {
   const disasters = src.disasters ? src.disasters() : { events: [] };
   const fires     = src.fires ? src.fires() : { cells: [] };
   const gnss      = src.gnss ? src.gnss() : { cells: [], events: [], firs: [] };
+  const humanitarian = src.humanitarian ? src.humanitarian() : { countries: [] };
   const sw      = src.spaceWeather();
   const launch  = src.launches();
   const decay   = src.decay();
@@ -89,6 +90,8 @@ function buildSnapshot(src) {
     gnssCells:         arr(gnss.cells),
     gnssEvents:        arr(gnss.events),
     gnssFirs:          arr(gnss.firs),
+    // Crises humanitaires ReliefWeb (facultatif) — métadonnées et liens seulement, retirées de la vitrine publique
+    humanitarian:      arr(humanitarian.countries),
     spaceWeather:      { kp: sw.kp ?? null, scales: sw.scales ?? null, alerts: arr(sw.alerts) },
     space: {
       launches: arr(launch.launches),
@@ -120,6 +123,7 @@ function buildSnapshot(src) {
     gnss:              { lastUpdate: gnss.lastUpdate || null, status: gnss.status || status(gnss),
                          day: gnss.day ? gnss.day.replace(/\//g, '-') : null, spoofDay: gnss.spoofDay ? gnss.spoofDay.replace(/\//g, '-') : null,
                          easaDate: gnss.easaDate || null },
+    humanitarian:      { lastUpdate: humanitarian.lastUpdate || null, status: humanitarian.status || status(humanitarian) },
     spaceWeather:      { lastUpdate: sw.lastUpdate || null, status: status(sw) },
     space:             { lastUpdate: launch.lastUpdate || decay.lastUpdate || tip.lastUpdate || null, status: status(launch) },
   };

@@ -110,3 +110,11 @@ test('brouillage GNSS : listes et source présentes, absentes = listes vides', (
   assert.strictEqual(s.sources.gnss.easaDate, '2026-10-14');
   assert.deepStrictEqual(validateSnapshot(s), []);
 });
+
+test('humanitaire ReliefWeb : liste et source présentes, absentes = liste vide', () => {
+  assert.deepStrictEqual(buildSnapshot(src).data.humanitarian, []);
+  const s = buildSnapshot({ ...src, humanitarian: () => ({ countries: [{ iso3: 'SDN', country: 'Sudan', disasters: [], reports: [] }], lastUpdate: '2026-11-15T10:00:00Z', status: 'ok' }) });
+  assert.strictEqual(s.counts.humanitarian, 1);
+  assert.strictEqual(s.sources.humanitarian.status, 'ok');
+  assert.deepStrictEqual(validateSnapshot(s), []);
+});
