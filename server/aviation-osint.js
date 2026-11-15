@@ -1,5 +1,7 @@
 'use strict';
 
+const { fetchOpenSkyJson } = require('./opensky-client');
+
 const { MILITARY_AIRBASES } = require('./data/military-airbases');
 
 // ── Event type rules ──────────────────────────────────────────────────────────
@@ -70,20 +72,11 @@ let openSkyCache = { aircraft: [], lastUpdate: null, status: 'not_loaded' };
 function getOpenSkyCache() { return openSkyCache; }
 
 async function refreshOpenSkyCache() {
-  // Free tier: no auth, global snapshot, rate-limited — call max every 15min
+  // OAuth2 when credentials are configured; otherwise limited anonymous access.
   const url = 'https://opensky-network.org/api/states/all';
   try {
     console.log('[opensky] refreshing aircraft cache...');
-    const resp = await fetch(url, {
-      signal: AbortSignal.timeout(25000),
-      headers: { Accept: 'application/json' },
-    });
-    if (!resp.ok) {
-      console.warn(`[opensky] HTTP ${resp.status}`);
-      openSkyCache = { ...openSkyCache, status: `error_http_${resp.status}` };
-      return;
-    }
-    const data = await resp.json();
+    const data = await fetchOpenSkyJson(url);
     const states = Array.isArray(data?.states) ? data.states : [];
     openSkyCache = {
       aircraft: states
@@ -103,7 +96,8 @@ async function refreshOpenSkyCache() {
     console.log(`[opensky] cached ${openSkyCache.aircraft.length} aircraft`);
   } catch (err) {
     console.warn('[opensky] refresh failed:', err.message);
-    openSkyCache = { ...openSkyCache, status: 'error' };
+    // Preserve the last known sample but mark it non-observable for scoring.
+    openSkyCache = { ...openSkyCache, status: `error${err.status ? '_http_' + err.status : ''}` };
   }
 }
 
@@ -215,14 +209,16 @@ function computeRecencyScore(timestamp) {
 
 // ── OpenSky corroboration (cache-first, absence ≠ proof of nothing) ───────────
 function correlateOpenSky(lat, lon, radiusKm = 250) {
-  if (!openSkyCache.lastUpdate) {
+  const ageMs = Date.now() - Date.parse(openSkyCache.lastUpdate || '');
+  if (openSkyCache.status !== 'ok' || !Number.isFinite(ageMs) || ageMs > 30 * 60 * 1000) {
     return { source: 'opensky', status: 'not_observable', confidenceImpact: 0, count: 0 };
   }
   const nearby = openSkyCache.aircraft.filter(
     a => haversineKm(lat, lon, a.lat, a.lon) <= radiusKm
   );
   if (nearby.length > 0) {
-    return { source: 'opensky', status: 'matched', confidenceImpact: 8, count: nearby.length };
+    // Ordinary civil traffic does NOT corroborate a specific military event.
+    return { source: 'opensky', status: 'nearby_traffic', confidenceImpact: 0, count: nearby.length };
   }
   // Absence of ADS-B is WEAK evidence — many military aircraft don't squawk
   return { source: 'opensky', status: 'not_found', confidenceImpact: -2, count: 0 };
