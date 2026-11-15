@@ -80,8 +80,53 @@
         }
     };
     // Photos d'avions et de navires : non chargées sur la vitrine
-    window.loadPlanePhoto = function () {};
-    window.loadShipPhoto = function () {};
+    // v53 — Photos dans la vitrine : appels directs depuis le navigateur, sans clé ni serveur.
+    // Avions : Planespotters (crédit du photographe et lien obligatoires, affichés).
+    // Navires : photo MarineTraffic si disponible, sinon drapeau du pays (flagcdn).
+    var esc = function (v) { return typeof escapeHtml === 'function' ? escapeHtml(v) : String(v == null ? '' : v); };
+    var IMG = 'width:100%;max-height:130px;object-fit:cover;border-radius:6px;border:1px solid rgba(255,255,255,.08);';
+    var planeCache = {};
+    window.loadPlanePhoto = function (icao24, el) {
+        if (!el || !icao24) return;
+        var key = String(icao24).toLowerCase();
+        var draw = function (p) {
+            if (!p || !p.src) return;
+            el.innerHTML = '<a href="' + esc(p.link) + '" target="_blank" rel="noopener">'
+                + '<img src="' + esc(p.src) + '" onerror="var a=this.closest(\'a\');if(a)a.style.display=\'none\'" style="' + IMG + '" alt="photo"/>'
+                + '<div style="font-size:11px;color:#8a8f98;margin-top:3px;">' + esc([p.model, p.reg].filter(Boolean).join(' · ')) + ' · © ' + esc(p.photographer) + ' (Planespotters)</div></a>';
+        };
+        if (planeCache[key] !== undefined) { draw(planeCache[key]); return; }
+        fetch('https://api.planespotters.net/pub/photos/hex/' + encodeURIComponent(key))
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (j) {
+                var ph = j && j.photos && j.photos[0];
+                planeCache[key] = ph ? { src: (ph.thumbnail_large || ph.thumbnail || {}).src, link: ph.link, photographer: ph.photographer,
+                    model: ph.aircraft && ph.aircraft.model, reg: ph.aircraft && ph.aircraft.reg } : null;
+                draw(planeCache[key]);
+            })
+            .catch(function () { /* pas de photo : rien à afficher */ });
+    };
+    var ISO2 = { USA:'us', GBR:'gb', FRA:'fr', DEU:'de', CAN:'ca', AUS:'au', ITA:'it', ESP:'es', NLD:'nl', POL:'pl', RUS:'ru', CHN:'cn',
+        JPN:'jp', KOR:'kr', IND:'in', IRN:'ir', TUR:'tr', ISR:'il', SGP:'sg', IDN:'id', LBR:'lr', NOR:'no', GRC:'gr', DNK:'dk', SWE:'se',
+        FIN:'fi', BRA:'br', ARG:'ar', ZAF:'za', EGY:'eg', PAK:'pk', BGD:'bd', PRT:'pt', BEL:'be', UKR:'ua', ROU:'ro', BGR:'bg', HRV:'hr',
+        MLT:'mt', CYP:'cy', PAN:'pa', MHL:'mh', BHS:'bs', SAU:'sa', ARE:'ae', QAT:'qa', OMN:'om', DZA:'dz', MAR:'ma', TWN:'tw', PHL:'ph',
+        VNM:'vn', THA:'th', MYS:'my', MEX:'mx', CHL:'cl', COL:'co', PER:'pe', VEN:'ve', CUB:'cu', NZL:'nz', IRL:'ie', EST:'ee', LVA:'lv', LTU:'lt' };
+    window._shipImgFallback = function (img) {
+        var flag = img.getAttribute('data-flag');
+        if (flag && img.src !== flag) {
+            img.setAttribute('data-flag', ''); img.src = flag;
+            img.style.width = '48px'; img.style.objectFit = 'contain'; img.style.border = 'none'; img.style.borderRadius = '2px';
+            return;
+        }
+        var a = img.closest('a'); if (a) a.style.display = 'none';
+    };
+    window.loadShipPhoto = function (mmsi, country, el) {
+        if (!el || !mmsi) return;
+        var iso2 = ISO2[String(country || '').toUpperCase()];
+        var flag = iso2 ? 'https://flagcdn.com/w80/' + iso2 + '.png' : '';
+        el.innerHTML = '<a href="https://www.marinetraffic.com/en/photos/of/vessels/mmsi:' + encodeURIComponent(mmsi) + '/" target="_blank" rel="noopener">'
+            + '<img src="https://photos.marinetraffic.com/ais/showphoto.aspx?mmsi=' + encodeURIComponent(mmsi) + '" data-flag="' + esc(flag) + '" onerror="_shipImgFallback(this)" style="' + IMG + '" alt="navire"/></a>';
+    };
 
     console.log('✓ vitrine-data.js chargé');
 })();
