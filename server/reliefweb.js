@@ -8,9 +8,14 @@
  *
  * Usage limité par les conditions ReliefWeb (pas de redistribution ni d'œuvre dérivée) :
  * on ne garde que des métadonnées — nom de la crise, titre, date, source, lien vers
- * ReliefWeb —, jamais le texte des rapports. Données retirées de la vitrine publique.
+ * ReliefWeb — et le début de la description des crises, jamais le texte des rapports.
+ * Données retirées de la vitrine publique.
  *
  *   1. Crises (« disasters ») au statut alert ou current, regroupées par pays principal.
+ *      Seules les crises actives sont gardées : en alerte, OU commencées il y a moins de
+ *      6 mois, OU dont la fiche ReliefWeb a été mise à jour depuis moins de 90 jours.
+ *      (Sur 91 crises « en cours » le 16/11/2026, 39 avaient commencé il y a plus d'un an
+ *      et 44 fiches n'avaient pas bougé depuis 6 mois.)
  *   2. Rapports des 72 dernières heures (rapports de situation, flash updates, évaluations),
  *      rattachés au pays principal : 5 au plus par pays, les plus récents.
  *
@@ -26,6 +31,8 @@ const CACHE_FILE = path.join(CACHE_DIR, 'reliefweb.json');
 const REPORT_HOURS   = 72;
 const REPORTS_PER_COUNTRY = 5;
 const REPORT_FORMATS = ['Situation Report', 'Flash Update', 'Assessment', 'Analysis'];
+const RECENT_START_DAYS  = 183;   // crise commencée depuis moins de 6 mois
+const RECENT_UPDATE_DAYS = 90;    // fiche mise à jour depuis moins de 90 jours
 
 let cache = { countries: [], lastUpdate: null, status: 'initializing' };
 let isFetching = false;
@@ -86,6 +93,7 @@ function disasterOf(item) {
       glide: f.glide || '',
       summary: summaryOf(f.description),
       date: (f.date && (f.date.event || f.date.created)) || null,
+      updated: (f.date && f.date.changed) || null,
       url: f.url_alias || f.url || ('https://reliefweb.int/node/' + item.id),
     },
   };
@@ -112,6 +120,14 @@ function reportOf(item) {
 
 // Regroupe crises et rapports par pays ; un pays apparaît s'il a au moins une crise en cours
 // ou un rapport récent. Tri : crises en alerte d'abord, puis nombre de rapports.
+/** Crise encore active : en alerte, récente, ou fiche récemment mise à jour. */
+function isActive(item, now = Date.now()) {
+  if (!item) return false;
+  if (item.status === 'alert') return true;
+  const ageDays = iso => { const t = Date.parse(iso || ''); return Number.isFinite(t) ? (now - t) / 86400000 : Infinity; };
+  return ageDays(item.date) < RECENT_START_DAYS || ageDays(item.updated) < RECENT_UPDATE_DAYS;
+}
+
 function groupByCountry(disasters, reports) {
   const by = new Map();
   const get = (iso3, country) => {
@@ -152,7 +168,7 @@ async function fetchReliefWeb(fetchImpl = fetch, appname = process.env.RELIEFWEB
       post(fetchImpl, 'disasters', {
         profile: 'list', limit: 300, sort: ['date.created:desc'],
         filter: { field: 'status', value: ['alert', 'current'], operator: 'OR' },
-        fields: { include: ['primary_country.iso3', 'primary_country.name', 'primary_country.shortname', 'primary_type.name', 'date.event', 'url_alias', 'description'] },
+        fields: { include: ['primary_country.iso3', 'primary_country.name', 'primary_country.shortname', 'primary_type.name', 'date.event', 'date.created', 'date.changed', 'url_alias', 'description'] },
       }, appname),
       post(fetchImpl, 'reports', {
         profile: 'list', limit: 1000, sort: ['date.created:desc'],
@@ -163,10 +179,11 @@ async function fetchReliefWeb(fetchImpl = fetch, appname = process.env.RELIEFWEB
         fields: { include: ['primary_country.iso3', 'primary_country.shortname', 'source.shortname', 'format.name', 'date.original', 'url_alias'] },
       }, appname),
     ]);
-    const countries = groupByCountry(dis.map(disasterOf), rep.map(reportOf));
+    const active = dis.map(disasterOf).filter(d => d && isActive(d.item, now.getTime()));
+    const countries = groupByCountry(active, rep.map(reportOf));
     cache = { countries, lastUpdate: new Date().toISOString(), status: 'ok' };
     saveToDisk();
-    console.log(`[reliefweb] ${countries.length} pays · ${dis.length} crises en cours (${countries.filter(c => c.alert).length} pays en alerte) · ${rep.length} rapports sur ${REPORT_HOURS} h`);
+    console.log(`[reliefweb] ${countries.length} pays · ${active.length} crises actives sur ${dis.length} en cours (${countries.filter(c => c.alert).length} pays en alerte) · ${rep.length} rapports sur ${REPORT_HOURS} h`);
   } catch (err) {
     console.warn('[reliefweb] fetch failed:', err.message);
     cache = { ...cache, status: cache.countries.length ? 'stale' : 'error' };
@@ -176,5 +193,5 @@ async function fetchReliefWeb(fetchImpl = fetch, appname = process.env.RELIEFWEB
 
 function getCache() { return cache; }
 
-module.exports = { fetchReliefWeb, getCache, _groupByCountry: groupByCountry, _disasterOf: disasterOf, _reportOf: reportOf, _summaryOf: summaryOf,
+module.exports = { fetchReliefWeb, getCache, _groupByCountry: groupByCountry, _disasterOf: disasterOf, _reportOf: reportOf, _summaryOf: summaryOf, _isActive: isActive,
   _reset: () => { cache = { countries: [], lastUpdate: null, status: 'initializing' }; } };

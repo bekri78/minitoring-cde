@@ -61,3 +61,13 @@ test('résumé : liens réduits au texte, référence de source retirée, longue
   assert.ok(s.length <= 500 && !s.includes('http') && !s.includes('ECHO'), s);
   assert.equal(_summaryOf(''), '');
 });
+
+test('crises actives : alerte, début < 6 mois ou fiche mise à jour < 90 jours', () => {
+  const { _isActive } = require('./reliefweb');
+  const now = Date.parse('2026-11-16T00:00:00Z');
+  assert.equal(_isActive({ status: 'alert', date: '2015-01-01', updated: '2016-01-01' }, now), true);
+  assert.equal(_isActive({ status: 'ongoing', date: '2026-07-01', updated: null }, now), true);           // début < 6 mois
+  assert.equal(_isActive({ status: 'ongoing', date: '2013-01-01', updated: '2026-10-20' }, now), true);   // ancienne mais suivie
+  assert.equal(_isActive({ status: 'ongoing', date: '2015-06-09', updated: '2025-12-01' }, now), false);  // dormante
+  assert.equal(_isActive({ status: 'ongoing', date: null, updated: null }, now), false);
+});
