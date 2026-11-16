@@ -35,7 +35,9 @@ async function post(fetchImpl, resource, body, appname) {
   try {
     const res = await fetchImpl(`${API}/${resource}?appname=${encodeURIComponent(appname)}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'User-Agent': 'OGMA/1.0 (veille OSINT)' },
+      // Pas de User-Agent personnalisé : « OGMA/1.0 (veille OSINT) » est bloqué par le pare-feu (406) ;
+      // l'appname suffit à identifier l'application.
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
