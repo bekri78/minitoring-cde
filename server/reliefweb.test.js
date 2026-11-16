@@ -53,3 +53,11 @@ test('récupération : appname dans l’URL, 2 appels POST ; appname refusé →
   const c2 = await rw.fetchReliefWeb(ko, 'mauvais-appname');
   assert.equal(c2.status, 'stale'); assert.equal(c2.countries.length, 1);
 });
+
+test('résumé : liens réduits au texte, référence de source retirée, longueur bornée', () => {
+  const { _summaryOf } = require('./reliefweb');
+  const s = _summaryOf('Heavy rains hit [Gammo Zone](https://x.org) on 10 March 2026. ' + 'Many households were displaced. '.repeat(30) + '([ECHO, 13 Mar 2026](https://reliefweb.int/node/1))');
+  assert.ok(s.startsWith('Heavy rains hit Gammo Zone on 10 March 2026.'), s);
+  assert.ok(s.length <= 500 && !s.includes('http') && !s.includes('ECHO'), s);
+  assert.equal(_summaryOf(''), '');
+});

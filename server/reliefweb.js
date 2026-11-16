@@ -50,6 +50,27 @@ async function post(fetchImpl, resource, body, appname) {
 
 const first = v => (Array.isArray(v) ? v[0] : v) || {};
 
+// Résumé d'une crise : début de la description ReliefWeb (texte brut, ~2-3 phrases, 500 caractères max).
+// Liens Markdown réduits à leur texte, références « (ECHO, 13 Mar 2026) » retirées.
+const SUMMARY_MAX = 500;
+function summaryOf(text) {
+  let s = String(text || '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')       // [texte](lien) → texte
+    .replace(/\(\s*[A-Z][^()]{0,60}\d{4}\s*\)/g, '')     // (ECHO, 13 Mar 2026)
+    .replace(/[*_#>`]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (s.length <= SUMMARY_MAX) return s;
+  const parts = s.match(/[^.!?]+[.!?]+(\s|$)/g) || [s];
+  let out = '';
+  for (const p of parts) {
+    if ((out + p).length > SUMMARY_MAX) break;
+    out += p;
+    if (out.length >= 280) break;
+  }
+  return (out || s.slice(0, SUMMARY_MAX - 1) + '…').trim();
+}
+
 function disasterOf(item) {
   const f = item.fields || {};
   const pc = first(f.primary_country);
@@ -63,6 +84,7 @@ function disasterOf(item) {
       type: first(f.primary_type).name || first(f.type).name || '',
       status: f.status || '',
       glide: f.glide || '',
+      summary: summaryOf(f.description),
       date: (f.date && (f.date.event || f.date.created)) || null,
       url: f.url_alias || f.url || ('https://reliefweb.int/node/' + item.id),
     },
@@ -130,7 +152,7 @@ async function fetchReliefWeb(fetchImpl = fetch, appname = process.env.RELIEFWEB
       post(fetchImpl, 'disasters', {
         profile: 'list', limit: 300, sort: ['date.created:desc'],
         filter: { field: 'status', value: ['alert', 'current'], operator: 'OR' },
-        fields: { include: ['primary_country.iso3', 'primary_country.name', 'primary_country.shortname', 'primary_type.name', 'date.event', 'url_alias'] },
+        fields: { include: ['primary_country.iso3', 'primary_country.name', 'primary_country.shortname', 'primary_type.name', 'date.event', 'url_alias', 'description'] },
       }, appname),
       post(fetchImpl, 'reports', {
         profile: 'list', limit: 1000, sort: ['date.created:desc'],
@@ -154,5 +176,5 @@ async function fetchReliefWeb(fetchImpl = fetch, appname = process.env.RELIEFWEB
 
 function getCache() { return cache; }
 
-module.exports = { fetchReliefWeb, getCache, _groupByCountry: groupByCountry, _disasterOf: disasterOf, _reportOf: reportOf,
+module.exports = { fetchReliefWeb, getCache, _groupByCountry: groupByCountry, _disasterOf: disasterOf, _reportOf: reportOf, _summaryOf: summaryOf,
   _reset: () => { cache = { countries: [], lastUpdate: null, status: 'initializing' }; } };
