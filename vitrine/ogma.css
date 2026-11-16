@@ -62,8 +62,24 @@ body.og-panel-closed .leaflet-bottom.leaflet-right { right: 10px; }
 .leaflet-popup-content-wrapper { background: var(--og-surface); color: var(--og-text); border: 1px solid var(--og-line); border-radius: 12px; box-shadow: var(--og-shadow); }
 .leaflet-popup-tip { background: var(--og-surface); }
 .leaflet-popup-content { margin: 14px 16px; }
-.leaflet-popup-close-button { color: var(--og-muted) !important; font-size: 18px !important; }
-.leaflet-popup-close-button:hover { color: var(--og-text-strong) !important; }
+/* Croix de fermeture des fenêtres : même bouton-icône que la barre de droite (.og-icon-btn) —
+   carré arrondi, trait fin, fond au survol ; décollée du bord et sans chevaucher le contenu (v58) */
+.leaflet-container a.leaflet-popup-close-button {
+  top: 9px !important; right: 9px !important; width: 28px !important; height: 28px !important; padding: 0 !important;
+  display: flex !important; align-items: center; justify-content: center; z-index: 2;
+  border-radius: 7px; background: transparent; color: var(--og-muted) !important;
+  font: 0/0 sans-serif !important; text-decoration: none !important; transition: background .15s, color .15s;
+}
+.leaflet-container a.leaflet-popup-close-button > span { display: none; }
+.leaflet-container a.leaflet-popup-close-button::before {
+  content: ''; width: 14px; height: 14px; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 6l12 12M18 6L6 18'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.leaflet-container a.leaflet-popup-close-button:hover { color: var(--og-text-strong) !important; background: var(--og-hover); }
+.leaflet-container a.leaflet-popup-close-button:focus-visible { outline: 2px solid var(--og-accent-soft); outline-offset: 2px; }
+/* Réserve la place de la croix : la première ligne de la fenêtre s'arrête avant elle */
+.leaflet-popup-content::before { content: ''; float: right; width: 22px; height: 26px; }
 .leaflet-tooltip { background: var(--og-surface); color: var(--og-text-strong); border: 1px solid var(--og-line); border-radius: 8px; box-shadow: var(--og-shadow-sm); font-size: 12px; }
 .leaflet-tooltip-top:before { border-top-color: var(--og-surface); }
 
